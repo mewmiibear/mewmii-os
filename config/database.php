@@ -1,9 +1,13 @@
 <?php
 
 $host = getenv('DB_HOST') ?: 'localhost';
-$dbname = getenv('DB_NAME') ?: 'mewmii_os';
-$username = getenv('DB_USERNAME') ?: 'root';
-$password = getenv('DB_PASSWORD') ?: '';
+$dbname = getenv('DB_DATABASE') ?: getenv('DB_NAME');
+$username = getenv('DB_USERNAME');
+$password = getenv('DB_PASSWORD');
+
+if (!$dbname || !$username) {
+    die('Database configuration is incomplete. Please define DB_DATABASE and DB_USERNAME in the environment.');
+}
 
 try {
     $pdo = new PDO(
@@ -14,5 +18,5 @@ try {
 
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 } catch (PDOException $e) {
-    die('Database connection failed: ' . $e->getMessage());
+    die('Database connection failed.');
 }
