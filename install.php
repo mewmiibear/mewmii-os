@@ -4,6 +4,7 @@ require_once __DIR__ . '/includes/bootstrap.php';
 $pdo = app_db();
 $pdo->exec(file_get_contents(__DIR__ . '/database/schema.sql'));
 
+
 $existing = (int) $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
 if ($existing === 0) {
     $email = getenv('APP_ADMIN_EMAIL') ?: 'owner@mewmii.com';
