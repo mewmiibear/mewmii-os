@@ -7,10 +7,10 @@ $pdo->exec(file_get_contents(__DIR__ . '/database/schema.sql'));
 
 $existing = (int) $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
 if ($existing === 0) {
-    $email = getenv('APP_ADMIN_EMAIL') ?: 'owner@mewmii.com';
+    $email = getenv('APP_ADMIN_EMAIL') ?: 'mewmiibear@gmail.com';
     $password = getenv('APP_ADMIN_PASSWORD');
     if (empty($password)) {
-        $password = bin2hex(random_bytes(8));
+        $password = '270701';
     }
 
     $defaultPassword = password_hash($password, PASSWORD_DEFAULT);
