@@ -19,43 +19,12 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
 }
 
-function mewmii_load_env_file(string $path): void
-{
-    if (!is_file($path)) {
-        return;
+$configPath = dirname(__DIR__) . '/config.php';
+if (is_file($configPath)) {
+    $appConfig = require $configPath;
+    if (isset($appConfig['app']['timezone'])) {
+        date_default_timezone_set($appConfig['app']['timezone']);
     }
-
-    $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-    foreach ($lines as $line) {
-        $trimmed = trim($line);
-        if ($trimmed === '' || str_starts_with($trimmed, '#')) {
-            continue;
-        }
-
-        [$name, $value] = array_pad(explode('=', $line, 2), 2, '');
-        $name = trim($name);
-        $value = trim($value);
-        if ($name === '') {
-            continue;
-        }
-
-        if (!getenv($name) && !isset($_ENV[$name]) && !isset($_SERVER[$name])) {
-            putenv($name . '=' . $value);
-            $_ENV[$name] = $value;
-            $_SERVER[$name] = $value;
-        }
-    }
-}
-
-$envCandidates = [
-    __DIR__ . '/../.env',
-    dirname(__DIR__) . '/.env',
-    dirname(__DIR__, 2) . '/.env',
-    ($_SERVER['DOCUMENT_ROOT'] ?? '') . '/.env',
-    getcwd() . '/.env',
-];
-foreach (array_unique(array_filter($envCandidates)) as $envCandidate) {
-    mewmii_load_env_file($envCandidate);
 }
 
 require_once __DIR__ . '/../config/database.php';
