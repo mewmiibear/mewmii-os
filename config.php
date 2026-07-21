@@ -9,17 +9,11 @@ return [
     */
 
     'db' => [
-
         'host' => '127.0.0.1',
-
         'database' => 'u924285025_mewmii_os',
-
         'username' => 'u924285025_mewmii_admin',
-
         'password' => 'MewmiiTassama27!',
-
         'charset' => 'utf8mb4',
-
     ],
 
     /*
@@ -29,15 +23,10 @@ return [
     */
 
     'app' => [
-
         'name' => 'Mewmii OS',
-
         'environment' => 'production',
-
         'debug' => false,
-
         'timezone' => 'Asia/Kuala_Lumpur',
-
     ],
 
 ];
