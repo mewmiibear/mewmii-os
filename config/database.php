@@ -29,7 +29,16 @@ function mewmii_load_env_file(string $path): void
     }
 }
 
-mewmii_load_env_file(__DIR__ . '/../.env');
+$envCandidates = [
+    __DIR__ . '/../.env',
+    dirname(__DIR__) . '/.env',
+    dirname(__DIR__, 2) . '/.env',
+    ($_SERVER['DOCUMENT_ROOT'] ?? '') . '/.env',
+    getcwd() . '/.env',
+];
+foreach (array_unique(array_filter($envCandidates)) as $envCandidate) {
+    mewmii_load_env_file($envCandidate);
+}
 
 $host = getenv('DB_HOST') ?: ($_ENV['DB_HOST'] ?? 'localhost');
 $dbname = getenv('DB_DATABASE') ?: getenv('DB_NAME') ?: ($_ENV['DB_DATABASE'] ?? $_ENV['DB_NAME'] ?? '');
