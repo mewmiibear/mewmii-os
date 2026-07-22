@@ -206,20 +206,6 @@ function inventory_stock_badges(string $productType, int $availableQuantity, ?in
     return '';
 }
 
-/**
- * The "More" menu is identical wherever it appears (page toolbar or per-row) - one
- * function instead of duplicating the markup at every call site.
- */
-function render_more_menu_items(): string
-{
-    return '
-        <li><a class="dropdown-item" href="/modules/supplier-orders/index.php">Supplier Orders</a></li>
-        <li><a class="dropdown-item" href="/modules/inventory/export.php">Export Inventory</a></li>
-        <li><a class="dropdown-item" href="/modules/inventory/report.php">Stock Movement Report</a></li>
-        <li><a class="dropdown-item" href="#" onclick="window.print(); return false;">Print</a></li>
-    ';
-}
-
 require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -228,13 +214,7 @@ require_once __DIR__ . '/../../includes/header.php';
         <p class="text-muted mb-0">Current stock at a glance - adjustments and history stay one click away.</p>
     </div>
     <?php if ($canManage): ?>
-        <div class="d-flex gap-2">
-            <button type="button" class="btn btn-primary" onclick="InventoryUI.openAdjustModal('')">Adjust Stock</button>
-            <div class="dropdown">
-                <button class="btn btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false">More &#8942;</button>
-                <ul class="dropdown-menu dropdown-menu-end"><?php echo render_more_menu_items(); ?></ul>
-            </div>
-        </div>
+        <button type="button" class="btn btn-primary" onclick="InventoryUI.openAdjustModal('')">Adjust Stock</button>
     <?php endif; ?>
 </div>
 
@@ -308,14 +288,8 @@ require_once __DIR__ . '/../../includes/header.php';
                                 <button type="button" class="btn btn-sm btn-outline-secondary" title="View History" onclick="InventoryUI.openHistoryModal(<?php echo (int) $product['id']; ?>, 0, '<?php echo app_escape(addslashes($product['sku'])); ?>')">&#128337;</button>
                             <?php endif; ?>
                             <a class="btn btn-sm btn-outline-secondary" href="/modules/products/edit.php?id=<?php echo (int) $product['id']; ?>" title="Edit Product">&#9998;</a>
-                            <?php if (!$isVariable): ?>
-                                <div class="dropdown">
-                                    <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false">&#8942;</button>
-                                    <ul class="dropdown-menu dropdown-menu-end"><?php echo render_more_menu_items(); ?></ul>
-                                </div>
-                                <?php if ((int) $product['arrived_stock'] > 0): ?>
-                                    <a class="btn btn-sm btn-outline-primary" href="/modules/inventory/allocate.php?product_id=<?php echo (int) $product['id']; ?>">Allocate</a>
-                                <?php endif; ?>
+                            <?php if (!$isVariable && (int) $product['arrived_stock'] > 0): ?>
+                                <a class="btn btn-sm btn-outline-primary" href="/modules/inventory/allocate.php?product_id=<?php echo (int) $product['id']; ?>">Allocate</a>
                             <?php endif; ?>
                         </div>
                     </td>
@@ -347,10 +321,6 @@ require_once __DIR__ . '/../../includes/header.php';
                                     <?php endif; ?>
                                     <button type="button" class="btn btn-sm btn-outline-secondary" title="View History" onclick="InventoryUI.openHistoryModal(<?php echo (int) $product['id']; ?>, <?php echo (int) $variation['variation_id']; ?>, '<?php echo app_escape(addslashes($variation['sku'])); ?>')">&#128337;</button>
                                     <a class="btn btn-sm btn-outline-secondary" href="/modules/products/edit.php?id=<?php echo (int) $product['id']; ?>" title="Edit Product">&#9998;</a>
-                                    <div class="dropdown">
-                                        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false">&#8942;</button>
-                                        <ul class="dropdown-menu dropdown-menu-end"><?php echo render_more_menu_items(); ?></ul>
-                                    </div>
                                     <?php if ((int) $variation['arrived_stock'] > 0): ?>
                                         <a class="btn btn-sm btn-outline-primary" href="/modules/inventory/allocate.php?product_id=<?php echo (int) $product['id']; ?>&variation_id=<?php echo (int) $variation['variation_id']; ?>">Allocate</a>
                                     <?php endif; ?>
