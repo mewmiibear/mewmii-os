@@ -265,6 +265,32 @@ function wc_client_build_preorder_blurb(array $product): ?string
     return implode("\n", $lines);
 }
 
+/**
+ * Native WooCommerce sale-price fields (sale_price/date_on_sale_from/date_on_sale_to) so
+ * WooCommerce's own storefront logic shows/hides the sale price during the Early Bird
+ * window - no need to replicate catalog_product_effective_price()'s date math here, and it
+ * stays correct even for a product page WooCommerce renders without an API round-trip.
+ * Returns [] when Enable Sale is off or no sale_price is set, so callers can just merge it
+ * into their payload unconditionally.
+ */
+function wc_client_build_sale_price_fields(array $product): array
+{
+    if (empty($product['sale_enabled']) || $product['sale_price'] === null || $product['sale_price'] === '') {
+        return [];
+    }
+
+    $fields = ['sale_price' => number_format((float) $product['sale_price'], 2, '.', '')];
+
+    if (!empty($product['sale_start_date'])) {
+        $fields['date_on_sale_from'] = $product['sale_start_date'];
+    }
+    if (!empty($product['preorder_closing_date'])) {
+        $fields['date_on_sale_to'] = $product['preorder_closing_date'];
+    }
+
+    return $fields;
+}
+
 function wc_client_build_product_payload(array $product, PDO $pdo): array
 {
     $productId = (int) ($product['id'] ?? 0);
@@ -292,6 +318,8 @@ function wc_client_build_product_payload(array $product, PDO $pdo): array
         $payload['manage_stock'] = true;
         $payload['stock_quantity'] = (int) $stock['available_quantity'];
     }
+
+    $payload = array_merge($payload, wc_client_build_sale_price_fields($product));
 
     $preorderBlurb = wc_client_build_preorder_blurb($product);
     if ($preorderBlurb !== null) {
@@ -430,6 +458,12 @@ function wc_client_sync_variable_product_from_mewmii(PDO $pdo, array $product): 
         } else {
             $variationPayload['manage_stock'] = true;
             $variationPayload['stock_quantity'] = (int) $variation['available_quantity'];
+        }
+
+        // A price_mode='custom' variation's price is fully its own - Early Bird sale
+        // pricing is a product-level concept and only applies to 'inherit' mode variations.
+        if (($variation['price_mode'] ?? 'inherit') !== 'custom') {
+            $variationPayload = array_merge($variationPayload, wc_client_build_sale_price_fields($product));
         }
 
         if (!empty($variation['weight'])) {

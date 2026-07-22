@@ -183,34 +183,40 @@
                 <input type="number" step="0.01" min="0" class="form-control" name="product_cost" value="<?php echo app_escape($form['product_cost']); ?>" required>
             </div>
             <div class="col-md-3">
-                <label class="form-label">Selling Price (RM)</label>
+                <label class="form-label">Regular Price (RM)</label>
                 <input type="number" step="0.01" min="0" class="form-control" name="selling_price" value="<?php echo app_escape($form['selling_price']); ?>" required>
             </div>
             <div class="col-md-6 d-flex align-items-end">
                 <label class="form-check">
                     <input type="checkbox" class="form-check-input" name="sale_enabled" value="1" id="enable-sale" <?php echo $form['sale_enabled'] ? 'checked' : ''; ?>>
-                    <span class="form-check-label">Enable Sale</span>
+                    <span class="form-check-label">Enable Sale (Early Bird)</span>
                 </label>
             </div>
 
-            <div class="col-md-3 js-sale-fields">
+            <div class="col-md-4 js-sale-fields">
                 <label class="form-label">Sale Price (RM)</label>
                 <input type="number" step="0.01" min="0" class="form-control" name="sale_price" value="<?php echo app_escape($form['sale_price']); ?>">
             </div>
-            <div class="col-md-3 js-sale-fields">
-                <label class="form-label">Sale Start Date</label>
+            <div class="col-md-4 js-sale-fields">
+                <label class="form-label">Early Bird Start Date</label>
                 <input type="date" class="form-control" name="sale_start_date" value="<?php echo app_escape($form['sale_start_date']); ?>">
             </div>
-            <div class="col-md-3 js-sale-fields">
-                <label class="form-label">Sale End Date</label>
-                <input type="date" class="form-control" name="sale_end_date" id="sale-end-date-input" value="<?php echo app_escape($form['sale_end_date']); ?>">
+            <div class="col-md-4 js-sale-fields">
+                <label class="form-label">Early Bird Closing Date</label>
+                <input type="date" class="form-control" name="preorder_closing_date" value="<?php echo app_escape($form['preorder_closing_date']); ?>">
+                <div class="form-text">Before this date, Sale Price (Early Bird Price) applies. After this date, the sale ends - and for Preorder/Early Bird products, ordering closes completely.</div>
             </div>
-            <div class="col-md-3 js-sale-fields">
+
+            <div class="col-12">
+                <label class="form-check">
+                    <input type="checkbox" class="form-check-input" name="has_expiry" value="1" id="has-expiry-checkbox" <?php echo $form['expiry_date'] !== '' ? 'checked' : ''; ?>>
+                    <span class="form-check-label">Product has expiry date</span>
+                </label>
+            </div>
+            <div class="col-md-3 js-expiry-fields">
                 <label class="form-label">Expiry Date</label>
-                <div class="d-flex gap-2">
-                    <input type="date" class="form-control" name="expiry_date" id="expiry-date-input" value="<?php echo app_escape($form['expiry_date']); ?>">
-                    <button type="button" class="btn btn-outline-secondary btn-sm text-nowrap" id="use-expiry-date-btn">Use Expiry Date</button>
-                </div>
+                <input type="date" class="form-control" name="expiry_date" value="<?php echo app_escape($form['expiry_date']); ?>">
+                <div class="form-text">Only for products that physically expire (food, cosmetics, etc.) - does not affect pricing.</div>
             </div>
         </div>
     </div>
@@ -236,10 +242,6 @@
             <div class="col-md-4 js-stock-preorder">
                 <label class="form-label">MOQ</label>
                 <input type="number" min="1" class="form-control" name="moq" value="<?php echo app_escape($form['moq']); ?>">
-            </div>
-            <div class="col-md-4 js-stock-preorder">
-                <label class="form-label">Closing Date</label>
-                <input type="date" class="form-control" name="preorder_closing_date" value="<?php echo app_escape($form['preorder_closing_date']); ?>">
             </div>
             <p class="text-muted small mb-0 js-stock-preorder">No stock quantity is requested here - stock arrives later via Supplier Orders receiving (marked as arrived), then gets manually allocated to outstanding orders from the Inventory page.</p>
         </div>

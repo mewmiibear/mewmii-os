@@ -426,7 +426,8 @@ function catalog_sellable_units(PDO $pdo): array
     $units = [];
 
     $simpleStmt = $pdo->query("
-        SELECT id, sku, name, selling_price, product_cost, product_type, status, preorder_closing_date
+        SELECT id, sku, name, selling_price, product_cost, product_type, status, preorder_closing_date,
+               sale_enabled, sale_price, sale_start_date
         FROM products
         WHERE catalog_type = 'simple'
         ORDER BY name ASC
@@ -438,7 +439,9 @@ function catalog_sellable_units(PDO $pdo): array
             'variation_id' => null,
             'sku' => $row['sku'],
             'label' => $row['name'],
-            'selling_price' => (float) $row['selling_price'],
+            // The effective (sale-aware) price - see catalog_product_effective_price(). This
+            // is what checkout/order-creation should charge, not the raw regular price.
+            'selling_price' => catalog_product_effective_price($row),
             'cost_price' => (float) $row['product_cost'],
             'product_type' => $row['product_type'],
             'status' => $row['status'],
@@ -449,6 +452,7 @@ function catalog_sellable_units(PDO $pdo): array
     $variableStmt = $pdo->query("
         SELECT p.id AS product_id, p.name AS product_name, p.selling_price AS parent_price,
                p.product_type, p.status, p.preorder_closing_date,
+               p.sale_enabled, p.sale_price, p.sale_start_date,
                pv.id AS variation_id, pv.sku, pv.price_mode, pv.custom_price, pv.cost_price
         FROM products p
         INNER JOIN product_variations pv ON pv.product_id = p.id
@@ -458,7 +462,18 @@ function catalog_sellable_units(PDO $pdo): array
     foreach ($variableStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $variationId = (int) $row['variation_id'];
         $label = variation_build_label($pdo, $variationId);
-        $price = variation_effective_price($row, $row['parent_price']);
+        // A price_mode='custom' variation's own custom_price fully overrides the parent -
+        // sale pricing never applies to it. 'inherit' mode resolves to the parent's
+        // effective (sale-aware) price instead of its raw selling_price, so inherit-mode
+        // variations follow the same Early Bird pricing window as the parent.
+        $effectiveParentPrice = catalog_product_effective_price([
+            'selling_price' => $row['parent_price'],
+            'sale_enabled' => $row['sale_enabled'],
+            'sale_price' => $row['sale_price'],
+            'sale_start_date' => $row['sale_start_date'],
+            'preorder_closing_date' => $row['preorder_closing_date'],
+        ]);
+        $price = variation_effective_price($row, $effectiveParentPrice);
 
         $units[] = [
             'key' => $row['product_id'] . ':' . $variationId,
@@ -491,8 +506,11 @@ function catalog_parse_sellable_key(string $key): array
 
 /**
  * Whether a preorder/early_bird product can currently be ordered, independent of
- * available_quantity: it must be published (status = active) and, if a preorder closing
- * date is set, that date must not have passed. ready_stock purchasability is governed by
+ * available_quantity: it must be published (status = active) and, if a preorder_closing_date
+ * ("Early Bird Closing Date") is set, that date must not have passed - it's the preorder
+ * closing date, not just a pricing boundary: once it passes, the product stops taking new
+ * orders entirely (see catalog_product_effective_price() for the paired pricing effect -
+ * Sale Price also ends at the same date). ready_stock purchasability is governed by
  * available_quantity instead - callers should only consult this for preorder/early_bird.
  */
 function catalog_product_is_orderable(array $product): bool
@@ -507,6 +525,39 @@ function catalog_product_is_orderable(array $product): bool
     }
 
     return true;
+}
+
+/**
+ * The price a customer actually pays right now: sale_price when Enable Sale is on AND
+ * today falls within [sale_start_date, preorder_closing_date] (either bound is optional -
+ * an unset bound doesn't constrain that side), otherwise the regular selling_price. Once
+ * preorder_closing_date ("Early Bird Closing Date") passes, this returns regular_price -
+ * paired with catalog_product_is_orderable() also going false at the same date, since
+ * closing date ends both the discounted price AND the ability to order at all. Expects a
+ * row with at least selling_price, sale_enabled, sale_price, sale_start_date,
+ * preorder_closing_date (e.g. a `products` row or a catalog_sellable_units() entry).
+ */
+function catalog_product_effective_price(array $product): float
+{
+    $regularPrice = (float) ($product['selling_price'] ?? 0);
+
+    if (empty($product['sale_enabled']) || $product['sale_price'] === null || $product['sale_price'] === '') {
+        return $regularPrice;
+    }
+
+    $today = strtotime('today');
+
+    $startDate = $product['sale_start_date'] ?? null;
+    if (!empty($startDate) && strtotime((string) $startDate) > $today) {
+        return $regularPrice;
+    }
+
+    $closingDate = $product['preorder_closing_date'] ?? null;
+    if (!empty($closingDate) && strtotime((string) $closingDate) < $today) {
+        return $regularPrice;
+    }
+
+    return (float) $product['sale_price'];
 }
 
 // --- Admin-facing error messages: describe a product/variation by name, never a bare ID ---

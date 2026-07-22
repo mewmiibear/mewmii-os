@@ -12,7 +12,7 @@ $failedCount = 0;
 $errors = [];
 
 try {
-    $stmt = app_db()->prepare("SELECT id, sku, name, description, catalog_type, selling_price, product_type, status, preorder_closing_date, estimated_arrival_date FROM products WHERE sku IS NOT NULL AND TRIM(sku) <> '' ORDER BY id ASC");
+    $stmt = app_db()->prepare("SELECT id, sku, name, description, catalog_type, selling_price, product_type, status, preorder_closing_date, estimated_arrival_date, sale_enabled, sale_price, sale_start_date FROM products WHERE sku IS NOT NULL AND TRIM(sku) <> '' ORDER BY id ASC");
     $stmt->execute();
     $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
 

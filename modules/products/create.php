@@ -38,7 +38,7 @@ $form = [
     'sale_enabled' => false,
     'sale_price' => '',
     'sale_start_date' => '',
-    'sale_end_date' => '',
+    'has_expiry' => false,
     'expiry_date' => '',
     'stock_quantity' => '',
     'min_stock_threshold' => '',
@@ -71,7 +71,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form['sale_enabled'] = !empty($_POST['sale_enabled']);
     $form['sale_price'] = trim((string) ($_POST['sale_price'] ?? ''));
     $form['sale_start_date'] = trim((string) ($_POST['sale_start_date'] ?? ''));
-    $form['sale_end_date'] = trim((string) ($_POST['sale_end_date'] ?? ''));
+    $form['has_expiry'] = !empty($_POST['has_expiry']);
     $form['expiry_date'] = trim((string) ($_POST['expiry_date'] ?? ''));
     $form['stock_quantity'] = trim((string) ($_POST['stock_quantity'] ?? ''));
     $form['min_stock_threshold'] = trim((string) ($_POST['min_stock_threshold'] ?? ''));
@@ -176,9 +176,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 INSERT INTO products (
                     sku, name, description, product_type, catalog_type, brand_id, barcode,
                     supplier_id, product_cost, selling_price, sale_enabled, sale_price,
-                    min_stock_threshold, sale_start_date, sale_end_date, estimated_arrival_date,
+                    min_stock_threshold, sale_start_date, estimated_arrival_date,
                     preorder_closing_date, expiry_date, moq, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ');
             $stmt->execute([
                 $form['sku'],
@@ -195,10 +195,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ($form['sale_enabled'] && $form['sale_price'] !== '') ? round((float) $form['sale_price'], 2) : null,
                 $form['min_stock_threshold'] !== '' ? (int) $form['min_stock_threshold'] : null,
                 $form['sale_start_date'] !== '' ? $form['sale_start_date'] : null,
-                $form['sale_end_date'] !== '' ? $form['sale_end_date'] : null,
                 $form['estimated_arrival_date'] !== '' ? $form['estimated_arrival_date'] : null,
                 $form['preorder_closing_date'] !== '' ? $form['preorder_closing_date'] : null,
-                $form['expiry_date'] !== '' ? $form['expiry_date'] : null,
+                ($form['has_expiry'] && $form['expiry_date'] !== '') ? $form['expiry_date'] : null,
                 $form['moq'] !== '' ? max(1, (int) $form['moq']) : 1,
                 $form['status'],
             ]);

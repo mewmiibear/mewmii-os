@@ -31,9 +31,9 @@ function product_duplicate(PDO $pdo, int $sourceProductId): int
         INSERT INTO products (
             sku, name, description, product_type, catalog_type, brand_id, barcode,
             supplier_id, product_cost, selling_price, sale_enabled, sale_price,
-            min_stock_threshold, sale_start_date, sale_end_date, estimated_arrival_date,
+            min_stock_threshold, sale_start_date, estimated_arrival_date,
             preorder_closing_date, expiry_date, moq, status
-        ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 0, NULL, ?, ?, ?, ?, ?, ?, ?, \'draft\')
+        ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 0, NULL, ?, ?, ?, ?, ?, ?, \'draft\')
     ');
     $insertStmt->execute([
         $newSku,
@@ -47,7 +47,6 @@ function product_duplicate(PDO $pdo, int $sourceProductId): int
         $source['selling_price'],
         $source['min_stock_threshold'],
         $source['sale_start_date'],
-        $source['sale_end_date'],
         $source['estimated_arrival_date'],
         $source['preorder_closing_date'],
         $source['expiry_date'],

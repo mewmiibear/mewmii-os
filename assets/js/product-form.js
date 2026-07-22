@@ -132,29 +132,31 @@
     }
 
     // ---------------------------------------------------------------------------------
-    // Enable Sale toggle + "Use Expiry Date" shortcut.
+    // Enable Sale toggle (Early Bird pricing fields) + "Product has expiry date" toggle -
+    // two independent checkboxes, since expiry is a separate concept from sale pricing and
+    // must never be merged with it.
     // ---------------------------------------------------------------------------------
     function initSaleFields() {
         var enableSale = document.getElementById('enable-sale');
         if (enableSale) {
-            var apply = function () {
+            var applySale = function () {
                 document.querySelectorAll('.js-sale-fields').forEach(function (el) {
                     el.classList.toggle('d-none', !enableSale.checked);
                 });
             };
-            enableSale.addEventListener('change', apply);
-            apply();
+            enableSale.addEventListener('change', applySale);
+            applySale();
         }
 
-        var useExpiryBtn = document.getElementById('use-expiry-date-btn');
-        var expiryInput = document.getElementById('expiry-date-input');
-        var saleEndInput = document.getElementById('sale-end-date-input');
-        if (useExpiryBtn && expiryInput && saleEndInput) {
-            useExpiryBtn.addEventListener('click', function () {
-                if (expiryInput.value) {
-                    saleEndInput.value = expiryInput.value;
-                }
-            });
+        var hasExpiry = document.getElementById('has-expiry-checkbox');
+        if (hasExpiry) {
+            var applyExpiry = function () {
+                document.querySelectorAll('.js-expiry-fields').forEach(function (el) {
+                    el.classList.toggle('d-none', !hasExpiry.checked);
+                });
+            };
+            hasExpiry.addEventListener('change', applyExpiry);
+            applyExpiry();
         }
     }
 
