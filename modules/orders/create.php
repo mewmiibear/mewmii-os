@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/catalog.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
 app_require_permission('orders.manage');
 
@@ -227,8 +228,12 @@ require_once __DIR__ . '/../../includes/header.php';
                             <select class="form-select" name="unit_key[]">
                                 <option value="">Select a product&hellip;</option>
                                 <?php foreach ($sellableUnits as $unit): ?>
+                                    <?php
+                                    $lifecycleEmojis = ['early_bird' => '🟧', 'preorder' => '🟪', 'ready_stock' => '🟩', 'waiting_release' => '⚪', 'closed' => '🔴'];
+                                    $unitEmoji = $lifecycleEmojis[catalog_product_lifecycle_stage($unit)] ?? '';
+                                    ?>
                                     <option value="<?php echo app_escape($unit['key']); ?>" <?php echo $row['unit_key'] === $unit['key'] ? 'selected' : ''; ?>>
-                                        <?php echo app_escape($unit['sku']); ?> &mdash; <?php echo app_escape($unit['label']); ?> (<?php echo app_escape((string) $unit['selling_price']); ?>)
+                                        <?php echo app_escape($unitEmoji); ?> <?php echo app_escape($unit['sku']); ?> &mdash; <?php echo app_escape($unit['label']); ?> (<?php echo app_escape((string) $unit['selling_price']); ?>)
                                     </option>
                                 <?php endforeach; ?>
                             </select>

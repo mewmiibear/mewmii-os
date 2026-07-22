@@ -25,6 +25,81 @@ function catalog_format_release_month(?string $value): ?string
     return $timestamp !== false ? date('F Y', $timestamp) : null;
 }
 
+/**
+ * Colored-dot status indicator (products.status: draft/active/hidden/archived) - a plain
+ * text/emoji string, not markup, since it's dropped straight into table cells and
+ * <option> labels alike. Purely a display label - never affects the underlying status
+ * value or query filters.
+ */
+function catalog_status_dot(string $status): string
+{
+    $map = [
+        'active' => '🟢 Active',
+        'draft' => '⚪ Draft',
+        'hidden' => '🔴 Hidden',
+        'archived' => '⚫ Archived',
+    ];
+
+    return $map[$status] ?? ('⚪ ' . ucfirst($status));
+}
+
+/**
+ * Which lifecycle stage a product is currently in, driven by the same rules as
+ * catalog_product_is_orderable()/catalog_product_effective_price() (includes/product_variations.php)
+ * rather than re-deriving the Early Bird/Preorder/waiting-release state machine a second
+ * time. Returns a stable key ('early_bird'|'preorder'|'ready_stock'|'waiting_release'|'closed')
+ * for callers that need to branch on stage, separate from catalog_lifecycle_badge()'s display
+ * string. Expects a row with at least status, product_type, preorder_closing_date,
+ * preorder_reopened_at (e.g. a `products` row or a catalog_sellable_units() entry).
+ */
+function catalog_product_lifecycle_stage(array $product): string
+{
+    if (($product['status'] ?? '') !== 'active') {
+        return 'closed';
+    }
+
+    $productType = $product['product_type'] ?? 'ready_stock';
+    if ($productType === 'ready_stock') {
+        return 'ready_stock';
+    }
+
+    $closingDate = $product['preorder_closing_date'] ?? null;
+    $reopened = !empty($product['preorder_reopened_at']);
+    $hasClosed = !empty($closingDate) && strtotime((string) $closingDate) < strtotime('today');
+
+    if ($hasClosed && !$reopened) {
+        return 'waiting_release';
+    }
+
+    if ($reopened) {
+        return 'preorder';
+    }
+
+    return $productType === 'early_bird' ? 'early_bird' : 'preorder';
+}
+
+/**
+ * Colored lifecycle badge (HTML) for the stage computed by catalog_product_lifecycle_stage().
+ * Inline styles rather than Bootstrap badge color classes since orange/purple aren't part
+ * of the default Bootstrap 5.3 palette used elsewhere in this app.
+ */
+function catalog_lifecycle_badge(array $product): string
+{
+    $styles = [
+        'early_bird' => ['emoji' => '🟧', 'label' => 'Early Bird', 'bg' => '#fd7e14'],
+        'preorder' => ['emoji' => '🟪', 'label' => 'Preorder', 'bg' => '#6f42c1'],
+        'ready_stock' => ['emoji' => '🟩', 'label' => 'Ready Stock', 'bg' => '#198754'],
+        'waiting_release' => ['emoji' => '⚪', 'label' => 'Waiting Release', 'bg' => '#adb5bd'],
+        'closed' => ['emoji' => '🔴', 'label' => 'Closed', 'bg' => '#dc3545'],
+    ];
+
+    $stage = catalog_product_lifecycle_stage($product);
+    $style = $styles[$stage] ?? $styles['closed'];
+
+    return '<span class="badge" style="background-color:' . $style['bg'] . ';color:#fff;">'
+        . $style['emoji'] . ' ' . $style['label'] . '</span>';
+}
+
 function catalog_slugify(string $value): string
 {
     $slug = strtolower(trim($value));

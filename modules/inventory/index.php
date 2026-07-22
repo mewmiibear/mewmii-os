@@ -3,6 +3,7 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/inventory.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
 require_once __DIR__ . '/../../includes/product_images.php';
+require_once __DIR__ . '/../../includes/catalog.php';
 app_require_permission('inventory.view');
 
 $appTitle = 'Inventory';
@@ -85,16 +86,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // Products drive the listing (grouping variations under their parent) rather than a flat
-// union of "sellable units" - LIMIT is scoped to products, then each variable product's
-// variations are fetched underneath it. Simple products are still simple single rows.
+// union of "sellable units" - the filtered product set is fetched first, then each variable
+// product's variations are fetched underneath it. Simple products are still simple single rows.
 $productTypeLabels = ['ready_stock' => 'Ready Stock', 'preorder' => 'Preorder', 'early_bird' => 'Early Bird'];
 
-$productsStmt = $pdo->query("
-    SELECT id, sku, name, catalog_type, product_type, min_stock_threshold
-    FROM products
-    ORDER BY id DESC
-    LIMIT 20
-");
+// --- Filters: same whitelist-before-query approach as modules/products/index.php - an
+// invalid/garbage GET value is silently treated as "no filter" rather than coerced. ---
+$catalogTypeOptions = ['simple', 'variable'];
+$stockStatusOptions = ['in_stock', 'low_stock', 'out_of_stock'];
+$stageOptions = ['on_hand', 'reserved', 'incoming', 'arrived'];
+
+$searchTerm = trim((string) ($_GET['q'] ?? ''));
+$filterCatalogType = in_array($_GET['catalog_type'] ?? '', $catalogTypeOptions, true) ? $_GET['catalog_type'] : null;
+$filterStockStatus = in_array($_GET['stock_status'] ?? '', $stockStatusOptions, true) ? $_GET['stock_status'] : null;
+$filterStage = in_array($_GET['stage'] ?? '', $stageOptions, true) ? $_GET['stage'] : null;
+$filterSupplierId = isset($_GET['supplier_id']) && ctype_digit((string) $_GET['supplier_id']) ? (int) $_GET['supplier_id'] : null;
+$filterCategoryId = isset($_GET['category_id']) && ctype_digit((string) $_GET['category_id']) ? (int) $_GET['category_id'] : null;
+
+$productSql = "
+    SELECT p.id, p.sku, p.name, p.catalog_type, p.product_type, p.min_stock_threshold,
+           p.status, p.preorder_closing_date, p.preorder_reopened_at
+    FROM products p
+    WHERE 1 = 1
+";
+$productParams = [];
+
+if ($filterCatalogType !== null) {
+    $productSql .= ' AND p.catalog_type = ?';
+    $productParams[] = $filterCatalogType;
+}
+if ($filterSupplierId !== null) {
+    $productSql .= ' AND p.supplier_id = ?';
+    $productParams[] = $filterSupplierId;
+}
+if ($filterCategoryId !== null) {
+    $productSql .= ' AND EXISTS (SELECT 1 FROM product_category_relationships r WHERE r.product_id = p.id AND r.category_id = ?)';
+    $productParams[] = $filterCategoryId;
+}
+if ($searchTerm !== '') {
+    // Matches the product's own name/SKU, or any of its variations' SKUs - a variation-only
+    // match still surfaces its parent product (auto-expanded below) rather than being
+    // invisible under a collapsed group.
+    $productSql .= ' AND (p.name LIKE ? OR p.sku LIKE ? OR EXISTS (SELECT 1 FROM product_variations pv2 WHERE pv2.product_id = p.id AND pv2.sku LIKE ?))';
+    $likeTerm = '%' . $searchTerm . '%';
+    $productParams[] = $likeTerm;
+    $productParams[] = $likeTerm;
+    $productParams[] = $likeTerm;
+}
+
+$productSql .= ' ORDER BY p.id DESC LIMIT 500';
+
+$productsStmt = $pdo->prepare($productSql);
+$productsStmt->execute($productParams);
 $inventory = $productsStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $simpleIds = [];
@@ -155,6 +198,7 @@ foreach ($inventory as &$product) {
     $productId = (int) $product['id'];
     $mainImage = product_image_get_main($pdo, $productId);
     $product['thumb_path'] = $mainImage['image_path'] ?? null;
+    $product['auto_expand'] = false;
 
     if ($product['catalog_type'] === 'variable') {
         $product['variations'] = $variationsByProduct[$productId] ?? [];
@@ -169,6 +213,17 @@ foreach ($inventory as &$product) {
         $product['incoming_stock'] = (int) $totals['incoming_quantity'];
         $product['arrived_stock'] = (int) $totals['arrived_quantity'];
         $product['updated_at'] = null;
+
+        // Auto-expand a group when the search term only matched inside a variation's SKU -
+        // otherwise the matching row would stay hidden behind a collapsed parent.
+        if ($searchTerm !== '') {
+            foreach ($product['variations'] as $variation) {
+                if (stripos($variation['sku'], $searchTerm) !== false) {
+                    $product['auto_expand'] = true;
+                    break;
+                }
+            }
+        }
     } else {
         $row = $simpleInventoryByProduct[$productId] ?? ['stock_quantity' => 0, 'reserved_stock' => 0, 'incoming_stock' => 0, 'arrived_stock' => 0, 'updated_at' => null];
         $product['stock_quantity'] = (int) $row['stock_quantity'];
@@ -180,8 +235,74 @@ foreach ($inventory as &$product) {
 }
 unset($product);
 
+/**
+ * Stock Status (ready_stock only - mirrors inventory_stock_badges() below) or Inventory
+ * Stage (any bucket with a positive quantity, any product type) - used to filter both
+ * simple-product rows and individual variation rows post-fetch, since both depend on
+ * ledger-derived quantities already merged above rather than raw SQL columns.
+ */
+function inventory_unit_matches_filters(array $unit, string $productType, ?int $minStockThreshold, ?string $filterStockStatus, ?string $filterStage): bool
+{
+    if ($filterStockStatus !== null) {
+        $available = (int) $unit['stock_quantity'];
+        if ($productType !== 'ready_stock') {
+            $status = 'in_stock';
+        } elseif ($available === 0) {
+            $status = 'out_of_stock';
+        } elseif ($minStockThreshold !== null && $available < $minStockThreshold) {
+            $status = 'low_stock';
+        } else {
+            $status = 'in_stock';
+        }
+
+        if ($status !== $filterStockStatus) {
+            return false;
+        }
+    }
+
+    if ($filterStage !== null) {
+        $stageQty = match ($filterStage) {
+            'on_hand' => (int) $unit['stock_quantity'],
+            'reserved' => (int) $unit['reserved_stock'],
+            'incoming' => (int) $unit['incoming_stock'],
+            'arrived' => (int) $unit['arrived_stock'],
+            default => 0,
+        };
+        if ($stageQty <= 0) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+if ($filterStockStatus !== null || $filterStage !== null) {
+    $filteredInventory = [];
+    foreach ($inventory as $product) {
+        $minThreshold = $product['min_stock_threshold'] !== null ? (int) $product['min_stock_threshold'] : null;
+
+        if ($product['catalog_type'] === 'variable') {
+            $product['variations'] = array_values(array_filter(
+                $product['variations'],
+                static fn (array $variation): bool => inventory_unit_matches_filters($variation, $product['product_type'], $minThreshold, $filterStockStatus, $filterStage)
+            ));
+            if ($product['variations'] === []) {
+                continue;
+            }
+            $product['auto_expand'] = true;
+        } elseif (!inventory_unit_matches_filters($product, $product['product_type'], $minThreshold, $filterStockStatus, $filterStage)) {
+            continue;
+        }
+
+        $filteredInventory[] = $product;
+    }
+    $inventory = $filteredInventory;
+}
+
 $sellableUnits = catalog_sellable_units($pdo);
 $canManage = app_has_permission('inventory.manage');
+$filterSuppliers = $pdo->query('SELECT id, name FROM suppliers ORDER BY name ASC')->fetchAll(PDO::FETCH_ASSOC);
+$filterCategories = catalog_list_categories_tree($pdo);
 
 /**
  * Low Stock / Out of Stock badges: exact rule already established in
@@ -226,6 +347,66 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="alert alert-danger"><?php echo nl2br(app_escape($error)); ?></div>
 <?php endif; ?>
 
+<div class="card p-3 mb-4">
+    <form method="get" class="row g-2 align-items-end">
+        <div class="col-md-3">
+            <label class="form-label small mb-1">Search</label>
+            <input type="text" class="form-control form-control-sm" name="q" value="<?php echo app_escape($searchTerm); ?>" placeholder="Product name, SKU, or variation SKU">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small mb-1">Product Type</label>
+            <select name="catalog_type" class="form-select form-select-sm">
+                <option value="">All</option>
+                <option value="simple" <?php echo $filterCatalogType === 'simple' ? 'selected' : ''; ?>>Simple</option>
+                <option value="variable" <?php echo $filterCatalogType === 'variable' ? 'selected' : ''; ?>>Variable</option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small mb-1">Stock Status</label>
+            <select name="stock_status" class="form-select form-select-sm">
+                <option value="">All</option>
+                <option value="in_stock" <?php echo $filterStockStatus === 'in_stock' ? 'selected' : ''; ?>>In Stock</option>
+                <option value="low_stock" <?php echo $filterStockStatus === 'low_stock' ? 'selected' : ''; ?>>Low Stock</option>
+                <option value="out_of_stock" <?php echo $filterStockStatus === 'out_of_stock' ? 'selected' : ''; ?>>Out of Stock</option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small mb-1">Inventory Stage</label>
+            <select name="stage" class="form-select form-select-sm">
+                <option value="">All</option>
+                <option value="on_hand" <?php echo $filterStage === 'on_hand' ? 'selected' : ''; ?>>On Hand</option>
+                <option value="reserved" <?php echo $filterStage === 'reserved' ? 'selected' : ''; ?>>Reserved</option>
+                <option value="incoming" <?php echo $filterStage === 'incoming' ? 'selected' : ''; ?>>Incoming</option>
+                <option value="arrived" <?php echo $filterStage === 'arrived' ? 'selected' : ''; ?>>Arrived</option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small mb-1">Supplier</label>
+            <select name="supplier_id" class="form-select form-select-sm">
+                <option value="">All</option>
+                <?php foreach ($filterSuppliers as $supplier): ?>
+                    <option value="<?php echo (int) $supplier['id']; ?>" <?php echo $filterSupplierId === (int) $supplier['id'] ? 'selected' : ''; ?>><?php echo app_escape($supplier['name']); ?></option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small mb-1">Category</label>
+            <select name="category_id" class="form-select form-select-sm">
+                <option value="">All</option>
+                <?php foreach ($filterCategories as $cat): ?>
+                    <option value="<?php echo (int) $cat['id']; ?>" <?php echo $filterCategoryId === $cat['id'] ? 'selected' : ''; ?>>
+                        <?php echo str_repeat('&nbsp;&nbsp;', $cat['depth']) . app_escape($cat['name']); ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-sm btn-primary">Filter</button>
+            <a href="/modules/inventory/index.php" class="btn btn-sm btn-outline-secondary">Clear filters</a>
+        </div>
+    </form>
+</div>
+
 <div class="card p-4">
     <div class="table-responsive">
     <table class="table table-hover align-middle responsive-stack-table">
@@ -236,8 +417,8 @@ require_once __DIR__ . '/../../includes/header.php';
                 <th>Variation</th>
                 <th>SKU</th>
                 <th>Type</th>
-                <th>Current</th>
-                <th>Available</th>
+                <th>Stage</th>
+                <th>On Hand</th>
                 <th>Reserved</th>
                 <th>Incoming</th>
                 <th>Arrived</th>
@@ -250,8 +431,14 @@ require_once __DIR__ . '/../../includes/header.php';
                 <?php
                 $isVariable = $product['catalog_type'] === 'variable';
                 $productTypeLabel = $productTypeLabels[$product['product_type']] ?? $product['product_type'];
+                $groupKey = 'vg-' . (int) $product['id'];
+                $autoExpand = !empty($product['auto_expand']);
                 ?>
-                <tr class="<?php echo $isVariable ? 'table-light' : ''; ?>">
+                <tr class="<?php echo $isVariable ? 'table-light js-inventory-parent' : ''; ?>"
+                    <?php if ($isVariable): ?>
+                        data-group="<?php echo app_escape($groupKey); ?>" data-expanded="<?php echo $autoExpand ? '1' : '0'; ?>" style="cursor:pointer;"
+                    <?php endif; ?>
+                >
                     <td data-label="">
                         <?php if (!empty($product['thumb_path'])): ?>
                             <img src="/<?php echo app_escape($product['thumb_path']); ?>" alt="" style="width:40px;height:40px;object-fit:cover;border-radius:6px;">
@@ -260,6 +447,9 @@ require_once __DIR__ . '/../../includes/header.php';
                         <?php endif; ?>
                     </td>
                     <td data-label="Product">
+                        <?php if ($isVariable): ?>
+                            <span class="js-inventory-caret text-muted me-1"><?php echo $autoExpand ? '&#9660;' : '&#9654;'; ?></span>
+                        <?php endif; ?>
                         <span class="fw-semibold"><?php echo app_escape($product['name']); ?></span>
                         <?php if ($isVariable): ?>
                             <span class="badge bg-info text-dark ms-1">Variable</span>
@@ -268,8 +458,8 @@ require_once __DIR__ . '/../../includes/header.php';
                     <td data-label="Variation" class="text-muted">&mdash;</td>
                     <td data-label="SKU"><?php echo app_escape($product['sku']); ?></td>
                     <td data-label="Type"><?php echo app_escape($productTypeLabel); ?></td>
-                    <td data-label="Current"<?php echo $isVariable ? ' class="text-muted"' : ''; ?>><?php echo app_escape((string) ($product['stock_quantity'] + $product['reserved_stock'])); ?></td>
-                    <td data-label="Available"<?php echo $isVariable ? ' class="text-muted"' : ''; ?>>
+                    <td data-label="Stage"><?php echo catalog_lifecycle_badge($product); ?></td>
+                    <td data-label="On Hand"<?php echo $isVariable ? ' class="text-muted"' : ''; ?>>
                         <?php echo app_escape((string) $product['stock_quantity']); ?>
                         <?php if (!$isVariable): ?>
                             <?php echo inventory_stock_badges($product['product_type'], $product['stock_quantity'], $product['min_stock_threshold'] !== null ? (int) $product['min_stock_threshold'] : null); ?>
@@ -297,7 +487,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 <?php if ($isVariable): ?>
                     <?php foreach ($product['variations'] as $variation): ?>
                         <?php $unitKey = (int) $product['id'] . ':' . (int) $variation['variation_id']; ?>
-                        <tr>
+                        <tr class="inventory-variation-row<?php echo $autoExpand ? '' : ' d-none'; ?>" data-group="<?php echo app_escape($groupKey); ?>">
                             <td data-label=""></td>
                             <td data-label="Product"></td>
                             <td data-label="Variation" style="padding-left: 2rem;">
@@ -305,8 +495,8 @@ require_once __DIR__ . '/../../includes/header.php';
                             </td>
                             <td data-label="SKU"><?php echo app_escape($variation['sku']); ?></td>
                             <td data-label="Type"></td>
-                            <td data-label="Current"><?php echo app_escape((string) ($variation['stock_quantity'] + $variation['reserved_stock'])); ?></td>
-                            <td data-label="Available">
+                            <td data-label="Stage"></td>
+                            <td data-label="On Hand">
                                 <?php echo app_escape((string) $variation['stock_quantity']); ?>
                                 <?php echo inventory_stock_badges($product['product_type'], (int) $variation['stock_quantity'], $product['min_stock_threshold'] !== null ? (int) $product['min_stock_threshold'] : null); ?>
                             </td>
@@ -329,7 +519,7 @@ require_once __DIR__ . '/../../includes/header.php';
                         </tr>
                     <?php endforeach; ?>
                     <?php if ($product['variations'] === []): ?>
-                        <tr>
+                        <tr class="inventory-variation-row<?php echo $autoExpand ? '' : ' d-none'; ?>" data-group="<?php echo app_escape($groupKey); ?>">
                             <td data-label=""></td>
                             <td data-label="" colspan="11" class="text-muted small">No active variations.</td>
                         </tr>
@@ -337,7 +527,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 <?php endif; ?>
             <?php endforeach; ?>
             <?php if ($inventory === []): ?>
-                <tr><td colspan="12" class="text-muted">No products yet.</td></tr>
+                <tr><td colspan="12" class="text-muted">No products match these filters.</td></tr>
             <?php endif; ?>
         </tbody>
     </table>

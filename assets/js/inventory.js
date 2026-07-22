@@ -126,6 +126,37 @@
         body.innerHTML = html;
     }
 
+    /**
+     * Variation rows start hidden (class="d-none") under their parent variable-product row
+     * (see modules/inventory/index.php) - clicking the parent toggles them open/closed.
+     * Clicks on an action button/link inside the row (Adjust Stock, View History, Edit
+     * Product) must not trigger the toggle, since those already have their own onclick/href.
+     */
+    function initGroupToggles() {
+        document.querySelectorAll('.js-inventory-parent').forEach(function (row) {
+            row.addEventListener('click', function (event) {
+                if (event.target.closest('button, a')) {
+                    return;
+                }
+
+                var group = row.getAttribute('data-group');
+                var expand = row.getAttribute('data-expanded') !== '1';
+                row.setAttribute('data-expanded', expand ? '1' : '0');
+
+                var caret = row.querySelector('.js-inventory-caret');
+                if (caret) {
+                    caret.innerHTML = expand ? '&#9660;' : '&#9654;';
+                }
+
+                document.querySelectorAll('tr.inventory-variation-row[data-group="' + group + '"]').forEach(function (variationRow) {
+                    variationRow.classList.toggle('d-none', !expand);
+                });
+            });
+        });
+    }
+
+    initGroupToggles();
+
     if (historyModalEl) {
         historyModalEl.addEventListener('shown.bs.modal', function () {
             historyState.page = 1;

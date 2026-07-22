@@ -20,6 +20,7 @@ $pdo = app_db();
 $filterCategoryId = isset($_GET['category_id']) && ctype_digit((string) $_GET['category_id']) ? (int) $_GET['category_id'] : null;
 $filterBrandId = isset($_GET['brand_id']) && ctype_digit((string) $_GET['brand_id']) ? (int) $_GET['brand_id'] : null;
 $filterCollectionId = isset($_GET['collection_id']) && ctype_digit((string) $_GET['collection_id']) ? (int) $_GET['collection_id'] : null;
+$filterSupplierId = isset($_GET['supplier_id']) && ctype_digit((string) $_GET['supplier_id']) ? (int) $_GET['supplier_id'] : null;
 $filterProductType = in_array($_GET['product_type'] ?? '', $productTypes, true) ? $_GET['product_type'] : null;
 $filterCatalogType = in_array($_GET['catalog_type'] ?? '', $catalogTypes, true) ? $_GET['catalog_type'] : null;
 $filterStatus = in_array($_GET['status'] ?? '', $statusOptions, true) ? $_GET['status'] : null;
@@ -29,7 +30,7 @@ $searchTerm = trim((string) ($_GET['q'] ?? ''));
 $sql = "
     SELECT
         p.id, p.sku, p.name, p.product_type, p.catalog_type, p.status, p.selling_price,
-        p.min_stock_threshold,
+        p.min_stock_threshold, p.preorder_closing_date, p.preorder_reopened_at,
         b.name AS brand_name,
         cat.id AS category_id, cat.name AS category_name,
         col.id AS collection_id, col.name AS collection_name,
@@ -59,6 +60,10 @@ if ($filterCollectionId !== null) {
 if ($filterBrandId !== null) {
     $sql .= ' AND p.brand_id = ?';
     $params[] = $filterBrandId;
+}
+if ($filterSupplierId !== null) {
+    $sql .= ' AND p.supplier_id = ?';
+    $params[] = $filterSupplierId;
 }
 if ($filterProductType !== null) {
     $sql .= ' AND p.product_type = ?';
@@ -108,6 +113,7 @@ if ($quick === 'low_stock') {
 $filterCategories = catalog_list_categories_tree($pdo);
 $filterBrands = catalog_list_brands($pdo);
 $filterCollections = catalog_list_collections($pdo);
+$filterSuppliers = $pdo->query('SELECT id, name FROM suppliers ORDER BY name ASC')->fetchAll(PDO::FETCH_ASSOC);
 
 $plushCategoryId = null;
 foreach ($filterCategories as $cat) {
@@ -183,7 +189,7 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php endif; ?>
 
 
-<?php $filterKeys = ['category_id', 'brand_id', 'collection_id', 'product_type', 'catalog_type', 'status', 'quick', 'q']; ?>
+<?php $filterKeys = ['category_id', 'brand_id', 'collection_id', 'supplier_id', 'product_type', 'catalog_type', 'status', 'quick', 'q']; ?>
 <div class="d-flex flex-wrap gap-2 mb-3">
     <?php foreach ($chips as $chip): ?>
         <?php
@@ -262,7 +268,17 @@ require_once __DIR__ . '/../../includes/header.php';
             <select name="status" class="form-select form-select-sm">
                 <option value="">All</option>
                 <?php foreach ($statusOptions as $statusValue): ?>
-                    <option value="<?php echo app_escape($statusValue); ?>" <?php echo $filterStatus === $statusValue ? 'selected' : ''; ?>><?php echo app_escape(ucfirst($statusValue)); ?></option>
+                    <option value="<?php echo app_escape($statusValue); ?>" <?php echo $filterStatus === $statusValue ? 'selected' : ''; ?>><?php echo app_escape(catalog_status_dot($statusValue)); ?></option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+
+        <div class="col-md-2">
+            <label class="form-label small mb-1">Supplier</label>
+            <select name="supplier_id" class="form-select form-select-sm">
+                <option value="">All</option>
+                <?php foreach ($filterSuppliers as $supplier): ?>
+                    <option value="<?php echo (int) $supplier['id']; ?>" <?php echo $filterSupplierId === (int) $supplier['id'] ? 'selected' : ''; ?>><?php echo app_escape($supplier['name']); ?></option>
                 <?php endforeach; ?>
             </select>
         </div>
@@ -284,6 +300,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 <th>Brand</th>
                 <th>Availability</th>
                 <th>Structure</th>
+                <th>Stage</th>
                 <th>Status</th>
                 <th>Price</th>
                 <?php if ($canManage): ?><th></th><?php endif; ?>
@@ -319,7 +336,8 @@ require_once __DIR__ . '/../../includes/header.php';
                     <td><?php echo $product['brand_name'] !== null ? app_escape($product['brand_name']) : '—'; ?></td>
                     <td><?php echo app_escape($productTypeLabels[$product['product_type']] ?? $product['product_type']); ?></td>
                     <td><span class="badge bg-<?php echo $isVariable ? 'info text-dark' : 'light text-dark'; ?>"><?php echo $isVariable ? 'Variable' : 'Simple'; ?></span></td>
-                    <td><?php echo app_escape(ucfirst($product['status'])); ?></td>
+                    <td><?php echo catalog_lifecycle_badge($product); ?></td>
+                    <td><?php echo app_escape(catalog_status_dot($product['status'])); ?></td>
                     <td>RM <?php echo app_escape(number_format((float) $product['selling_price'], 2)); ?><?php if ($isVariable): ?> <span class="text-muted small">(default)</span><?php endif; ?></td>
                     <?php if ($canManage): ?>
                         <td class="text-end">
@@ -335,7 +353,7 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php endforeach; ?>
             <?php if ($products === []): ?>
                 <tr>
-                    <td colspan="<?php echo $canManage ? 9 : 8; ?>" class="text-muted">No products match these filters.</td>
+                    <td colspan="<?php echo $canManage ? 10 : 9; ?>" class="text-muted">No products match these filters.</td>
                 </tr>
             <?php endif; ?>
         </tbody>

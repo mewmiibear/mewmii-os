@@ -16,8 +16,18 @@
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1"><?php echo $isEdit ? 'Edit Product' : 'Add Product'; ?></h2>
-        <p class="text-muted mb-0"><?php echo $isEdit ? app_escape($product['sku']) : 'Create a new product in the catalog.'; ?></p>
+        <h2 class="mb-1">
+            <?php echo $isEdit ? 'Edit Product' : 'Add Product'; ?>
+            <?php if ($isEdit): ?>
+                <?php echo catalog_lifecycle_badge($product); ?>
+            <?php endif; ?>
+        </h2>
+        <p class="text-muted mb-0">
+            <?php echo $isEdit ? app_escape($product['sku']) : 'Create a new product in the catalog.'; ?>
+            <?php if ($isEdit): ?>
+                &middot; <?php echo app_escape(catalog_status_dot($product['status'])); ?>
+            <?php endif; ?>
+        </p>
     </div>
     <div class="d-flex gap-2">
         <?php if ($isEdit && $canManage): ?>
