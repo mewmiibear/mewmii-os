@@ -374,6 +374,24 @@ if (!migrate_column_exists($pdo, 'products', 'short_description')) {
     migrate_run($pdo, 'products.short_description', 'ALTER TABLE products ADD COLUMN short_description VARCHAR(500) NULL AFTER name', $applied);
 }
 
+// mewmii_order_items.discount/subtotal: per-line discount amount and its resulting
+// subtotal (quantity * selling_price - discount), mirroring supplier_order_items' shape -
+// existing rows backfill discount=0 and subtotal computed from their own quantity/price so
+// nothing already-saved silently shows as free.
+if (!migrate_column_exists($pdo, 'mewmii_order_items', 'discount')) {
+    migrate_run($pdo, 'mewmii_order_items.discount', 'ALTER TABLE mewmii_order_items ADD COLUMN discount DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER selling_price', $applied);
+}
+if (!migrate_column_exists($pdo, 'mewmii_order_items', 'subtotal')) {
+    migrate_run($pdo, 'mewmii_order_items.subtotal', 'ALTER TABLE mewmii_order_items ADD COLUMN subtotal DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER discount', $applied);
+    migrate_run($pdo, 'mewmii_order_items.backfill_subtotal', 'UPDATE mewmii_order_items SET subtotal = ROUND(quantity * selling_price, 2) WHERE subtotal = 0.00', $applied);
+}
+
+// mewmii_orders.notes: internal admin note field (e.g. "Customer requested combine
+// shipment") - never customer-facing, purely an internal record.
+if (!migrate_column_exists($pdo, 'mewmii_orders', 'notes')) {
+    migrate_run($pdo, 'mewmii_orders.notes', 'ALTER TABLE mewmii_orders ADD COLUMN notes TEXT NULL AFTER shipped_at', $applied);
+}
+
 echo count($applied) . ' migration statement(s) applied:' . PHP_EOL;
 foreach ($applied as $item) {
     echo '  - ' . $item . PHP_EOL;

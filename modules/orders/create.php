@@ -1,5 +1,7 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/inventory.php';
+require_once __DIR__ . '/../../includes/orders.php';
 require_once __DIR__ . '/../../includes/catalog.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
 app_require_permission('orders.manage');
@@ -8,13 +10,13 @@ $appTitle = 'New Order';
 $error = '';
 $pdo = app_db();
 
-const ORDER_ITEM_ROWS = 6;
-
 $form = [
     'customer_id' => '',
     'order_number' => 'ORD-' . date('Ymd') . '-' . strtoupper(substr(bin2hex(random_bytes(2)), 0, 4)),
+    'shipping_fee' => '0.00',
+    'notes' => '',
 ];
-$itemRows = array_fill(0, ORDER_ITEM_ROWS, ['unit_key' => '', 'quantity' => '']);
+$existingItems = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
@@ -25,37 +27,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $form['customer_id'] = trim((string) ($_POST['customer_id'] ?? ''));
     $form['order_number'] = trim((string) ($_POST['order_number'] ?? ''));
+    $form['shipping_fee'] = trim((string) ($_POST['shipping_fee'] ?? ''));
+    $form['notes'] = trim((string) ($_POST['notes'] ?? ''));
 
     $postedUnitKeys = $_POST['unit_key'] ?? [];
     $postedQuantities = $_POST['quantity'] ?? [];
+    $postedPrices = $_POST['unit_price'] ?? [];
+    $postedDiscounts = $_POST['discount'] ?? [];
 
     $sellableUnits = catalog_sellable_units($pdo);
     $unitsByKey = array_column($sellableUnits, null, 'key');
 
-    $itemRows = [];
     $validItems = [];
 
-    for ($i = 0; $i < ORDER_ITEM_ROWS; $i++) {
+    for ($i = 0; $i < count($postedUnitKeys); $i++) {
         $rowUnitKey = trim((string) ($postedUnitKeys[$i] ?? ''));
         $rowQuantity = trim((string) ($postedQuantities[$i] ?? ''));
+        $rowPrice = trim((string) ($postedPrices[$i] ?? ''));
+        $rowDiscount = trim((string) ($postedDiscounts[$i] ?? ''));
 
-        $itemRows[] = ['unit_key' => $rowUnitKey, 'quantity' => $rowQuantity];
-
-        if ($rowUnitKey === '' && $rowQuantity === '') {
+        if ($rowUnitKey === '') {
             continue;
         }
 
+        $existingItems[] = [
+            'unit_key' => $rowUnitKey,
+            'label' => isset($unitsByKey[$rowUnitKey]) ? $unitsByKey[$rowUnitKey]['label'] : $rowUnitKey,
+            'sku' => isset($unitsByKey[$rowUnitKey]) ? $unitsByKey[$rowUnitKey]['sku'] : '',
+            'quantity' => $rowQuantity,
+            'unit_price' => $rowPrice,
+            'discount' => $rowDiscount,
+            'allocated_quantity' => 0,
+        ];
+
         if ($error === '') {
-            if ($rowUnitKey === '') {
-                $error = 'Row ' . ($i + 1) . ': select a product.';
-            } elseif (!ctype_digit($rowQuantity) || (int) $rowQuantity < 1) {
-                $error = 'Row ' . ($i + 1) . ': quantity must be a whole number of at least 1.';
+            if (!ctype_digit($rowQuantity) || (int) $rowQuantity < 1) {
+                $error = 'Enter a whole number quantity of at least 1 for every line.';
+            } elseif ($rowPrice !== '' && (!is_numeric($rowPrice) || (float) $rowPrice < 0)) {
+                $error = 'Unit price must be a valid non-negative number.';
+            } elseif ($rowDiscount !== '' && (!is_numeric($rowDiscount) || (float) $rowDiscount < 0)) {
+                $error = 'Discount must be a valid non-negative number.';
             } elseif (!isset($unitsByKey[$rowUnitKey])) {
-                $error = 'Row ' . ($i + 1) . ': selected product does not exist.';
+                $error = 'A selected product no longer exists.';
             } else {
+                $unit = $unitsByKey[$rowUnitKey];
+                $unit['selling_price'] = $rowPrice !== '' ? round((float) $rowPrice, 2) : (float) $unit['selling_price'];
+
                 $validItems[] = [
-                    'unit' => $unitsByKey[$rowUnitKey],
+                    'unit' => $unit,
                     'quantity' => (int) $rowQuantity,
+                    'discount' => $rowDiscount !== '' ? round((float) $rowDiscount, 2) : 0.00,
                 ];
             }
         }
@@ -88,13 +109,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    $shippingFee = 0.00;
+    if ($error === '') {
+        if ($form['shipping_fee'] !== '' && (!is_numeric($form['shipping_fee']) || (float) $form['shipping_fee'] < 0)) {
+            $error = 'Shipping fee must be a valid non-negative number.';
+        } else {
+            $shippingFee = $form['shipping_fee'] !== '' ? round((float) $form['shipping_fee'], 2) : 0.00;
+        }
+    }
+
     if ($error === '' && $validItems === []) {
         $error = 'Add at least one product line with a quantity.';
     }
 
-    // Check stock availability per sellable unit (aggregated across rows) before committing.
-    // preorder/early_bird units are purchasable regardless of available_quantity - they're
-    // gated by status/closing date instead (see catalog_product_is_orderable()).
+    // Stock availability check (aggregated across rows) before committing - same override ->
+    // lifecycle -> quantity priority as order_unit_is_available()/catalog_product_availability_status().
     if ($error === '') {
         $demand = [];
         foreach ($validItems as $line) {
@@ -106,9 +135,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $unit = $unitsByKey[$key];
             $override = $unit['availability_override'] ?? 'auto';
 
-            // Priority: manual override first (authoritative), then lifecycle state
-            // (Preorder/Early Bird), then stock quantity (Ready Stock) - see
-            // catalog_product_availability_status(). Never re-derive this ordering here.
             if ($override === 'out_of_stock') {
                 $error = $unit['label'] . ' has been manually marked unavailable.';
                 break;
@@ -123,7 +149,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             if ($override === 'available') {
-                // Ready Stock forced available by an admin - skip the quantity check.
                 continue;
             }
 
@@ -140,29 +165,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($error === '') {
         $subtotal = 0.00;
+        $discountTotal = 0.00;
         foreach ($validItems as $line) {
             $subtotal += $line['quantity'] * $line['unit']['selling_price'];
+            $discountTotal += $line['discount'];
         }
         $subtotal = round($subtotal, 2);
+        $discountTotal = round($discountTotal, 2);
+        $totalAmount = round($subtotal - $discountTotal + $shippingFee, 2);
 
         $pdo->beginTransaction();
 
         try {
             $orderStmt = $pdo->prepare('
-                INSERT INTO mewmii_orders (order_number, customer_id, subtotal, discount, shipping_fee, total_amount, order_date)
-                VALUES (?, ?, ?, 0.00, 0.00, ?, CURDATE())
+                INSERT INTO mewmii_orders (order_number, customer_id, subtotal, discount, shipping_fee, total_amount, notes, order_date)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURDATE())
             ');
-            $orderStmt->execute([$form['order_number'], $customerId, $subtotal, $subtotal]);
+            $orderStmt->execute([$form['order_number'], $customerId, $subtotal, $discountTotal, $shippingFee, $totalAmount, $form['notes'] !== '' ? $form['notes'] : null]);
             $orderId = (int) $pdo->lastInsertId();
 
             $itemStmt = $pdo->prepare('
-                INSERT INTO mewmii_order_items (order_id, product_id, variation_id, variation_label, quantity, selling_price, cost_snapshot)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO mewmii_order_items (order_id, product_id, variation_id, variation_label, quantity, selling_price, discount, subtotal, cost_snapshot)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ');
 
             foreach ($validItems as $line) {
                 $unit = $line['unit'];
                 $variationLabel = $unit['variation_id'] !== null ? variation_build_label($pdo, $unit['variation_id']) : null;
+                $lineSubtotal = round(($line['quantity'] * $unit['selling_price']) - $line['discount'], 2);
 
                 $itemStmt->execute([
                     $orderId,
@@ -171,13 +201,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $variationLabel,
                     $line['quantity'],
                     $unit['selling_price'],
+                    $line['discount'],
+                    $lineSubtotal,
                     $unit['cost_price'],
                 ]);
             }
 
+            inventory_reserve_for_order($pdo, $orderId);
+
             $pdo->commit();
 
             app_redirect('/modules/orders/view.php?id=' . $orderId . '&created=1');
+        } catch (RuntimeException $exception) {
+            $pdo->rollBack();
+            $error = $exception->getMessage();
         } catch (Exception $exception) {
             $pdo->rollBack();
             $error = 'Failed to create order.';
@@ -188,7 +225,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $customersStmt = $pdo->query('SELECT id, name, email FROM customers ORDER BY name ASC LIMIT 200');
 $allCustomers = $customersStmt->fetchAll(PDO::FETCH_ASSOC);
 
-$sellableUnits = catalog_sellable_units($pdo);
+$pickerCategories = catalog_list_categories_tree($pdo);
+$pickerBrands = $pdo->query('SELECT id, name FROM brands ORDER BY name ASC')->fetchAll(PDO::FETCH_ASSOC);
+$pickerSuppliers = $pdo->query('SELECT id, name FROM suppliers ORDER BY name ASC LIMIT 200')->fetchAll(PDO::FETCH_ASSOC);
+$pickerProducts = order_picker_products($pdo);
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
@@ -211,57 +251,83 @@ require_once __DIR__ . '/../../includes/header.php';
         <div class="row g-3 mb-4">
             <div class="col-md-6">
                 <label class="form-label">Customer</label>
-                <select class="form-select" name="customer_id" required>
-                    <option value="">Select a customer&hellip;</option>
-                    <?php foreach ($allCustomers as $customer): ?>
-                        <option value="<?php echo (int) $customer['id']; ?>" <?php echo $form['customer_id'] === (string) $customer['id'] ? 'selected' : ''; ?>>
-                            <?php echo app_escape($customer['name']); ?><?php if (!empty($customer['email'])): ?> (<?php echo app_escape($customer['email']); ?>)<?php endif; ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
+                <div class="d-flex gap-2">
+                    <select class="form-select" id="customer-select" name="customer_id" required>
+                        <option value="">Select a customer&hellip;</option>
+                        <?php foreach ($allCustomers as $customer): ?>
+                            <option value="<?php echo (int) $customer['id']; ?>" <?php echo $form['customer_id'] === (string) $customer['id'] ? 'selected' : ''; ?>>
+                                <?php echo app_escape($customer['name']); ?><?php if (!empty($customer['email'])): ?> (<?php echo app_escape($customer['email']); ?>)<?php endif; ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <button type="button" class="btn btn-outline-secondary text-nowrap" id="add-customer-btn">+ New Customer</button>
+                </div>
             </div>
 
             <div class="col-md-6">
                 <label class="form-label">Order Number</label>
                 <input type="text" class="form-control" name="order_number" value="<?php echo app_escape($form['order_number']); ?>" maxlength="100" required>
             </div>
+
+            <div class="col-md-6">
+                <label class="form-label">Shipping Fee (RM)</label>
+                <input type="number" step="0.01" min="0" class="form-control" id="order-shipping-fee" name="shipping_fee" value="<?php echo app_escape($form['shipping_fee']); ?>">
+            </div>
+
+            <div class="col-12">
+                <label class="form-label">Notes</label>
+                <textarea class="form-control" name="notes" rows="2" placeholder="e.g. Customer requested combine shipment."><?php echo app_escape($form['notes']); ?></textarea>
+            </div>
         </div>
 
-        <h5 class="mb-3">Products</h5>
-        <table class="table align-middle">
-            <thead>
-                <tr>
-                    <th>Product</th>
-                    <th>Quantity</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php foreach ($itemRows as $row): ?>
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0">Products</h5>
+            <button type="button" class="btn btn-primary btn-sm" id="add-product-btn">+ Add Product</button>
+        </div>
+        <div class="table-responsive">
+            <table class="table align-middle" id="order-items-table">
+                <thead>
                     <tr>
-                        <td>
-                            <select class="form-select" name="unit_key[]">
-                                <option value="">Select a product&hellip;</option>
-                                <?php foreach ($sellableUnits as $unit): ?>
-                                    <?php
-                                    $lifecycleEmojis = ['early_bird' => '🟧', 'preorder' => '🟪', 'ready_stock' => '🟩', 'waiting_release' => '⚪', 'closed' => '🔴'];
-                                    $unitEmoji = $lifecycleEmojis[catalog_product_lifecycle_stage($unit)] ?? '';
-                                    ?>
-                                    <option value="<?php echo app_escape($unit['key']); ?>" <?php echo $row['unit_key'] === $unit['key'] ? 'selected' : ''; ?>>
-                                        <?php echo app_escape($unitEmoji); ?> <?php echo app_escape($unit['sku']); ?> &mdash; <?php echo app_escape($unit['label']); ?> (<?php echo app_escape((string) $unit['selling_price']); ?>)
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                        </td>
-                        <td>
-                            <input type="number" class="form-control" name="quantity[]" min="1" value="<?php echo app_escape($row['quantity']); ?>">
-                        </td>
+                        <th>Product / Variation</th>
+                        <th>SKU</th>
+                        <th>Quantity</th>
+                        <th>Unit Price (RM)</th>
+                        <th>Discount (RM)</th>
+                        <th>Subtotal (RM)</th>
+                        <th></th>
                     </tr>
-                <?php endforeach; ?>
-            </tbody>
-        </table>
-        <p class="text-muted small">Prices are taken automatically from each product's current selling price.</p>
+                </thead>
+                <tbody></tbody>
+                <tfoot>
+                    <tr>
+                        <td colspan="5" class="text-end fw-semibold">Items Subtotal</td>
+                        <td class="fw-semibold" id="order-items-subtotal">0.00</td>
+                        <td></td>
+                    </tr>
+                    <tr>
+                        <td colspan="5" class="text-end fw-semibold">Total (incl. Shipping)</td>
+                        <td class="fw-semibold" id="order-grand-total">0.00</td>
+                        <td></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
 
         <button class="btn btn-primary mt-3" type="submit">Create Order</button>
     </form>
 </div>
+
+<?php require __DIR__ . '/_item_picker_modal.php'; ?>
+
+<script id="order-form-data" type="application/json"><?php echo json_encode([
+    'products' => $pickerProducts,
+    'existingItems' => $existingItems,
+    'csrfToken' => app_csrf_token(),
+    'urls' => ['createCustomer' => '/modules/customers/ajax/create_customer.php'],
+]); ?></script>
+<?php
+$orderFormJsPath = __DIR__ . '/../../assets/js/order-form.js';
+$orderFormJsVersion = is_file($orderFormJsPath) ? filemtime($orderFormJsPath) : time();
+?>
+<script src="/assets/js/order-form.js?v=<?php echo (int) $orderFormJsVersion; ?>"></script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

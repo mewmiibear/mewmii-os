@@ -50,6 +50,9 @@ $canManage = app_has_permission('orders.manage');
                     <td><?php echo $order['tracking_number'] !== null ? app_escape($order['tracking_number']) : '&mdash;'; ?></td>
                     <td class="text-end">
                         <a class="btn btn-sm btn-outline-primary" href="/modules/orders/view.php?id=<?php echo (int) $order['id']; ?>">View</a>
+                        <?php if ($canManage): ?>
+                            <a class="btn btn-sm btn-outline-secondary" href="/modules/orders/edit.php?id=<?php echo (int) $order['id']; ?>">Edit</a>
+                        <?php endif; ?>
                     </td>
                 </tr>
             <?php endforeach; ?>

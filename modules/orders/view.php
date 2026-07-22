@@ -307,7 +307,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $itemsStmt = $pdo->prepare('
-    SELECT oi.id, oi.quantity, oi.selling_price, oi.cost_snapshot, oi.variation_label,
+    SELECT oi.id, oi.quantity, oi.selling_price, oi.discount, oi.subtotal, oi.cost_snapshot, oi.variation_label,
            COALESCE(pv.sku, p.sku) AS sku, p.name AS product_name
     FROM mewmii_order_items oi
     INNER JOIN products p ON p.id = oi.product_id
@@ -360,6 +360,9 @@ require_once __DIR__ . '/../../includes/header.php';
                 <button type="submit" class="btn btn-outline-danger btn-sm">Delete</button>
             </form>
         <?php endif; ?>
+        <?php if ($canManage): ?>
+            <a class="btn btn-outline-primary btn-sm" href="/modules/orders/edit.php?id=<?php echo (int) $orderId; ?>">Edit Order</a>
+        <?php endif; ?>
         <a class="btn btn-outline-secondary btn-sm" href="/modules/orders/index.php">Back to Orders</a>
     </div>
 </div>
@@ -395,6 +398,13 @@ require_once __DIR__ . '/../../includes/header.php';
             </table>
         </div>
 
+        <?php if (!empty($order['notes'])): ?>
+            <div class="card p-4 mb-4">
+                <h5 class="mb-3">Notes</h5>
+                <p class="mb-0"><?php echo nl2br(app_escape($order['notes'])); ?></p>
+            </div>
+        <?php endif; ?>
+
         <?php if (!empty($order['tracking_number'])): ?>
             <div class="card p-4 mb-4">
                 <h5 class="mb-3">Shipping</h5>
@@ -415,6 +425,8 @@ require_once __DIR__ . '/../../includes/header.php';
                         <th>Product</th>
                         <th>Qty</th>
                         <th>Price</th>
+                        <th>Discount</th>
+                        <th>Subtotal</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -429,10 +441,12 @@ require_once __DIR__ . '/../../includes/header.php';
                             </td>
                             <td><?php echo app_escape((string) $item['quantity']); ?></td>
                             <td>RM <?php echo app_escape(number_format((float) $item['selling_price'], 2)); ?></td>
+                            <td>RM <?php echo app_escape(number_format((float) ($item['discount'] ?? 0), 2)); ?></td>
+                            <td>RM <?php echo app_escape(number_format((float) ($item['subtotal'] ?? ($item['quantity'] * $item['selling_price'])), 2)); ?></td>
                         </tr>
                     <?php endforeach; ?>
                     <?php if ($items === []): ?>
-                        <tr><td colspan="4" class="text-muted">No items recorded for this order.</td></tr>
+                        <tr><td colspan="6" class="text-muted">No items recorded for this order.</td></tr>
                     <?php endif; ?>
                 </tbody>
             </table>
