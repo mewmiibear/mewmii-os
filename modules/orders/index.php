@@ -1,12 +1,13 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/orders.php';
 app_require_login();
 app_require_permission('orders.view');
 
 $appTitle = 'Orders';
 require_once __DIR__ . '/../../includes/header.php';
 
-$stmt = app_db()->query('SELECT o.id, o.order_number, o.payment_status, o.order_status, o.shipping_status, c.name AS customer_name FROM mewmii_orders o LEFT JOIN customers c ON c.id = o.customer_id ORDER BY o.id DESC LIMIT 20');
+$stmt = app_db()->query('SELECT o.id, o.order_number, o.payment_status, o.order_status, o.tracking_number, c.name AS customer_name FROM mewmii_orders o LEFT JOIN customers c ON c.id = o.customer_id ORDER BY o.id DESC LIMIT 20');
 $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
 $canManage = app_has_permission('orders.manage');
 ?>
@@ -31,8 +32,8 @@ $canManage = app_has_permission('orders.manage');
                 <th>Order #</th>
                 <th>Customer</th>
                 <th>Payment</th>
-                <th>Order</th>
-                <th>Shipping</th>
+                <th>Status</th>
+                <th>Tracking</th>
                 <th></th>
             </tr>
         </thead>
@@ -42,8 +43,8 @@ $canManage = app_has_permission('orders.manage');
                     <td><?php echo app_escape($order['order_number']); ?></td>
                     <td><?php echo app_escape($order['customer_name'] ?? 'Unknown'); ?></td>
                     <td><?php echo app_escape($order['payment_status']); ?></td>
-                    <td><?php echo app_escape($order['order_status']); ?></td>
-                    <td><?php echo app_escape($order['shipping_status']); ?></td>
+                    <td><?php echo order_status_badge($order['order_status']); ?></td>
+                    <td><?php echo $order['tracking_number'] !== null ? app_escape($order['tracking_number']) : '&mdash;'; ?></td>
                     <td class="text-end">
                         <a class="btn btn-sm btn-outline-primary" href="/modules/orders/view.php?id=<?php echo (int) $order['id']; ?>">View</a>
                     </td>

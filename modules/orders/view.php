@@ -1,14 +1,25 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/inventory.php';
+require_once __DIR__ . '/../../includes/orders.php';
 app_require_permission('orders.view');
 
 $appTitle = 'Order Detail';
 
+/**
+ * order_status's real values now include the two new workflow stages (ready_to_ship,
+ * shipped) - see includes/orders.php's ORDER_STATUS_WORKFLOW. payment_status keeps its own
+ * dropdown further down (the Approve/Reject Payment buttons above it cover the common
+ * path; the dropdown remains for the refunded/failed edge cases those buttons don't
+ * handle) - shipping_status no longer gets a standalone dropdown since it's now driven
+ * entirely by the Mark Shipped action below, but its config stays here because
+ * apply_order_status_change() still needs it for the shipping_status update inside that
+ * handler.
+ */
 $statusFields = [
     'order_status' => [
         'label' => 'Order Status',
-        'values' => ['pending', 'processing', 'completed', 'cancelled'],
+        'values' => ['pending', 'processing', 'ready_to_ship', 'shipped', 'completed', 'cancelled'],
         'terminal' => ['completed', 'cancelled'],
     ],
     'payment_status' => [
@@ -153,12 +164,112 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = 'Failed to reject payment.';
             }
         }
+    } elseif ($error === '' && !empty($_POST['advance_status'])) {
+        // Covers Start Processing / Mark Ready to Ship / Mark Completed - never Mark
+        // Shipped, which always goes through the mark_shipped branch below so shipping
+        // details are never skipped. $expectedNext is looked up server-side (not trusted
+        // from the posted target_status) so a crafted request can't skip a stage.
+        $targetStatus = (string) ($_POST['target_status'] ?? '');
+        $expectedNext = order_status_next((string) $order['order_status']);
+
+        if ($expectedNext === null || $targetStatus !== $expectedNext) {
+            $error = 'Invalid status transition.';
+        } elseif ($targetStatus === 'shipped') {
+            $error = 'Use "Mark Shipped" to record shipping details.';
+        } else {
+            $pdo->beginTransaction();
+
+            try {
+                apply_order_status_change($pdo, $orderId, $order, 'order_status', $targetStatus, '', $statusFields);
+
+                $pdo->commit();
+
+                app_redirect('/modules/orders/view.php?id=' . $orderId . '&updated=1');
+            } catch (RuntimeException $exception) {
+                $pdo->rollBack();
+                $error = $exception->getMessage();
+            } catch (Exception $exception) {
+                $pdo->rollBack();
+                $error = 'Failed to update order status.';
+            }
+        }
+    } elseif ($error === '' && !empty($_POST['mark_shipped'])) {
+        if ((string) $order['order_status'] !== 'ready_to_ship') {
+            $error = 'Order must be Ready to Ship before it can be marked as shipped.';
+        } else {
+            $carrier = trim((string) ($_POST['shipping_carrier'] ?? ''));
+            $tracking = trim((string) ($_POST['tracking_number'] ?? ''));
+            $shippedDateInput = trim((string) ($_POST['shipped_date'] ?? ''));
+
+            if ($carrier === '' || $tracking === '') {
+                $error = 'Shipping carrier and tracking number are required.';
+            } else {
+                $shippedAt = $shippedDateInput !== '' ? $shippedDateInput . ' ' . date('H:i:s') : date('Y-m-d H:i:s');
+
+                $pdo->beginTransaction();
+
+                try {
+                    apply_order_status_change($pdo, $orderId, $order, 'order_status', 'shipped', '', $statusFields);
+
+                    // Also flips shipping_status -> shipped so inventory_ship_for_order()'s
+                    // existing trigger condition in apply_order_status_change() still fires
+                    // exactly as it did under the old shipping_status dropdown - only the UI
+                    // entry point changed, not the ledger side effect. Skipped if
+                    // shipping_status is already past 'packed' (nothing to reconcile).
+                    if (in_array((string) $order['shipping_status'], ['pending', 'packed'], true)) {
+                        $refreshedForShipping = $order;
+                        $refreshedForShipping['order_status'] = 'shipped';
+                        apply_order_status_change($pdo, $orderId, $refreshedForShipping, 'shipping_status', 'shipped', '', $statusFields);
+                    }
+
+                    $pdo->prepare('UPDATE mewmii_orders SET tracking_number = ?, shipping_carrier = ?, shipped_at = ? WHERE id = ?')
+                        ->execute([$tracking, $carrier, $shippedAt, $orderId]);
+
+                    $pdo->commit();
+
+                    order_sync_tracking_to_woocommerce($pdo, $orderId);
+
+                    app_redirect('/modules/orders/view.php?id=' . $orderId . '&updated=1');
+                } catch (RuntimeException $exception) {
+                    $pdo->rollBack();
+                    $error = $exception->getMessage();
+                } catch (Exception $exception) {
+                    $pdo->rollBack();
+                    $error = 'Failed to mark order as shipped.';
+                }
+            }
+        }
+    } elseif ($error === '' && !empty($_POST['cancel_order'])) {
+        if (in_array((string) $order['order_status'], ['completed', 'cancelled'], true)) {
+            $error = 'This order can no longer be cancelled.';
+        } else {
+            $notes = trim((string) ($_POST['notes'] ?? ''));
+
+            $pdo->beginTransaction();
+
+            try {
+                apply_order_status_change($pdo, $orderId, $order, 'order_status', 'cancelled', $notes, $statusFields);
+
+                $pdo->commit();
+
+                app_redirect('/modules/orders/view.php?id=' . $orderId . '&updated=1');
+            } catch (RuntimeException $exception) {
+                $pdo->rollBack();
+                $error = $exception->getMessage();
+            } catch (Exception $exception) {
+                $pdo->rollBack();
+                $error = 'Failed to cancel order.';
+            }
+        }
     } elseif ($error === '') {
         $statusField = (string) ($_POST['status_field'] ?? '');
         $newStatus = trim((string) ($_POST['new_status'] ?? ''));
         $notes = trim((string) ($_POST['notes'] ?? ''));
 
-        if (!isset($statusFields[$statusField])) {
+        // Only payment_status still uses this generic path (see the Change Payment
+        // Status card below) - order_status/shipping_status are handled by the branches
+        // above.
+        if ($statusField !== 'payment_status') {
             $error = 'Invalid status field.';
         } elseif (!in_array($newStatus, $statusFields[$statusField]['values'], true)) {
             $error = 'Invalid status value.';
@@ -256,9 +367,8 @@ require_once __DIR__ . '/../../includes/header.php';
         <div class="card p-4 mb-4">
             <h5 class="mb-3">Order Summary</h5>
             <table class="table table-borderless mb-0">
+                <tr><th>Status</th><td><?php echo order_status_badge($order['order_status']); ?></td></tr>
                 <tr><th>Payment Status</th><td><?php echo app_escape($order['payment_status']); ?></td></tr>
-                <tr><th>Order Status</th><td><?php echo app_escape($order['order_status']); ?></td></tr>
-                <tr><th>Shipping Status</th><td><?php echo app_escape($order['shipping_status']); ?></td></tr>
                 <tr><th>Subtotal</th><td>RM <?php echo app_escape(number_format((float) $order['subtotal'], 2)); ?></td></tr>
                 <tr><th>Discount</th><td>RM <?php echo app_escape(number_format((float) $order['discount'], 2)); ?></td></tr>
                 <tr><th>Shipping Fee</th><td>RM <?php echo app_escape(number_format((float) $order['shipping_fee'], 2)); ?></td></tr>
@@ -266,6 +376,17 @@ require_once __DIR__ . '/../../includes/header.php';
                 <tr><th>Order Date</th><td><?php echo app_escape($order['order_date'] ?? '-'); ?></td></tr>
             </table>
         </div>
+
+        <?php if (!empty($order['tracking_number'])): ?>
+            <div class="card p-4 mb-4">
+                <h5 class="mb-3">Shipping</h5>
+                <table class="table table-borderless mb-0">
+                    <tr><th>Carrier</th><td><?php echo $order['shipping_carrier'] !== null ? app_escape($order['shipping_carrier']) : '&mdash;'; ?></td></tr>
+                    <tr><th>Tracking Number</th><td><?php echo app_escape($order['tracking_number']); ?></td></tr>
+                    <tr><th>Shipped Date</th><td><?php echo $order['shipped_at'] !== null ? app_escape(date('j F Y', strtotime($order['shipped_at']))) : '&mdash;'; ?></td></tr>
+                </table>
+            </div>
+        <?php endif; ?>
 
         <div class="card p-4">
             <h5 class="mb-3">Items</h5>
@@ -325,34 +446,56 @@ require_once __DIR__ . '/../../includes/header.php';
         </div>
 
         <?php if ($canManage): ?>
+            <?php $nextOrderStatus = order_status_next((string) $order['order_status']); ?>
             <div class="card p-4 mb-4">
-                <h5 class="mb-3">Change Status</h5>
-                <?php foreach ($statusFields as $field => $config): ?>
-                    <div class="mb-4 pb-3 border-bottom">
-                        <div class="fw-semibold mb-1"><?php echo app_escape($config['label']); ?></div>
-                        <div class="text-muted small mb-2">Current: <?php echo app_escape((string) $order[$field]); ?></div>
+                <h5 class="mb-3">Order Workflow</h5>
+                <div class="mb-3"><?php echo order_status_badge($order['order_status']); ?></div>
 
-                        <?php if (in_array($order[$field], $config['terminal'], true)): ?>
-                            <span class="badge bg-secondary">Final</span>
-                        <?php else: ?>
-                            <form method="post" class="d-flex gap-2 flex-wrap align-items-start">
-                                <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
-                                <input type="hidden" name="status_field" value="<?php echo app_escape($field); ?>">
+                <?php if ($nextOrderStatus === 'shipped'): ?>
+                    <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#shipOrderModal">Mark Shipped</button>
+                <?php elseif ($nextOrderStatus !== null): ?>
+                    <form method="post" onsubmit="return confirm('<?php echo app_escape((string) order_status_next_action_label((string) $order['order_status'])); ?>?');">
+                        <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                        <input type="hidden" name="advance_status" value="1">
+                        <input type="hidden" name="target_status" value="<?php echo app_escape($nextOrderStatus); ?>">
+                        <button type="submit" class="btn btn-primary btn-sm"><?php echo app_escape((string) order_status_next_action_label((string) $order['order_status'])); ?></button>
+                    </form>
+                <?php else: ?>
+                    <span class="badge bg-secondary">Final</span>
+                <?php endif; ?>
 
-                                <select class="form-select form-select-sm w-auto" name="new_status" required>
-                                    <?php foreach ($config['values'] as $value): ?>
-                                        <?php if ($value === $order[$field]) { continue; } ?>
-                                        <option value="<?php echo app_escape($value); ?>"><?php echo app_escape($value); ?></option>
-                                    <?php endforeach; ?>
-                                </select>
+                <?php if (!in_array($order['order_status'], ['completed', 'cancelled'], true)): ?>
+                    <form method="post" class="mt-2" onsubmit="return confirm('Cancel this order? Any reserved stock will be released back to available.');">
+                        <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                        <input type="hidden" name="cancel_order" value="1">
+                        <button type="submit" class="btn btn-outline-danger btn-sm">Cancel Order</button>
+                    </form>
+                <?php endif; ?>
+            </div>
 
-                                <input type="text" class="form-control form-control-sm" name="notes" placeholder="Notes (optional)" style="max-width: 220px;">
+            <div class="card p-4 mb-4">
+                <h5 class="mb-3">Payment Status</h5>
+                <div class="text-muted small mb-2">Current: <?php echo app_escape((string) $order['payment_status']); ?></div>
 
-                                <button class="btn btn-primary btn-sm" type="submit">Update</button>
-                            </form>
-                        <?php endif; ?>
-                    </div>
-                <?php endforeach; ?>
+                <?php if (in_array($order['payment_status'], $statusFields['payment_status']['terminal'], true)): ?>
+                    <span class="badge bg-secondary">Final</span>
+                <?php else: ?>
+                    <form method="post" class="d-flex gap-2 flex-wrap align-items-start">
+                        <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                        <input type="hidden" name="status_field" value="payment_status">
+
+                        <select class="form-select form-select-sm w-auto" name="new_status" required>
+                            <?php foreach ($statusFields['payment_status']['values'] as $value): ?>
+                                <?php if ($value === $order['payment_status']) { continue; } ?>
+                                <option value="<?php echo app_escape($value); ?>"><?php echo app_escape($value); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+
+                        <input type="text" class="form-control form-control-sm" name="notes" placeholder="Notes (optional)" style="max-width: 220px;">
+
+                        <button class="btn btn-primary btn-sm" type="submit">Update</button>
+                    </form>
+                <?php endif; ?>
             </div>
         <?php endif; ?>
 
@@ -398,5 +541,40 @@ require_once __DIR__ . '/../../includes/header.php';
         </div>
     </div>
 </div>
+
+<?php if ($canManage): ?>
+<div class="modal fade" id="shipOrderModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post">
+                <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                <input type="hidden" name="mark_shipped" value="1">
+                <div class="modal-header">
+                    <h5 class="modal-title">Mark Shipped</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Shipping Carrier</label>
+                        <input type="text" class="form-control" name="shipping_carrier" placeholder="e.g. Ninja Van, J&amp;T Express, Pos Laju" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Tracking Number</label>
+                        <input type="text" class="form-control" name="tracking_number" required>
+                    </div>
+                    <div class="mb-0">
+                        <label class="form-label">Shipped Date</label>
+                        <input type="date" class="form-control" name="shipped_date" value="<?php echo date('Y-m-d'); ?>">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Confirm Shipped</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

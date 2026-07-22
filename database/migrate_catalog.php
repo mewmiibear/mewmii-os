@@ -318,6 +318,19 @@ if (!migrate_column_exists($pdo, 'products', 'preorder_reopened_at')) {
     migrate_run($pdo, 'products.preorder_reopened_at', 'ALTER TABLE products ADD COLUMN preorder_reopened_at DATETIME NULL AFTER preorder_closing_date', $applied);
 }
 
+// mewmii_orders: shipment tracking, captured by the "Mark Shipped" action button (see
+// modules/orders/view.php) instead of the old raw shipping_status dropdown. All nullable -
+// existing orders are unaffected until a staff member actually ships one through the new flow.
+if (!migrate_column_exists($pdo, 'mewmii_orders', 'tracking_number')) {
+    migrate_run($pdo, 'mewmii_orders.tracking_number', 'ALTER TABLE mewmii_orders ADD COLUMN tracking_number VARCHAR(100) NULL AFTER shipping_status', $applied);
+}
+if (!migrate_column_exists($pdo, 'mewmii_orders', 'shipping_carrier')) {
+    migrate_run($pdo, 'mewmii_orders.shipping_carrier', 'ALTER TABLE mewmii_orders ADD COLUMN shipping_carrier VARCHAR(50) NULL AFTER tracking_number', $applied);
+}
+if (!migrate_column_exists($pdo, 'mewmii_orders', 'shipped_at')) {
+    migrate_run($pdo, 'mewmii_orders.shipped_at', 'ALTER TABLE mewmii_orders ADD COLUMN shipped_at DATETIME NULL AFTER shipping_carrier', $applied);
+}
+
 echo count($applied) . ' migration statement(s) applied:' . PHP_EOL;
 foreach ($applied as $item) {
     echo '  - ' . $item . PHP_EOL;

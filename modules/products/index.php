@@ -9,7 +9,6 @@ $appTitle = 'Products';
 
 $statusOptions = ['draft', 'active', 'hidden', 'archived'];
 $catalogTypes = ['simple', 'variable'];
-$productTypes = ['ready_stock', 'preorder', 'early_bird'];
 $productTypeLabels = ['ready_stock' => 'Ready Stock', 'preorder' => 'Preorder', 'early_bird' => 'Early Bird'];
 
 $pdo = app_db();
@@ -21,10 +20,11 @@ $filterCategoryId = isset($_GET['category_id']) && ctype_digit((string) $_GET['c
 $filterBrandId = isset($_GET['brand_id']) && ctype_digit((string) $_GET['brand_id']) ? (int) $_GET['brand_id'] : null;
 $filterCollectionId = isset($_GET['collection_id']) && ctype_digit((string) $_GET['collection_id']) ? (int) $_GET['collection_id'] : null;
 $filterSupplierId = isset($_GET['supplier_id']) && ctype_digit((string) $_GET['supplier_id']) ? (int) $_GET['supplier_id'] : null;
-$filterProductType = in_array($_GET['product_type'] ?? '', $productTypes, true) ? $_GET['product_type'] : null;
 $filterCatalogType = in_array($_GET['catalog_type'] ?? '', $catalogTypes, true) ? $_GET['catalog_type'] : null;
 $filterStatus = in_array($_GET['status'] ?? '', $statusOptions, true) ? $_GET['status'] : null;
-$quick = in_array($_GET['quick'] ?? '', ['sale', 'low_stock'], true) ? $_GET['quick'] : null;
+// The Availability dropdown is gone - the lifecycle-stage button tabs below are its
+// replacement (see catalog_product_lifecycle_stage()), not an addition on top of it.
+$quick = in_array($_GET['quick'] ?? '', ['ready_stock', 'preorder', 'early_bird', 'low_stock'], true) ? $_GET['quick'] : null;
 $searchTerm = trim((string) ($_GET['q'] ?? ''));
 
 $sql = "
@@ -65,10 +65,6 @@ if ($filterSupplierId !== null) {
     $sql .= ' AND p.supplier_id = ?';
     $params[] = $filterSupplierId;
 }
-if ($filterProductType !== null) {
-    $sql .= ' AND p.product_type = ?';
-    $params[] = $filterProductType;
-}
 if ($filterCatalogType !== null) {
     $sql .= ' AND p.catalog_type = ?';
     $params[] = $filterCatalogType;
@@ -76,9 +72,6 @@ if ($filterCatalogType !== null) {
 if ($filterStatus !== null) {
     $sql .= ' AND p.status = ?';
     $params[] = $filterStatus;
-}
-if ($quick === 'sale') {
-    $sql .= ' AND p.sale_enabled = 1';
 }
 if ($searchTerm !== '') {
     $sql .= ' AND (p.name LIKE ? OR p.sku LIKE ? OR p.barcode LIKE ?)';
@@ -108,20 +101,19 @@ if ($quick === 'low_stock') {
 
         return (int) $stock['available_quantity'] < (int) $product['min_stock_threshold'];
     }));
+} elseif (in_array($quick, ['ready_stock', 'preorder', 'early_bird'], true)) {
+    // These three tabs filter by the product's *current computed lifecycle stage*
+    // (catalog_product_lifecycle_stage(), the same logic behind catalog_lifecycle_badge()),
+    // not the raw product_type column - a reopened Early Bird product shows under the
+    // Preorder tab, and a closed/inactive product shows under neither, matching what its
+    // badge actually displays rather than a static database value.
+    $products = array_values(array_filter($products, static fn (array $product): bool => catalog_product_lifecycle_stage($product) === $quick));
 }
 
 $filterCategories = catalog_list_categories_tree($pdo);
 $filterBrands = catalog_list_brands($pdo);
 $filterCollections = catalog_list_collections($pdo);
 $filterSuppliers = $pdo->query('SELECT id, name FROM suppliers ORDER BY name ASC')->fetchAll(PDO::FETCH_ASSOC);
-
-$plushCategoryId = null;
-foreach ($filterCategories as $cat) {
-    if ($cat['name'] === 'Plush') {
-        $plushCategoryId = $cat['id'];
-        break;
-    }
-}
 
 $chipActive = static function (array $chipParams): bool {
     foreach ($chipParams as $key => $value) {
@@ -133,14 +125,13 @@ $chipActive = static function (array $chipParams): bool {
     return true;
 };
 
-$chips = [['label' => 'All', 'params' => []]];
-if ($plushCategoryId !== null) {
-    $chips[] = ['label' => 'Plush', 'params' => ['category_id' => (string) $plushCategoryId]];
-}
-$chips[] = ['label' => 'Ready Stock', 'params' => ['product_type' => 'ready_stock']];
-$chips[] = ['label' => 'Preorder', 'params' => ['product_type' => 'preorder']];
-$chips[] = ['label' => 'Low Stock', 'params' => ['quick' => 'low_stock']];
-$chips[] = ['label' => 'Sale', 'params' => ['quick' => 'sale']];
+$chips = [
+    ['label' => 'All', 'params' => []],
+    ['label' => '🟩 Ready Stock', 'params' => ['quick' => 'ready_stock']],
+    ['label' => '🟪 Preorder', 'params' => ['quick' => 'preorder']],
+    ['label' => '🟧 Early Bird', 'params' => ['quick' => 'early_bird']],
+    ['label' => '⚠️ Low Stock', 'params' => ['quick' => 'low_stock']],
+];
 
 $canManage = app_has_permission('products.manage');
 
@@ -189,7 +180,7 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php endif; ?>
 
 
-<?php $filterKeys = ['category_id', 'brand_id', 'collection_id', 'supplier_id', 'product_type', 'catalog_type', 'status', 'quick', 'q']; ?>
+<?php $filterKeys = ['category_id', 'brand_id', 'collection_id', 'supplier_id', 'catalog_type', 'status', 'quick', 'q']; ?>
 <div class="d-flex flex-wrap gap-2 mb-3">
     <?php foreach ($chips as $chip): ?>
         <?php
@@ -239,16 +230,6 @@ require_once __DIR__ . '/../../includes/header.php';
                 <option value="">All</option>
                 <?php foreach ($filterCollections as $collection): ?>
                     <option value="<?php echo (int) $collection['id']; ?>" <?php echo $filterCollectionId === (int) $collection['id'] ? 'selected' : ''; ?>><?php echo app_escape($collection['name']); ?></option>
-                <?php endforeach; ?>
-            </select>
-        </div>
-
-        <div class="col-md-2">
-            <label class="form-label small mb-1">Availability</label>
-            <select name="product_type" class="form-select form-select-sm">
-                <option value="">All</option>
-                <?php foreach ($productTypes as $type): ?>
-                    <option value="<?php echo app_escape($type); ?>" <?php echo $filterProductType === $type ? 'selected' : ''; ?>><?php echo app_escape($productTypeLabels[$type]); ?></option>
                 <?php endforeach; ?>
             </select>
         </div>
