@@ -24,6 +24,7 @@ $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <th>Payment</th>
                 <th>Order</th>
                 <th>Shipping</th>
+                <th></th>
             </tr>
         </thead>
         <tbody>
@@ -34,6 +35,9 @@ $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     <td><?php echo app_escape($order['payment_status']); ?></td>
                     <td><?php echo app_escape($order['order_status']); ?></td>
                     <td><?php echo app_escape($order['shipping_status']); ?></td>
+                    <td class="text-end">
+                        <a class="btn btn-sm btn-outline-primary" href="/modules/orders/view.php?id=<?php echo (int) $order['id']; ?>">View</a>
+                    </td>
                 </tr>
             <?php endforeach; ?>
         </tbody>
