@@ -24,6 +24,9 @@ $canManage = app_has_permission('orders.manage');
 <?php if (isset($_GET['created'])): ?>
     <div class="alert alert-success">Order created.</div>
 <?php endif; ?>
+<?php if (isset($_GET['deleted'])): ?>
+    <div class="alert alert-success">Order deleted.</div>
+<?php endif; ?>
 
 <div class="card p-4">
     <table class="table table-hover align-middle">

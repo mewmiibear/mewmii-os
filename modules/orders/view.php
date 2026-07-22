@@ -347,7 +347,21 @@ require_once __DIR__ . '/../../includes/header.php';
         <h2 class="mb-1">Order <?php echo app_escape($order['order_number']); ?></h2>
         <p class="text-muted mb-0"><?php echo app_escape($order['customer_name'] ?? 'Unknown customer'); ?></p>
     </div>
-    <a class="btn btn-outline-secondary btn-sm" href="/modules/orders/index.php">Back to Orders</a>
+    <div class="d-flex gap-2">
+        <?php
+        // Only offered while still eligible per order_delete_if_unused() - avoids showing
+        // a button that would always fail once the order has actually been processed.
+        $orderDeletable = $canManage && $order['order_status'] === 'pending' && $order['payment_status'] === 'pending' && $order['shipped_at'] === null;
+        ?>
+        <?php if ($orderDeletable): ?>
+            <form method="post" action="/modules/orders/delete.php" class="d-inline" onsubmit="return confirm('Permanently delete this order? This cannot be undone.');">
+                <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                <input type="hidden" name="order_id" value="<?php echo (int) $orderId; ?>">
+                <button type="submit" class="btn btn-outline-danger btn-sm">Delete</button>
+            </form>
+        <?php endif; ?>
+        <a class="btn btn-outline-secondary btn-sm" href="/modules/orders/index.php">Back to Orders</a>
+    </div>
 </div>
 
 <?php if (isset($_GET['created'])): ?>
@@ -356,6 +370,10 @@ require_once __DIR__ . '/../../includes/header.php';
 
 <?php if (isset($_GET['updated'])): ?>
     <div class="alert alert-success">Order status updated.</div>
+<?php endif; ?>
+
+<?php if (isset($_GET['delete_error'])): ?>
+    <div class="alert alert-danger"><?php echo app_escape($_GET['delete_error'] === '1' ? 'Failed to delete order.' : $_GET['delete_error']); ?></div>
 <?php endif; ?>
 
 <?php if ($error !== ''): ?>

@@ -108,3 +108,60 @@ function order_sync_tracking_to_woocommerce(PDO $pdo, int $orderId): void
         sync_log_failure($pdo, 'woocommerce_order_tracking_sync', $exception->getMessage(), $orderId);
     }
 }
+
+// --- Development cleanup: relationship-based delete eligibility, no test-flag column ----
+
+/**
+ * Hard-deletes a customer order, but only if it's still in its very first (Draft-
+ * equivalent) state and nothing has actually happened to it yet: order_status/
+ * payment_status both still 'pending' (this app has no separate literal "draft" status -
+ * 'pending' before any payment approval or workflow advance IS that state), no shipment
+ * recorded, and - checked directly against the ledger rather than trusting the status
+ * fields alone - no inventory_transactions logged against it (order_reserve/order_ship).
+ * Once any of that has happened, the order must be Cancelled (see modules/orders/view.php's
+ * Cancel Order action) instead of deleted - it's real business history from that point on.
+ */
+function order_delete_if_unused(PDO $pdo, int $orderId): void
+{
+    $stmt = $pdo->prepare('SELECT order_status, payment_status, shipped_at FROM mewmii_orders WHERE id = ?');
+    $stmt->execute([$orderId]);
+    $order = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$order) {
+        throw new RuntimeException('Order not found.');
+    }
+
+    if ($order['order_status'] !== 'pending' || $order['payment_status'] !== 'pending' || $order['shipped_at'] !== null) {
+        throw new RuntimeException('This order has already been processed and cannot be deleted. Cancel it instead.');
+    }
+
+    $txStmt = $pdo->prepare("SELECT COUNT(*) FROM inventory_transactions WHERE reference_type = 'order' AND reference_id = ?");
+    $txStmt->execute([$orderId]);
+    if ((int) $txStmt->fetchColumn() > 0) {
+        throw new RuntimeException('This order has inventory history and cannot be deleted. Cancel it instead.');
+    }
+
+    $pdo->prepare('DELETE FROM mewmii_orders WHERE id = ?')->execute([$orderId]);
+}
+
+/**
+ * Every customer order still eligible for a real delete (see order_delete_if_unused()) -
+ * the "safe to delete" list for the Data Cleanup tool. Same NOT EXISTS approach as
+ * catalog_list_deletable_products() for the same reason; the delete action itself still
+ * re-validates via order_delete_if_unused().
+ */
+function order_list_deletable(PDO $pdo): array
+{
+    $stmt = $pdo->query("
+        SELECT o.id, o.order_number, o.order_status, o.payment_status, o.created_at
+        FROM mewmii_orders o
+        WHERE o.order_status = 'pending' AND o.payment_status = 'pending' AND o.shipped_at IS NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM inventory_transactions x WHERE x.reference_type = 'order' AND x.reference_id = o.id
+          )
+        ORDER BY o.created_at DESC
+        LIMIT 500
+    ");
+
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}

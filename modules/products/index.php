@@ -175,6 +175,9 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php if (isset($_GET['created'])): ?>
     <div class="alert alert-success">Product created.</div>
 <?php endif; ?>
+<?php if (isset($_GET['deleted'])): ?>
+    <div class="alert alert-success">Product deleted.</div>
+<?php endif; ?>
 <?php if (isset($_GET['duplicate_error'])): ?>
     <div class="alert alert-danger">Failed to duplicate product.</div>
 <?php endif; ?>

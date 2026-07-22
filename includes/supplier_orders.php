@@ -311,6 +311,29 @@ function supplier_order_delete_if_unreceived(PDO $pdo, int $orderId): void
 }
 
 /**
+ * Every supplier order still eligible for delete (see supplier_order_delete_if_unreceived()
+ * / supplier_order_has_receiving_history()) - the "safe to delete" list for the Data
+ * Cleanup tool. Same NOT EXISTS approach as catalog_list_deletable_products() for the same
+ * reason; the delete action itself still re-validates via supplier_order_has_receiving_history().
+ */
+function supplier_order_list_deletable(PDO $pdo): array
+{
+    $stmt = $pdo->query("
+        SELECT so.id, so.purchase_number, so.status, so.created_at
+        FROM supplier_orders so
+        WHERE NOT EXISTS (
+            SELECT 1 FROM inventory_transactions it
+            INNER JOIN supplier_order_items soi ON soi.id = it.reference_id AND it.reference_type = 'supplier_order_item'
+            WHERE soi.supplier_order_id = so.id AND it.transaction_type = 'supplier_receive'
+        )
+        ORDER BY so.created_at DESC
+        LIMIT 500
+    ");
+
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
  * Every product for the "+ Add Product" picker (11.2), grouped exactly like
  * modules/inventory/index.php groups its listing: a simple product is one selectable
  * unit, a variable product is a container whose active (non-archived) variations are
@@ -322,7 +345,7 @@ function supplier_order_delete_if_unreceived(PDO $pdo, int $orderId): void
 function supplier_order_picker_products(PDO $pdo): array
 {
     $productsStmt = $pdo->query("
-        SELECT p.id, p.sku, p.name, p.catalog_type, p.product_type,
+        SELECT p.id, p.sku, p.name, p.catalog_type, p.product_type, p.product_cost,
                p.supplier_id, s.name AS supplier_name,
                (SELECT cat.id FROM product_category_relationships pcr
                    INNER JOIN categories cat ON cat.id = pcr.category_id
@@ -349,7 +372,7 @@ function supplier_order_picker_products(PDO $pdo): array
     if ($variableIds !== []) {
         $placeholders = implode(',', array_fill(0, count($variableIds), '?'));
         $stmt = $pdo->prepare("
-            SELECT id, product_id, sku
+            SELECT id, product_id, sku, cost_price
             FROM product_variations
             WHERE product_id IN ({$placeholders}) AND status <> 'archived'
             ORDER BY id ASC
@@ -369,14 +392,18 @@ function supplier_order_picker_products(PDO $pdo): array
         if ($isVariable) {
             foreach ($variationsByProduct[$productId] ?? [] as $variation) {
                 $variationId = (int) $variation['id'];
+                // A variation's own cost_price is what Unit Cost auto-fills from - never
+                // the parent's product_cost, since a variation can genuinely cost more/less
+                // to source than its siblings (e.g. a limited-edition colorway).
                 $units[] = [
                     'key' => $productId . ':' . $variationId,
                     'sku' => $variation['sku'],
                     'label' => variation_build_label($pdo, $variationId),
+                    'cost_price' => (float) $variation['cost_price'],
                 ];
             }
         } else {
-            $units[] = ['key' => $productId . ':0', 'sku' => $product['sku'], 'label' => null];
+            $units[] = ['key' => $productId . ':0', 'sku' => $product['sku'], 'label' => null, 'cost_price' => (float) $product['product_cost']];
         }
 
         if ($units === []) {

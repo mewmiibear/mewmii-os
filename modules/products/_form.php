@@ -36,6 +36,18 @@
                 <input type="hidden" name="product_id" value="<?php echo (int) $productId; ?>">
                 <button type="submit" class="btn btn-outline-secondary btn-sm">Duplicate</button>
             </form>
+            <?php if ($product['status'] !== 'archived'): ?>
+                <form method="post" action="/modules/products/deactivate.php" class="d-inline" onsubmit="return confirm('Deactivate this product? It will be archived and hidden from active use, but not deleted.');">
+                    <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                    <input type="hidden" name="product_id" value="<?php echo (int) $productId; ?>">
+                    <button type="submit" class="btn btn-outline-secondary btn-sm">Deactivate</button>
+                </form>
+            <?php endif; ?>
+            <form method="post" action="/modules/products/delete.php" class="d-inline" onsubmit="return confirm('Permanently delete this product? This only works if it has no order/inventory/supplier history, and cannot be undone.');">
+                <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                <input type="hidden" name="product_id" value="<?php echo (int) $productId; ?>">
+                <button type="submit" class="btn btn-outline-danger btn-sm">Delete</button>
+            </form>
         <?php endif; ?>
         <a class="btn btn-outline-secondary btn-sm" href="/modules/products/index.php">Back to Products</a>
     </div>
@@ -52,6 +64,12 @@
 <?php endif; ?>
 <?php if (isset($_GET['reopened'])): ?>
     <div class="alert alert-success">Preorder reopened. Regular Price now applies - Early Bird pricing does not return.</div>
+<?php endif; ?>
+<?php if (isset($_GET['deactivated'])): ?>
+    <div class="alert alert-success">Product deactivated (archived).</div>
+<?php endif; ?>
+<?php if (isset($_GET['delete_error'])): ?>
+    <div class="alert alert-danger"><?php echo app_escape($_GET['delete_error'] === '1' ? 'Failed to delete product.' : $_GET['delete_error']); ?></div>
 <?php endif; ?>
 <?php if ($error !== ''): ?>
     <div class="alert alert-danger"><?php echo app_escape($error); ?></div>

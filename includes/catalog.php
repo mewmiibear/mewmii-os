@@ -542,3 +542,84 @@ function catalog_apply_template(PDO $pdo, int $productId, int $templateId): void
         }
     }
 }
+
+// --- Development cleanup: relationship-based delete eligibility, no test-flag column ----
+
+/**
+ * Every table that can hold real business history against a product_id, and the message
+ * shown when any of them do. Deliberately checked in application code even where a
+ * foreign key would also block the delete (mewmii_order_items/supplier_order_items/
+ * customer_storage have no ON DELETE action, so MySQL defaults to RESTRICT there) -
+ * inventory_transactions.product_id is ON DELETE CASCADE, so the database alone would
+ * silently destroy ledger history on a product delete instead of stopping it. This check
+ * is what actually protects that table; the others just get a friendlier message than a
+ * raw FK error.
+ */
+function catalog_product_history_tables(): array
+{
+    return [
+        'mewmii_order_items' => 'customer orders',
+        'supplier_order_items' => 'supplier orders',
+        'inventory_transactions' => 'inventory transactions',
+        'customer_storage' => 'customer storage records',
+    ];
+}
+
+/**
+ * Hard-deletes a product, but only if it has never appeared in any real business record -
+ * checked against every table in catalog_product_history_tables(). Otherwise throws with
+ * the admin-facing message so the caller can show it instead of a raw SQL/FK error. If
+ * clear, deleting the product cascades (ON DELETE CASCADE) to its variations, images,
+ * attribute assignments, tag/category/collection links, and mewmii_inventory row -
+ * nothing product-specific is left behind.
+ */
+function product_delete_if_unused(PDO $pdo, int $productId): void
+{
+    foreach (array_keys(catalog_product_history_tables()) as $table) {
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM {$table} WHERE product_id = ?");
+        $stmt->execute([$productId]);
+        if ((int) $stmt->fetchColumn() > 0) {
+            throw new RuntimeException('This product has transaction history and cannot be deleted.');
+        }
+    }
+
+    $pdo->prepare('DELETE FROM products WHERE id = ?')->execute([$productId]);
+}
+
+/**
+ * Every product with zero rows in any history table - the "safe to delete" list for the
+ * Data Cleanup tool (modules/settings/maintenance.php). A single NOT EXISTS query rather
+ * than looping product_delete_if_unused() over every product, for the same reason
+ * modules/products/index.php's quick=low_stock filter avoids re-querying per row where it
+ * can - this just scales better once there are hundreds of products. The actual delete
+ * action still re-validates via product_delete_if_unused() itself, so this list is never
+ * treated as authoritative on its own (a record could theoretically gain history between
+ * listing and deleting).
+ */
+function catalog_list_deletable_products(PDO $pdo): array
+{
+    $stmt = $pdo->query("
+        SELECT p.id, p.sku, p.name, p.status, p.created_at
+        FROM products p
+        WHERE NOT EXISTS (SELECT 1 FROM mewmii_order_items x WHERE x.product_id = p.id)
+          AND NOT EXISTS (SELECT 1 FROM supplier_order_items x WHERE x.product_id = p.id)
+          AND NOT EXISTS (SELECT 1 FROM inventory_transactions x WHERE x.product_id = p.id)
+          AND NOT EXISTS (SELECT 1 FROM customer_storage x WHERE x.product_id = p.id)
+        ORDER BY p.created_at DESC
+        LIMIT 500
+    ");
+
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * "Deactivate": the safe, always-available alternative to deleting a product that DOES
+ * have history - reuses the existing status column (no new schema) rather than a
+ * dedicated is_active flag, since 'archived' already means exactly this everywhere else
+ * status is checked (catalog_product_lifecycle_stage(), filters, etc). Never touches any
+ * history table.
+ */
+function product_deactivate(PDO $pdo, int $productId): void
+{
+    $pdo->prepare("UPDATE products SET status = 'archived' WHERE id = ?")->execute([$productId]);
+}

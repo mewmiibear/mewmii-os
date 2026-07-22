@@ -159,7 +159,8 @@
                     html += '<label class="d-block checkbox-item">' +
                         '<input type="checkbox" class="picker-unit-checkbox" value="' + escapeHtml(unit.key) +
                         '" data-label="' + escapeHtml(product.name + ' - ' + (unit.label || '')) +
-                        '" data-sku="' + escapeHtml(unit.sku) + '"' + (checked ? ' checked disabled' : '') + '> ' +
+                        '" data-sku="' + escapeHtml(unit.sku) +
+                        '" data-cost="' + escapeHtml(formatMoney(unit.cost_price || 0)) + '"' + (checked ? ' checked disabled' : '') + '> ' +
                         escapeHtml(unit.label || '(no attributes)') + ' <span class="text-muted small">' + escapeHtml(unit.sku) + '</span>' +
                         (checked ? ' <span class="badge bg-secondary">Added</span>' : '') +
                         '</label>';
@@ -171,7 +172,8 @@
                 html += '<label class="d-block checkbox-item">' +
                     '<input type="checkbox" class="picker-unit-checkbox" value="' + escapeHtml(unit.key) +
                     '" data-label="' + escapeHtml(product.name) +
-                    '" data-sku="' + escapeHtml(unit.sku) + '"' + (isAdded ? ' checked disabled' : '') + '> Add this product' +
+                    '" data-sku="' + escapeHtml(unit.sku) +
+                    '" data-cost="' + escapeHtml(formatMoney(unit.cost_price || 0)) + '"' + (isAdded ? ' checked disabled' : '') + '> Add this product' +
                     (isAdded ? ' <span class="badge bg-secondary">Added</span>' : '') +
                     '</label>';
             }
@@ -205,7 +207,10 @@
 
         document.getElementById('picker-add-selected-btn').addEventListener('click', function () {
             document.querySelectorAll('.picker-unit-checkbox:checked:not(:disabled)').forEach(function (checkbox) {
-                addRow(checkbox.value, checkbox.dataset.label, checkbox.dataset.sku, 1, '0.00');
+                // Unit Cost is pre-filled from the product's current cost_price (11.A) but
+                // stays a plain editable input from here on - editing it only affects this
+                // one supplier order line, never products.cost_price itself.
+                addRow(checkbox.value, checkbox.dataset.label, checkbox.dataset.sku, 1, checkbox.dataset.cost || '0.00');
             });
             window.bootstrap.Modal.getOrCreateInstance(modalEl).hide();
         });

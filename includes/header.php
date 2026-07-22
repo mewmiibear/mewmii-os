@@ -112,6 +112,9 @@ $appTitle = 'Mewmii OS';
                         <a class="btn btn-light text-start" href="/modules/customer-storage/index.php">Customer Storage</a>
                         <a class="btn btn-light text-start" href="/modules/ship-my-box/index.php">Ship My Box</a>
                         <a class="btn btn-light text-start" href="/modules/sync-logs/index.php">Sync Logs</a>
+                        <?php if (app_has_permission('settings.manage')): ?>
+                            <a class="btn btn-light text-start" href="/modules/settings/maintenance.php">Settings</a>
+                        <?php endif; ?>
                     </div>
                 </aside>
                 <main class="col-lg-10 p-4">
