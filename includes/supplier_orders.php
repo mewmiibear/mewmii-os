@@ -3,6 +3,7 @@
 require_once __DIR__ . '/inventory.php';
 require_once __DIR__ . '/customer_storage.php';
 require_once __DIR__ . '/product_variations.php';
+require_once __DIR__ . '/catalog.php';
 
 // --- Workflow: Draft -> Ordered -> Arrived -> Completed --------------------------------
 // "Arrived" is a display label for the existing status = 'received' value (set
@@ -492,7 +493,7 @@ function supplier_order_list_deletable(PDO $pdo): array
 function supplier_order_picker_products(PDO $pdo): array
 {
     $productsStmt = $pdo->query("
-        SELECT p.id, p.sku, p.name, p.catalog_type, p.product_type, p.product_cost,
+        SELECT p.id, p.sku, p.name, p.catalog_type, p.product_type, p.product_cost, p.moq,
                p.supplier_id, s.name AS supplier_name,
                (SELECT cat.id FROM product_category_relationships pcr
                    INNER JOIN categories cat ON cat.id = pcr.category_id
@@ -519,7 +520,7 @@ function supplier_order_picker_products(PDO $pdo): array
     if ($variableIds !== []) {
         $placeholders = implode(',', array_fill(0, count($variableIds), '?'));
         $stmt = $pdo->prepare("
-            SELECT id, product_id, sku, cost_price
+            SELECT id, product_id, sku, cost_price, moq
             FROM product_variations
             WHERE product_id IN ({$placeholders}) AND status <> 'archived'
             ORDER BY id ASC
@@ -539,18 +540,28 @@ function supplier_order_picker_products(PDO $pdo): array
         if ($isVariable) {
             foreach ($variationsByProduct[$productId] ?? [] as $variation) {
                 $variationId = (int) $variation['id'];
-                // A variation's own cost_price is what Unit Cost auto-fills from - never
-                // the parent's product_cost, since a variation can genuinely cost more/less
-                // to source than its siblings (e.g. a limited-edition colorway).
+                // A variation's own cost_price/moq is what Unit Cost/MOQ auto-fill from -
+                // never the parent's, since a variation can genuinely cost more/less or need
+                // a different minimum order quantity than its siblings (e.g. a limited-
+                // edition colorway). Falls back to the parent's moq when the variation has
+                // none of its own set (product_variations.moq is nullable) - see
+                // catalog_variation_effective_moq().
                 $units[] = [
                     'key' => $productId . ':' . $variationId,
                     'sku' => $variation['sku'],
                     'label' => variation_build_label($pdo, $variationId),
                     'cost_price' => (float) $variation['cost_price'],
+                    'moq' => catalog_variation_effective_moq($variation['moq'] ?? null, $product['moq'] ?? null),
                 ];
             }
         } else {
-            $units[] = ['key' => $productId . ':0', 'sku' => $product['sku'], 'label' => null, 'cost_price' => (float) $product['product_cost']];
+            $units[] = [
+                'key' => $productId . ':0',
+                'sku' => $product['sku'],
+                'label' => null,
+                'cost_price' => (float) $product['product_cost'],
+                'moq' => $product['moq'] !== null ? (int) $product['moq'] : null,
+            ];
         }
 
         if ($units === []) {

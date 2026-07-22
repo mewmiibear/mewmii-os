@@ -49,6 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'unit_key' => $rowUnitKey,
             'label' => isset($unitsByKey[$rowUnitKey]) ? $unitsByKey[$rowUnitKey]['label'] : $rowUnitKey,
             'sku' => isset($unitsByKey[$rowUnitKey]) ? $unitsByKey[$rowUnitKey]['sku'] : '',
+            'moq' => isset($unitsByKey[$rowUnitKey]) ? $unitsByKey[$rowUnitKey]['moq'] : null,
             'quantity' => $rowQuantity,
             'supplier_price' => $rowPrice,
         ];
@@ -200,8 +201,9 @@ require_once __DIR__ . '/../../includes/header.php';
                 <thead>
                     <tr>
                         <th>Product</th>
-                        <th>SKU</th>
-                        <th>Ordered Quantity</th>
+                        <th>SKU / Variation</th>
+                        <th>MOQ</th>
+                        <th>Quantity</th>
                         <th>Unit Cost (RM)</th>
                         <th>Subtotal (RM)</th>
                         <th></th>
@@ -210,7 +212,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 <tbody></tbody>
                 <tfoot>
                     <tr>
-                        <td colspan="4" class="text-end fw-semibold">Total</td>
+                        <td colspan="5" class="text-end fw-semibold">Total Purchase Amount</td>
                         <td class="fw-semibold" id="supplier-order-total">0.00</td>
                         <td></td>
                     </tr>

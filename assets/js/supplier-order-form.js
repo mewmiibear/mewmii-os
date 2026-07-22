@@ -51,6 +51,19 @@
         var qty = parseFloat(row.querySelector('.item-quantity').value) || 0;
         var cost = parseFloat(row.querySelector('.item-cost').value) || 0;
         row.querySelector('.item-subtotal').textContent = formatMoney(qty * cost);
+
+        // Below-MOQ is a non-blocking warning only (per spec: "Do not block saving") -
+        // just an inline hint, never disables the Save button or the input itself.
+        var moqWarning = row.querySelector('.item-moq-warning');
+        if (moqWarning) {
+            var moq = parseInt(row.getAttribute('data-moq') || '', 10);
+            if (moq > 0 && qty > 0 && qty < moq) {
+                moqWarning.textContent = 'Quantity is below MOQ (Minimum Order Quantity: ' + moq + '). Continue?';
+                moqWarning.classList.remove('d-none');
+            } else {
+                moqWarning.classList.add('d-none');
+            }
+        }
     }
 
     function recalcTotal() {
@@ -66,7 +79,7 @@
         totalEl.textContent = formatMoney(total);
     }
 
-    function addRow(unitKey, label, sku, quantity, cost, receivedQuantity) {
+    function addRow(unitKey, label, sku, quantity, cost, receivedQuantity, moq) {
         if (!tbody || existingUnitKeys().indexOf(unitKey) !== -1) {
             return;
         }
@@ -81,13 +94,27 @@
             ? '<span class="badge bg-secondary" title="Already received ' + received + ' unit(s) - cannot be removed">Received ' + received + '</span>'
             : '<button type="button" class="btn btn-sm btn-outline-danger remove-item-row">Remove</button>';
 
+        var moqValue = (moq === null || moq === undefined || moq === '') ? null : parseInt(moq, 10);
+        // Quantity defaults to the MOQ when a product is first added (11.2's "Auto fill:
+        // Quantity: 50" example) - only when no explicit quantity was passed in, so
+        // pre-existing rows (edit mode / re-displayed after a validation error) keep
+        // whatever was actually saved/typed, never silently reset to the MOQ.
+        var defaultQuantity = quantity !== undefined && quantity !== null && quantity !== '' ? quantity : (moqValue || 1);
+
         var row = document.createElement('tr');
         row.setAttribute('data-unit-key', unitKey);
+        if (moqValue) {
+            row.setAttribute('data-moq', String(moqValue));
+        }
         row.innerHTML =
             '<td>' + escapeHtml(label) +
             '<input type="hidden" name="unit_key[]" value="' + escapeHtml(unitKey) + '"></td>' +
             '<td>' + escapeHtml(sku) + '</td>' +
-            '<td><input type="number" class="form-control form-control-sm item-quantity" name="quantity[]" min="' + qtyMin + '" style="width:90px;" value="' + escapeHtml(quantity || 1) + '"></td>' +
+            '<td class="text-muted">' + (moqValue ? escapeHtml(moqValue) : '&mdash;') + '</td>' +
+            '<td>' +
+            '<input type="number" class="form-control form-control-sm item-quantity" name="quantity[]" min="' + qtyMin + '" style="width:90px;" value="' + escapeHtml(defaultQuantity) + '">' +
+            '<div class="text-warning small item-moq-warning d-none"></div>' +
+            '</td>' +
             '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm item-cost" name="supplier_price[]" style="width:110px;" value="' + escapeHtml(cost || '0.00') + '"></td>' +
             '<td class="item-subtotal">0.00</td>' +
             '<td class="text-end">' + actionCell + '</td>';
@@ -115,7 +142,7 @@
 
     // Pre-existing rows (edit mode, or a re-displayed form after a validation error).
     (config.existingItems || []).forEach(function (item) {
-        addRow(item.unit_key, item.label, item.sku, item.quantity, item.supplier_price, item.received_quantity);
+        addRow(item.unit_key, item.label, item.sku, item.quantity, item.supplier_price, item.received_quantity, item.moq);
     });
 
     // ---------------------------------------------------------------------------------
@@ -173,7 +200,8 @@
                         '<input type="checkbox" class="picker-unit-checkbox" value="' + escapeHtml(unit.key) +
                         '" data-label="' + escapeHtml(product.name + ' - ' + (unit.label || '')) +
                         '" data-sku="' + escapeHtml(unit.sku) +
-                        '" data-cost="' + escapeHtml(formatMoney(unit.cost_price || 0)) + '"' + (checked ? ' checked disabled' : '') + '> ' +
+                        '" data-cost="' + escapeHtml(formatMoney(unit.cost_price || 0)) +
+                        '" data-moq="' + escapeHtml(unit.moq || '') + '"' + (checked ? ' checked disabled' : '') + '> ' +
                         escapeHtml(unit.label || '(no attributes)') + ' <span class="text-muted small">' + escapeHtml(unit.sku) + '</span>' +
                         (checked ? ' <span class="badge bg-secondary">Added</span>' : '') +
                         '</label>';
@@ -186,7 +214,8 @@
                     '<input type="checkbox" class="picker-unit-checkbox" value="' + escapeHtml(unit.key) +
                     '" data-label="' + escapeHtml(product.name) +
                     '" data-sku="' + escapeHtml(unit.sku) +
-                    '" data-cost="' + escapeHtml(formatMoney(unit.cost_price || 0)) + '"' + (isAdded ? ' checked disabled' : '') + '> Add this product' +
+                    '" data-cost="' + escapeHtml(formatMoney(unit.cost_price || 0)) +
+                    '" data-moq="' + escapeHtml(unit.moq || '') + '"' + (isAdded ? ' checked disabled' : '') + '> Add this product' +
                     (isAdded ? ' <span class="badge bg-secondary">Added</span>' : '') +
                     '</label>';
             }
@@ -220,10 +249,11 @@
 
         document.getElementById('picker-add-selected-btn').addEventListener('click', function () {
             document.querySelectorAll('.picker-unit-checkbox:checked:not(:disabled)').forEach(function (checkbox) {
-                // Unit Cost is pre-filled from the product's current cost_price (11.A) but
-                // stays a plain editable input from here on - editing it only affects this
-                // one supplier order line, never products.cost_price itself.
-                addRow(checkbox.value, checkbox.dataset.label, checkbox.dataset.sku, 1, checkbox.dataset.cost || '0.00');
+                // Unit Cost is pre-filled from the product's current cost_price but stays a
+                // plain editable input from here on - editing it only affects this one
+                // supplier order line, never products.cost_price itself. Quantity defaults
+                // to the MOQ (addRow() falls back to it when quantity is left undefined).
+                addRow(checkbox.value, checkbox.dataset.label, checkbox.dataset.sku, undefined, checkbox.dataset.cost || '0.00', 0, checkbox.dataset.moq);
             });
             window.bootstrap.Modal.getOrCreateInstance(modalEl).hide();
         });
