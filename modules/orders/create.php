@@ -117,7 +117,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $available = (int) $invStmt->fetchColumn();
 
             if ($available < $neededQty) {
-                $error = 'Insufficient available stock for ' . $unit['label'] . ' (available: ' . $available . ', requested: ' . $neededQty . ').';
+                $error = catalog_format_stock_error($pdo, 'Insufficient available stock.', $unit['product_id'], $unit['variation_id'], 'Available quantity', $available, $neededQty);
                 break;
             }
         }
@@ -186,7 +186,7 @@ require_once __DIR__ . '/../../includes/header.php';
 </div>
 
 <?php if ($error !== ''): ?>
-    <div class="alert alert-danger"><?php echo app_escape($error); ?></div>
+    <div class="alert alert-danger"><?php echo nl2br(app_escape($error)); ?></div>
 <?php endif; ?>
 
 <div class="card p-4">

@@ -508,3 +508,91 @@ function catalog_product_is_orderable(array $product): bool
 
     return true;
 }
+
+// --- Admin-facing error messages: describe a product/variation by name, never a bare ID ---
+
+/**
+ * Same variation as variation_build_label() but with each attribute's name spelled out
+ * (e.g. "Color: Brown" or "Color: Brown, Size: M") rather than a bare value list
+ * ("Brown / M") - used in admin-facing messages where the compact label isn't enough
+ * context on its own.
+ */
+function variation_build_full_label(PDO $pdo, int $variationId): string
+{
+    $stmt = $pdo->prepare('
+        SELECT pa.name AS attribute_name, pav.value
+        FROM product_variation_attribute_values pvav
+        INNER JOIN product_attributes pa ON pa.id = pvav.attribute_id
+        INNER JOIN product_attribute_values pav ON pav.id = pvav.attribute_value_id
+        WHERE pvav.variation_id = ?
+        ORDER BY pa.name ASC
+    ');
+    $stmt->execute([$variationId]);
+
+    $parts = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $parts[] = $row['attribute_name'] . ': ' . $row['value'];
+    }
+
+    return implode(', ', $parts);
+}
+
+/**
+ * Product/variation identity for admin-facing error messages: name, SKU, and (for a
+ * variation) its own SKU and full attribute label - so staff are never left staring at a
+ * bare product_id/variation_id to figure out what an error is actually about.
+ */
+function catalog_describe_unit(PDO $pdo, int $productId, ?int $variationId = null): array
+{
+    $productStmt = $pdo->prepare('SELECT name, sku FROM products WHERE id = ?');
+    $productStmt->execute([$productId]);
+    $product = $productStmt->fetch(PDO::FETCH_ASSOC);
+
+    $description = [
+        'product_name' => $product['name'] ?? ('Unknown product #' . $productId),
+        'product_sku' => $product['sku'] ?? null,
+        'variation_label' => null,
+        'variation_sku' => null,
+    ];
+
+    if ($variationId !== null) {
+        $variationStmt = $pdo->prepare('SELECT sku FROM product_variations WHERE id = ?');
+        $variationStmt->execute([$variationId]);
+        $variationSku = $variationStmt->fetchColumn();
+        $description['variation_sku'] = $variationSku !== false ? (string) $variationSku : null;
+        $description['variation_label'] = variation_build_full_label($pdo, $variationId);
+    }
+
+    return $description;
+}
+
+/**
+ * Builds a multi-line, admin-friendly stock shortfall message: which product/variation,
+ * which inventory bucket ran short, how much is on hand, and how much was requested.
+ * $currentQtyLabel is the exact line label for the on-hand figure (e.g. "Available
+ * quantity", "Arrived quantity available", "Remaining ordered quantity") so each call site
+ * can phrase it naturally rather than forcing one template onto every bucket name. Used
+ * anywhere a stock check fails so warehouse/admin users never have to look up a raw
+ * product_id/variation_id in the database.
+ */
+function catalog_format_stock_error(PDO $pdo, string $headline, int $productId, ?int $variationId, string $currentQtyLabel, int $currentQty, int $requestedQty): string
+{
+    $unit = catalog_describe_unit($pdo, $productId, $variationId);
+
+    $lines = [$headline, ''];
+    $lines[] = 'Product: ' . $unit['product_name'];
+    if ($unit['product_sku'] !== null) {
+        $lines[] = 'SKU: ' . $unit['product_sku'];
+    }
+    if (!empty($unit['variation_label'])) {
+        $lines[] = 'Variation: ' . $unit['variation_label'];
+    }
+    if ($unit['variation_sku'] !== null) {
+        $lines[] = 'Variation SKU: ' . $unit['variation_sku'];
+    }
+    $lines[] = '';
+    $lines[] = $currentQtyLabel . ': ' . $currentQty;
+    $lines[] = 'Requested: ' . $requestedQty;
+
+    return implode("\n", $lines);
+}

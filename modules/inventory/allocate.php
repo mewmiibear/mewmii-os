@@ -96,7 +96,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
 
                     if ($requestedTotal > (int) $row['arrived_quantity']) {
-                        throw new RuntimeException('Total allocated quantity exceeds arrived stock on hand.');
+                        throw new RuntimeException(catalog_format_stock_error($pdo, 'Total allocated quantity exceeds arrived stock on hand.', $productId, $variationId, 'Arrived quantity available', (int) $row['arrived_quantity'], $requestedTotal));
                     }
 
                     foreach ($tickedIds as $orderItemId) {
@@ -107,7 +107,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
 
                         $itemStmt = $pdo->prepare('
-                            SELECT oi.id, oi.product_id, oi.variation_id, oi.quantity, o.customer_id, o.order_status
+                            SELECT oi.id, oi.product_id, oi.variation_id, oi.quantity, o.customer_id, o.order_status, o.order_number
                             FROM mewmii_order_items oi
                             INNER JOIN mewmii_orders o ON o.id = oi.order_id
                             WHERE oi.id = ?
@@ -116,23 +116,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $itemStmt->execute([$orderItemId]);
                         $orderItem = $itemStmt->fetch(PDO::FETCH_ASSOC);
 
+                        if (!$orderItem) {
+                            throw new RuntimeException('One of the selected order items no longer exists.');
+                        }
+
                         $itemVariationId = $orderItem['variation_id'] !== null ? (int) $orderItem['variation_id'] : null;
 
                         if (
-                            !$orderItem
-                            || (int) $orderItem['product_id'] !== $productId
+                            (int) $orderItem['product_id'] !== $productId
                             || $itemVariationId !== $variationId
                             || $orderItem['order_status'] === 'cancelled'
                             || (int) $orderItem['customer_id'] < 1
                         ) {
-                            throw new RuntimeException('One of the selected orders is no longer eligible for allocation.');
+                            throw new RuntimeException('Order ' . $orderItem['order_number'] . ' is no longer eligible for allocation.');
                         }
 
                         $allocated = supplier_order_item_customer_storage_allocated($pdo, $orderItemId);
                         $outstanding = (int) $orderItem['quantity'] - $allocated;
 
                         if ($qty > $outstanding) {
-                            throw new RuntimeException('Quantity exceeds the outstanding amount for one of the selected orders.');
+                            throw new RuntimeException('Requested quantity (' . $qty . ') exceeds the outstanding amount (' . $outstanding . ') for order ' . $orderItem['order_number'] . '.');
                         }
 
                         customer_storage_add($pdo, (int) $orderItem['customer_id'], $productId, $qty, null, $variationId, $orderItemId, 'arrived');
@@ -164,7 +167,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $row = inventory_get_or_create_row($pdo, $productId, $variationId);
 
                     if ($releaseQty > (int) $row['arrived_quantity']) {
-                        throw new RuntimeException('Cannot release more than the arrived quantity on hand.');
+                        throw new RuntimeException(catalog_format_stock_error($pdo, 'Cannot release more than the arrived quantity on hand.', $productId, $variationId, 'Arrived quantity available', (int) $row['arrived_quantity'], $releaseQty));
                     }
 
                     $pdo->prepare('
@@ -250,7 +253,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="alert alert-success">Stock released to available inventory.</div>
 <?php endif; ?>
 <?php if ($error !== ''): ?>
-    <div class="alert alert-danger"><?php echo app_escape($error); ?></div>
+    <div class="alert alert-danger"><?php echo nl2br(app_escape($error)); ?></div>
 <?php endif; ?>
 
 <div class="card p-4 mb-4">

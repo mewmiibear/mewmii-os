@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/inventory.php';
+require_once __DIR__ . '/product_variations.php';
 
 /**
  * Move stock into a customer's storage. Creates a new customer_storage lot rather than
@@ -33,7 +34,8 @@ function customer_storage_add(PDO $pdo, int $customerId, int $productId, int $qu
     $row = inventory_get_or_create_row($pdo, $productId, $variationId);
 
     if ((int) $row[$sourceColumn] < $quantity) {
-        throw new RuntimeException('Insufficient ' . $debitFrom . ' stock to move into customer storage.');
+        $currentQtyLabel = $debitFrom === 'available' ? 'Available quantity' : (ucfirst($debitFrom) . ' quantity available');
+        throw new RuntimeException(catalog_format_stock_error($pdo, 'Insufficient ' . $debitFrom . ' stock.', $productId, $variationId, $currentQtyLabel, (int) $row[$sourceColumn], $quantity));
     }
 
     $pdo->prepare("
@@ -73,16 +75,18 @@ function customer_storage_remove(PDO $pdo, int $storageId, int $quantity): void
         throw new RuntimeException('Storage record not found.');
     }
 
+    $productId = (int) $storageRow['product_id'];
+    $variationId = isset($storageRow['variation_id']) && $storageRow['variation_id'] !== null ? (int) $storageRow['variation_id'] : null;
+
     if ($storageRow['status'] !== 'stored') {
-        throw new RuntimeException('This storage record is no longer active.');
+        $unit = catalog_describe_unit($pdo, $productId, $variationId);
+        throw new RuntimeException('This storage record is no longer active: ' . $unit['product_name'] . ($unit['product_sku'] !== null ? (' (SKU: ' . $unit['product_sku'] . ')') : '') . (!empty($unit['variation_label']) ? (', variation ' . $unit['variation_label']) : '') . '.');
     }
 
     if ($quantity > (int) $storageRow['quantity']) {
-        throw new RuntimeException('Cannot remove more than the stored quantity.');
+        throw new RuntimeException(catalog_format_stock_error($pdo, 'Cannot remove more than the stored quantity.', $productId, $variationId, 'Stored quantity', (int) $storageRow['quantity'], $quantity));
     }
 
-    $productId = (int) $storageRow['product_id'];
-    $variationId = isset($storageRow['variation_id']) && $storageRow['variation_id'] !== null ? (int) $storageRow['variation_id'] : null;
     $remaining = (int) $storageRow['quantity'] - $quantity;
     $newStatus = $remaining > 0 ? 'stored' : 'shipped';
 

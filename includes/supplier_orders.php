@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/inventory.php';
 require_once __DIR__ . '/customer_storage.php';
+require_once __DIR__ . '/product_variations.php';
 
 /**
  * Units received so far for one supplier order line item, derived from the
@@ -104,7 +105,7 @@ function supplier_order_receive_item(PDO $pdo, int $itemId, int $quantity): void
     $remaining = $totalQuantity - $alreadyReceived;
 
     if ($quantity > $remaining) {
-        throw new RuntimeException('Cannot receive more than the remaining ordered quantity.');
+        throw new RuntimeException(catalog_format_stock_error($pdo, 'Cannot receive more than the remaining ordered quantity.', $productId, $variationId, 'Remaining ordered quantity', $remaining, $quantity));
     }
 
     $productTypeStmt = $pdo->prepare('SELECT product_type FROM products WHERE id = ?');

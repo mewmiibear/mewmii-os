@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/inventory.php';
+require_once __DIR__ . '/product_variations.php';
 
 /**
  * Ship every item on a ship request: consumes the underlying customer_storage lots
@@ -28,15 +29,16 @@ function ship_request_process(PDO $pdo, int $shipRequestId): void
         $storageRow = $storageStmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$storageRow) {
-            throw new RuntimeException('Storage record #' . $storageId . ' not found.');
-        }
-
-        if ($storageRow['status'] !== 'stored' || (int) $storageRow['quantity'] < $requestedQty) {
-            throw new RuntimeException('Insufficient stored quantity for storage record #' . $storageId . '.');
+            throw new RuntimeException('One of the items on this ship request no longer has a matching storage record.');
         }
 
         $productId = (int) $storageRow['product_id'];
         $variationId = isset($storageRow['variation_id']) && $storageRow['variation_id'] !== null ? (int) $storageRow['variation_id'] : null;
+
+        if ($storageRow['status'] !== 'stored' || (int) $storageRow['quantity'] < $requestedQty) {
+            throw new RuntimeException(catalog_format_stock_error($pdo, 'Insufficient stored quantity.', $productId, $variationId, 'Stored quantity', (int) $storageRow['quantity'], $requestedQty));
+        }
+
         $remaining = (int) $storageRow['quantity'] - $requestedQty;
         $newStatus = $remaining > 0 ? 'stored' : 'shipped';
 

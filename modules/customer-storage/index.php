@@ -87,7 +87,7 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php endif; ?>
 
 <?php if ($error !== ''): ?>
-    <div class="alert alert-danger"><?php echo app_escape($error); ?></div>
+    <div class="alert alert-danger"><?php echo nl2br(app_escape($error)); ?></div>
 <?php endif; ?>
 
 <?php if ($canManage): ?>

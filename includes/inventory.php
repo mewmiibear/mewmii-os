@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/product_variations.php';
+
 /**
  * Every function here now accepts an optional trailing $variationId (default null).
  * null means "this is a simple product" (or, historically, any pre-existing call site
@@ -105,7 +107,7 @@ function inventory_reserve_for_order(PDO $pdo, int $orderId): void
         $row = inventory_get_or_create_row($pdo, $productId, $variationId);
 
         if ((int) $row['available_quantity'] < $qty) {
-            throw new RuntimeException('Insufficient available stock for product #' . $productId . ($variationId !== null ? (' (variation #' . $variationId . ')') : '') . '.');
+            throw new RuntimeException(catalog_format_stock_error($pdo, 'Insufficient available stock.', $productId, $variationId, 'Available quantity', (int) $row['available_quantity'], $qty));
         }
 
         $pdo->prepare('
@@ -146,7 +148,7 @@ function inventory_ship_for_order(PDO $pdo, int $orderId): void
         $shortfall = $qty - $fromReserved;
 
         if ($shortfall > 0 && (int) $row['available_quantity'] < $shortfall) {
-            throw new RuntimeException('Insufficient stock to ship product #' . $productId . ($variationId !== null ? (' (variation #' . $variationId . ')') : '') . '.');
+            throw new RuntimeException(catalog_format_stock_error($pdo, 'Insufficient available stock to ship.', $productId, $variationId, 'Available quantity', (int) $row['available_quantity'], $shortfall));
         }
 
         $pdo->prepare('
