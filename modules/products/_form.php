@@ -241,7 +241,7 @@
                 <label class="form-label">Closing Date</label>
                 <input type="date" class="form-control" name="preorder_closing_date" value="<?php echo app_escape($form['preorder_closing_date']); ?>">
             </div>
-            <p class="text-muted small mb-0 js-stock-preorder">No stock quantity is requested here - stock arrives later via Supplier Orders receiving, which routes directly into Customer Storage for outstanding orders.</p>
+            <p class="text-muted small mb-0 js-stock-preorder">No stock quantity is requested here - stock arrives later via Supplier Orders receiving (marked as arrived), then gets manually allocated to outstanding orders from the Inventory page.</p>
         </div>
     </div>
 

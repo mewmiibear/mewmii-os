@@ -68,6 +68,7 @@ $stmt = $pdo->query("
     (SELECT p.id AS product_id, NULL AS variation_id, p.sku, p.name AS product_name,
             COALESCE(i.available_quantity, 0) AS stock_quantity,
             COALESCE(i.reserved_quantity, 0) AS reserved_stock,
+            COALESCE(i.arrived_quantity, 0) AS arrived_stock,
             p.id AS sort_key
      FROM products p
      LEFT JOIN mewmii_inventory i ON i.product_id = p.id AND i.variation_id IS NULL
@@ -76,6 +77,7 @@ $stmt = $pdo->query("
     (SELECT p.id AS product_id, pv.id AS variation_id, pv.sku, p.name AS product_name,
             COALESCE(iv.available_quantity, 0) AS stock_quantity,
             COALESCE(iv.reserved_quantity, 0) AS reserved_stock,
+            COALESCE(iv.arrived_quantity, 0) AS arrived_stock,
             pv.id AS sort_key
      FROM product_variations pv
      INNER JOIN products p ON p.id = pv.product_id
@@ -165,6 +167,8 @@ require_once __DIR__ . '/../../includes/header.php';
                 <th>Name</th>
                 <th>Available</th>
                 <th>Reserved</th>
+                <th>Arrived</th>
+                <th></th>
             </tr>
         </thead>
         <tbody>
@@ -179,6 +183,12 @@ require_once __DIR__ . '/../../includes/header.php';
                     </td>
                     <td><?php echo app_escape((string) $item['stock_quantity']); ?></td>
                     <td><?php echo app_escape((string) $item['reserved_stock']); ?></td>
+                    <td><?php echo app_escape((string) $item['arrived_stock']); ?></td>
+                    <td class="text-end">
+                        <?php if ((int) $item['arrived_stock'] > 0): ?>
+                            <a class="btn btn-sm btn-outline-primary" href="/modules/inventory/allocate.php?product_id=<?php echo (int) $item['product_id']; ?><?php echo $item['variation_id'] !== null ? '&variation_id=' . (int) $item['variation_id'] : ''; ?>">Allocate</a>
+                        <?php endif; ?>
+                    </td>
                 </tr>
             <?php endforeach; ?>
         </tbody>

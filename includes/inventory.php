@@ -189,22 +189,23 @@ function product_effective_stock(PDO $pdo, int $productId): array
             SELECT
                 COALESCE(SUM(inv.available_quantity), 0) AS available_quantity,
                 COALESCE(SUM(inv.reserved_quantity), 0) AS reserved_quantity,
-                COALESCE(SUM(inv.incoming_quantity), 0) AS incoming_quantity
+                COALESCE(SUM(inv.incoming_quantity), 0) AS incoming_quantity,
+                COALESCE(SUM(inv.arrived_quantity), 0) AS arrived_quantity
             FROM mewmii_inventory inv
             INNER JOIN product_variations pv ON pv.id = inv.variation_id
             WHERE inv.product_id = ? AND pv.status <> 'archived'
         ");
         $stmt->execute([$productId]);
 
-        return $stmt->fetch(PDO::FETCH_ASSOC) ?: ['available_quantity' => 0, 'reserved_quantity' => 0, 'incoming_quantity' => 0];
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: ['available_quantity' => 0, 'reserved_quantity' => 0, 'incoming_quantity' => 0, 'arrived_quantity' => 0];
     }
 
     $stmt = $pdo->prepare('
-        SELECT available_quantity, reserved_quantity, incoming_quantity
+        SELECT available_quantity, reserved_quantity, incoming_quantity, arrived_quantity
         FROM mewmii_inventory
         WHERE product_id = ? AND variation_id IS NULL
     ');
     $stmt->execute([$productId]);
 
-    return $stmt->fetch(PDO::FETCH_ASSOC) ?: ['available_quantity' => 0, 'reserved_quantity' => 0, 'incoming_quantity' => 0];
+    return $stmt->fetch(PDO::FETCH_ASSOC) ?: ['available_quantity' => 0, 'reserved_quantity' => 0, 'incoming_quantity' => 0, 'arrived_quantity' => 0];
 }

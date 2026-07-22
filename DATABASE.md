@@ -422,6 +422,7 @@ Quantity:
 - available_quantity
 - reserved_quantity
 - incoming_quantity
+- arrived_quantity
 - customer_storage_quantity
 
 updated_at

@@ -261,6 +261,15 @@ if (!migrate_column_exists($pdo, 'customer_storage', 'order_item_id')) {
     migrate_run($pdo, 'customer_storage.fk_order_item', 'ALTER TABLE customer_storage ADD CONSTRAINT fk_customer_storage_order_item FOREIGN KEY (order_item_id) REFERENCES mewmii_order_items(id) ON DELETE SET NULL', $applied);
 }
 
+// mewmii_inventory.arrived_quantity: preorder/early_bird receiving now lands here
+// (physically received, not yet allocated) instead of auto-FIFO-routing into
+// customer_storage. Manual allocation (modules/inventory/allocate.php) debits this
+// column via customer_storage_add(..., debitFrom: 'arrived'); manual release moves it
+// into available_quantity.
+if (!migrate_column_exists($pdo, 'mewmii_inventory', 'arrived_quantity')) {
+    migrate_run($pdo, 'mewmii_inventory.arrived_quantity', 'ALTER TABLE mewmii_inventory ADD COLUMN arrived_quantity INT NOT NULL DEFAULT 0 AFTER incoming_quantity', $applied);
+}
+
 echo count($applied) . ' migration statement(s) applied:' . PHP_EOL;
 foreach ($applied as $item) {
     echo '  - ' . $item . PHP_EOL;

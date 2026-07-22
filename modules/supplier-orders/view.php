@@ -219,7 +219,7 @@ require_once __DIR__ . '/../../includes/header.php';
                                             <input type="hidden" name="action" value="receive">
                                             <input type="hidden" name="item_id" value="<?php echo (int) $item['id']; ?>">
                                             <input type="number" class="form-control form-control-sm" style="width: 80px;" name="quantity" min="1" max="<?php echo (int) $item['remaining_quantity']; ?>" placeholder="Qty" required>
-                                            <button class="btn btn-sm btn-outline-success" type="submit">Receive</button>
+                                            <button class="btn btn-sm btn-outline-success" type="submit">Mark Arrived</button>
                                         </form>
                                     <?php else: ?>
                                         <span class="badge bg-success">Complete</span>

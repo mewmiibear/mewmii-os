@@ -9,10 +9,11 @@ require_once __DIR__ . '/inventory.php';
  *
  * $debitFrom controls which mewmii_inventory bucket the quantity is taken from:
  * 'available' (default) is the normal manual "move ready stock into storage" flow used by
- * the Customer Storage page. 'incoming' is used when preorder/early-bird stock is
- * received and auto-allocated straight into storage without ever touching
- * available_quantity (see supplier_order_receive_item()). $orderItemId, when set, records
- * which order this lot fulfilled so it's never matched a second time.
+ * the Customer Storage page. 'incoming' pulls from stock still marked as ordered-but-not-
+ * received. 'arrived' pulls from stock that has been received but not yet allocated (see
+ * modules/inventory/allocate.php - the manual customer-order allocation step for received
+ * preorder/early-bird stock). $orderItemId, when set, records which order this lot
+ * fulfilled so it's never matched a second time.
  */
 function customer_storage_add(PDO $pdo, int $customerId, int $productId, int $quantity, ?string $arrivalDate, ?int $variationId = null, ?int $orderItemId = null, string $debitFrom = 'available'): int
 {
@@ -20,11 +21,15 @@ function customer_storage_add(PDO $pdo, int $customerId, int $productId, int $qu
         throw new RuntimeException('Quantity must be at least 1.');
     }
 
-    if (!in_array($debitFrom, ['available', 'incoming'], true)) {
+    if (!in_array($debitFrom, ['available', 'incoming', 'arrived'], true)) {
         throw new RuntimeException('Invalid inventory source.');
     }
 
-    $sourceColumn = $debitFrom === 'incoming' ? 'incoming_quantity' : 'available_quantity';
+    $sourceColumn = match ($debitFrom) {
+        'incoming' => 'incoming_quantity',
+        'arrived' => 'arrived_quantity',
+        default => 'available_quantity',
+    };
     $row = inventory_get_or_create_row($pdo, $productId, $variationId);
 
     if ((int) $row[$sourceColumn] < $quantity) {

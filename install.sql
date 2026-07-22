@@ -566,6 +566,7 @@ CREATE TABLE IF NOT EXISTS mewmii_inventory (
   available_quantity INT NOT NULL DEFAULT 0,
   reserved_quantity INT NOT NULL DEFAULT 0,
   incoming_quantity INT NOT NULL DEFAULT 0,
+  arrived_quantity INT NOT NULL DEFAULT 0,
   customer_storage_quantity INT NOT NULL DEFAULT 0,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_mewmii_inventory_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,

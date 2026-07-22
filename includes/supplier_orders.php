@@ -55,70 +55,32 @@ function supplier_order_item_customer_storage_allocated(PDO $pdo, int $orderItem
 }
 
 /**
- * Routes received preorder/early-bird stock straight to the customers who ordered it
- * (oldest order first) instead of crediting available_quantity - "do not request
- * available stock" for these types means the matched portion must never touch it. Any
- * portion beyond outstanding customer demand (MOQ/top-up buffer) falls back to
- * available_quantity exactly like ready_stock. Reuses customer_storage_add() with
- * debitFrom='incoming' so the matched portion moves incoming -> customer storage directly.
+ * Marks received preorder/early-bird stock as arrived but not yet allocated - it moves
+ * from incoming_quantity into arrived_quantity, never touching available_quantity or
+ * customer_storage directly. A human then manually allocates it to specific outstanding
+ * customer orders (or releases it to available stock) via modules/inventory/allocate.php.
  */
 function supplier_order_receive_preorder_quantity(PDO $pdo, int $productId, ?int $variationId, int $supplierItemId, int $quantity): void
 {
     inventory_get_or_create_row($pdo, $productId, $variationId);
 
-    $outstandingStmt = $pdo->prepare("
-        SELECT oi.id, oi.quantity, o.customer_id
-        FROM mewmii_order_items oi
-        INNER JOIN mewmii_orders o ON o.id = oi.order_id
-        WHERE oi.product_id = ? AND oi.variation_id <=> ?
-          AND o.order_status <> 'cancelled'
-        ORDER BY o.order_date ASC, o.id ASC, oi.id ASC
-    ");
-    $outstandingStmt->execute([$productId, $variationId]);
-    $orderItems = $outstandingStmt->fetchAll(PDO::FETCH_ASSOC);
-
-    $remaining = $quantity;
-
-    foreach ($orderItems as $orderItem) {
-        if ($remaining < 1) {
-            break;
-        }
-
-        $allocated = supplier_order_item_customer_storage_allocated($pdo, (int) $orderItem['id']);
-        $outstanding = (int) $orderItem['quantity'] - $allocated;
-        $customerId = (int) $orderItem['customer_id'];
-
-        if ($outstanding < 1 || $customerId < 1) {
-            continue;
-        }
-
-        $toAllocate = min($outstanding, $remaining);
-
-        customer_storage_add($pdo, $customerId, $productId, $toAllocate, null, $variationId, (int) $orderItem['id'], 'incoming');
-        $remaining -= $toAllocate;
-    }
-
-    // Leftover beyond matched customer demand (MOQ/top-up buffer) becomes ordinary
-    // available stock, same as ready_stock receiving.
-    if ($remaining > 0) {
-        $pdo->prepare('
-            UPDATE mewmii_inventory
-            SET incoming_quantity = GREATEST(incoming_quantity - ?, 0),
-                available_quantity = available_quantity + ?
-            WHERE product_id = ? AND variation_id <=> ?
-        ')->execute([$remaining, $remaining, $productId, $variationId]);
-    }
+    $pdo->prepare('
+        UPDATE mewmii_inventory
+        SET incoming_quantity = GREATEST(incoming_quantity - ?, 0),
+            arrived_quantity = arrived_quantity + ?
+        WHERE product_id = ? AND variation_id <=> ?
+    ')->execute([$quantity, $quantity, $productId, $variationId]);
 
     inventory_log_transaction($pdo, $productId, 'supplier_receive', $quantity, 'supplier_order_item', $supplierItemId, $variationId);
 }
 
 /**
  * Receive units for one supplier order line item: for ready_stock, moves stock from
- * incoming into available as before. For preorder/early_bird, routes it to outstanding
- * customer orders first (see supplier_order_receive_preorder_quantity()). Once every item
- * on the parent order has been fully received, the order is auto-advanced to status
- * 'received'. The line item's own variation_id (set at PO creation time) determines which
- * inventory row moves.
+ * incoming into available as before. For preorder/early_bird, moves it into
+ * arrived_quantity pending manual allocation (see supplier_order_receive_preorder_quantity()).
+ * Once every item on the parent order has been fully received, the order is auto-advanced
+ * to status 'received'. The line item's own variation_id (set at PO creation time)
+ * determines which inventory row moves.
  */
 function supplier_order_receive_item(PDO $pdo, int $itemId, int $quantity): void
 {
