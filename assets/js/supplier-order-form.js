@@ -255,6 +255,11 @@
 
         document.getElementById('picker-add-selected-btn').addEventListener('click', function () {
             document.querySelectorAll('.picker-unit-checkbox:checked:not(:disabled)').forEach(function (checkbox) {
+                // TEMPORARY DEBUG - remove once cost auto-fill is confirmed fixed on the
+                // live server. Confirms the value actually present in the DOM at add-time,
+                // independent of anything the addRow()/recalc pipeline does afterwards.
+                console.log('variation', checkbox.dataset.variationId, 'cost', checkbox.dataset.cost);
+
                 // Unit Cost is pre-filled from the product's current cost_price but stays a
                 // plain editable input from here on - editing it only affects this one
                 // supplier order line, never products.cost_price itself. Quantity defaults
