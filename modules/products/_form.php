@@ -125,6 +125,15 @@
                     <option value="early_bird" <?php echo $form['product_type'] === 'early_bird' ? 'selected' : ''; ?>>Early Bird</option>
                 </select>
             </div>
+            <div class="col-md-6">
+                <label class="form-label">Availability Override</label>
+                <select class="form-select" name="availability_override">
+                    <option value="auto" <?php echo $form['availability_override'] === 'auto' ? 'selected' : ''; ?>>Auto</option>
+                    <option value="available" <?php echo $form['availability_override'] === 'available' ? 'selected' : ''; ?>>Available</option>
+                    <option value="out_of_stock" <?php echo $form['availability_override'] === 'out_of_stock' ? 'selected' : ''; ?>>Out of Stock</option>
+                </select>
+                <div class="form-text">Ready Stock: follows actual quantity unless set here. Preorder/Early Bird: never gated on quantity - stays purchasable at 0 stock unless manually set to Out of Stock.</div>
+            </div>
         </div>
     </div>
 

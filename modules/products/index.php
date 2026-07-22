@@ -30,7 +30,7 @@ $searchTerm = trim((string) ($_GET['q'] ?? ''));
 $sql = "
     SELECT
         p.id, p.sku, p.name, p.product_type, p.catalog_type, p.status, p.selling_price,
-        p.min_stock_threshold, p.preorder_closing_date, p.preorder_reopened_at,
+        p.min_stock_threshold, p.preorder_closing_date, p.preorder_reopened_at, p.availability_override,
         b.name AS brand_name,
         cat.id AS category_id, cat.name AS category_name,
         col.id AS collection_id, col.name AS collection_name,

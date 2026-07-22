@@ -39,9 +39,11 @@ $product['sale_price'] = $product['sale_price'] ?? null;
 $product['min_stock_threshold'] = $product['min_stock_threshold'] ?? null;
 $product['preorder_closing_date'] = $product['preorder_closing_date'] ?? null;
 $product['preorder_reopened_at'] = $product['preorder_reopened_at'] ?? null;
+$product['availability_override'] = $product['availability_override'] ?? 'auto';
 
 $catalogTypes = ['simple', 'variable'];
 $productTypes = ['ready_stock', 'preorder', 'early_bird'];
+$availabilityOverrideOptions = ['auto', 'available', 'out_of_stock'];
 
 $baseStatusOptions = ['draft', 'active', 'hidden', 'archived'];
 $statusOptions = in_array($product['status'], $baseStatusOptions, true)
@@ -66,6 +68,7 @@ $form = [
     'supplier_id' => $product['supplier_id'] !== null ? (string) $product['supplier_id'] : '',
     'product_type' => $product['product_type'],
     'status' => $product['status'],
+    'availability_override' => $product['availability_override'],
     'product_cost' => (string) $product['product_cost'],
     'selling_price' => (string) $product['selling_price'],
     'sale_enabled' => (bool) $product['sale_enabled'],
@@ -101,6 +104,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form['supplier_id'] = trim((string) ($_POST['supplier_id'] ?? ''));
     $form['product_type'] = (string) ($_POST['product_type'] ?? 'ready_stock');
     $form['status'] = (string) ($_POST['status'] ?? 'draft');
+    $form['availability_override'] = (string) ($_POST['availability_override'] ?? 'auto');
     $form['product_cost'] = trim((string) ($_POST['product_cost'] ?? ''));
     $form['selling_price'] = trim((string) ($_POST['selling_price'] ?? ''));
     $form['sale_enabled'] = !empty($_POST['sale_enabled']);
@@ -131,6 +135,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Invalid availability type.';
         } elseif (!in_array($form['status'], $statusOptions, true)) {
             $error = 'Invalid status.';
+        } elseif (!in_array($form['availability_override'], $availabilityOverrideOptions, true)) {
+            $error = 'Invalid availability override.';
         } elseif (!is_numeric($form['product_cost']) || (float) $form['product_cost'] < 0) {
             $error = 'Cost price must be a valid non-negative number.';
         } elseif (!is_numeric($form['selling_price']) || (float) $form['selling_price'] < 0) {
@@ -209,7 +215,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 SET sku = ?, name = ?, short_description = ?, description = ?, product_type = ?, catalog_type = ?, brand_id = ?, barcode = ?,
                     supplier_id = ?, product_cost = ?, selling_price = ?, sale_enabled = ?, sale_price = ?,
                     min_stock_threshold = ?, sale_start_date = ?, estimated_arrival_date = ?, estimated_release_month = ?,
-                    preorder_closing_date = ?, preorder_reopened_at = ?, expiry_date = ?, moq = ?, status = ?
+                    preorder_closing_date = ?, preorder_reopened_at = ?, expiry_date = ?, moq = ?, status = ?, availability_override = ?
                 WHERE id = ?
             ');
             $stmt->execute([
@@ -235,6 +241,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ($form['has_expiry'] && $form['expiry_date'] !== '') ? $form['expiry_date'] : null,
                 $form['moq'] !== '' ? max(1, (int) $form['moq']) : 1,
                 $form['status'],
+                $form['availability_override'],
                 $productId,
             ]);
 

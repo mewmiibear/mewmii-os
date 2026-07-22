@@ -50,11 +50,20 @@ function catalog_status_dot(string $status): string
  * time. Returns a stable key ('early_bird'|'preorder'|'ready_stock'|'waiting_release'|'closed')
  * for callers that need to branch on stage, separate from catalog_lifecycle_badge()'s display
  * string. Expects a row with at least status, product_type, preorder_closing_date,
- * preorder_reopened_at (e.g. a `products` row or a catalog_sellable_units() entry).
+ * preorder_reopened_at, availability_override (e.g. a `products` row or a
+ * catalog_sellable_units() entry).
  */
 function catalog_product_lifecycle_stage(array $product): string
 {
     if (($product['status'] ?? '') !== 'active') {
+        return 'closed';
+    }
+
+    // A manual "Out of Stock" override always shows as fully closed, regardless of what
+    // stage the closing-date/reopen state machine below would otherwise compute - see
+    // catalog_product_availability_status(). It never affects that state machine itself,
+    // only what's displayed on top of it.
+    if (($product['availability_override'] ?? 'auto') === 'out_of_stock') {
         return 'closed';
     }
 

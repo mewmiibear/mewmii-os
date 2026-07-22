@@ -105,7 +105,7 @@ $filterCategoryId = isset($_GET['category_id']) && ctype_digit((string) $_GET['c
 
 $productSql = "
     SELECT p.id, p.sku, p.name, p.catalog_type, p.product_type, p.min_stock_threshold,
-           p.status, p.preorder_closing_date, p.preorder_reopened_at
+           p.status, p.preorder_closing_date, p.preorder_reopened_at, p.availability_override
     FROM products p
     WHERE 1 = 1
 ";
@@ -308,12 +308,21 @@ $filterCategories = catalog_list_categories_tree($pdo);
  * Low Stock / Out of Stock badges: exact rule already established in
  * modules/products/edit.php, reused verbatim here for consistency. Only ready_stock is
  * ever flagged - preorder/early_bird are deliberately purchasable at 0 stock (see
- * catalog_product_is_orderable()), so they never show either badge.
+ * catalog_product_is_orderable()) and get their own phrase instead (see
+ * inventory_availability_phrase() below). A manual availability_override on a Ready Stock
+ * product takes priority over the real quantity, per catalog_product_availability_status().
  */
-function inventory_stock_badges(string $productType, int $availableQuantity, ?int $minStockThreshold): string
+function inventory_stock_badges(string $productType, int $availableQuantity, ?int $minStockThreshold, string $overrideValue = 'auto'): string
 {
     if ($productType !== 'ready_stock') {
         return '';
+    }
+
+    if ($overrideValue === 'available') {
+        return '';
+    }
+    if ($overrideValue === 'out_of_stock') {
+        return '<span class="badge bg-danger ms-1">Out of Stock (Manual)</span>';
     }
 
     if ($availableQuantity === 0) {
@@ -325,6 +334,37 @@ function inventory_stock_badges(string $productType, int $availableQuantity, ?in
     }
 
     return '';
+}
+
+/**
+ * What the On Hand cell shows for a preorder/early_bird row instead of a raw quantity -
+ * these product types are never gated on physical stock (see
+ * catalog_product_availability_status()), so a bare "0" there would misleadingly read
+ * like "out of stock" when it's actually still purchasable. Returns null for ready_stock
+ * (the caller shows the real number as usual). $isOrderable is
+ * catalog_product_is_orderable($product) - the separate closing-date/reopen gate, which
+ * this phrase also reflects ("Waiting for Release" beats "Open" once that's closed),
+ * independent of the manual override.
+ */
+function inventory_availability_phrase(string $productType, string $overrideValue, bool $isOrderable): ?string
+{
+    if ($productType !== 'ready_stock' && $productType !== 'preorder' && $productType !== 'early_bird') {
+        return null;
+    }
+    if ($productType === 'ready_stock') {
+        return null;
+    }
+
+    $typeLabel = $productType === 'early_bird' ? 'Early Bird' : 'Preorder';
+
+    if ($overrideValue === 'out_of_stock') {
+        return 'Closed (Manual)';
+    }
+    if (!$isOrderable) {
+        return 'Waiting for Release';
+    }
+
+    return $typeLabel . ' Open';
 }
 
 require_once __DIR__ . '/../../includes/header.php';
@@ -433,6 +473,10 @@ require_once __DIR__ . '/../../includes/header.php';
                 $productTypeLabel = $productTypeLabels[$product['product_type']] ?? $product['product_type'];
                 $groupKey = 'vg-' . (int) $product['id'];
                 $autoExpand = !empty($product['auto_expand']);
+                $overrideValue = $product['availability_override'] ?? 'auto';
+                $isOrderable = catalog_product_is_orderable($product);
+                $availabilityPhrase = inventory_availability_phrase($product['product_type'], $overrideValue, $isOrderable);
+                $incomingPhrase = ($product['product_type'] !== 'ready_stock' && (int) $product['incoming_stock'] === 0) ? 'Waiting Supplier' : null;
                 ?>
                 <tr class="<?php echo $isVariable ? 'table-light js-inventory-parent' : ''; ?>"
                     <?php if ($isVariable): ?>
@@ -460,13 +504,23 @@ require_once __DIR__ . '/../../includes/header.php';
                     <td data-label="Type"><?php echo app_escape($productTypeLabel); ?></td>
                     <td data-label="Stage"><?php echo catalog_lifecycle_badge($product); ?></td>
                     <td data-label="On Hand"<?php echo $isVariable ? ' class="text-muted"' : ''; ?>>
-                        <?php echo app_escape((string) $product['stock_quantity']); ?>
-                        <?php if (!$isVariable): ?>
-                            <?php echo inventory_stock_badges($product['product_type'], $product['stock_quantity'], $product['min_stock_threshold'] !== null ? (int) $product['min_stock_threshold'] : null); ?>
+                        <?php if ($availabilityPhrase !== null): ?>
+                            <span class="text-muted"><?php echo app_escape($availabilityPhrase); ?></span>
+                        <?php else: ?>
+                            <?php echo app_escape((string) $product['stock_quantity']); ?>
+                            <?php if (!$isVariable): ?>
+                                <?php echo inventory_stock_badges($product['product_type'], $product['stock_quantity'], $product['min_stock_threshold'] !== null ? (int) $product['min_stock_threshold'] : null, $overrideValue); ?>
+                            <?php endif; ?>
                         <?php endif; ?>
                     </td>
                     <td data-label="Reserved"<?php echo $isVariable ? ' class="text-muted"' : ''; ?>><?php echo app_escape((string) $product['reserved_stock']); ?></td>
-                    <td data-label="Incoming"<?php echo $isVariable ? ' class="text-muted"' : ''; ?>><?php echo app_escape((string) $product['incoming_stock']); ?></td>
+                    <td data-label="Incoming"<?php echo $isVariable ? ' class="text-muted"' : ''; ?>>
+                        <?php if ($incomingPhrase !== null): ?>
+                            <span class="text-muted"><?php echo app_escape($incomingPhrase); ?></span>
+                        <?php else: ?>
+                            <?php echo app_escape((string) $product['incoming_stock']); ?>
+                        <?php endif; ?>
+                    </td>
                     <td data-label="Arrived"<?php echo $isVariable ? ' class="text-muted"' : ''; ?>><?php echo app_escape((string) $product['arrived_stock']); ?></td>
                     <td data-label="Last Updated" class="text-muted small"><?php echo $product['updated_at'] !== null ? app_escape($product['updated_at']) : '&mdash;'; ?></td>
                     <td data-label="" class="text-end">
@@ -504,11 +558,21 @@ require_once __DIR__ . '/../../includes/header.php';
                             <td data-label="Type"></td>
                             <td data-label="Stage"></td>
                             <td data-label="On Hand">
-                                <?php echo app_escape((string) $variation['stock_quantity']); ?>
-                                <?php echo inventory_stock_badges($product['product_type'], (int) $variation['stock_quantity'], $product['min_stock_threshold'] !== null ? (int) $product['min_stock_threshold'] : null); ?>
+                                <?php if ($availabilityPhrase !== null): ?>
+                                    <span class="text-muted"><?php echo app_escape($availabilityPhrase); ?></span>
+                                <?php else: ?>
+                                    <?php echo app_escape((string) $variation['stock_quantity']); ?>
+                                    <?php echo inventory_stock_badges($product['product_type'], (int) $variation['stock_quantity'], $product['min_stock_threshold'] !== null ? (int) $product['min_stock_threshold'] : null, $overrideValue); ?>
+                                <?php endif; ?>
                             </td>
                             <td data-label="Reserved"><?php echo app_escape((string) $variation['reserved_stock']); ?></td>
-                            <td data-label="Incoming"><?php echo app_escape((string) $variation['incoming_stock']); ?></td>
+                            <td data-label="Incoming">
+                                <?php if ($product['product_type'] !== 'ready_stock' && (int) $variation['incoming_stock'] === 0): ?>
+                                    <span class="text-muted">Waiting Supplier</span>
+                                <?php else: ?>
+                                    <?php echo app_escape((string) $variation['incoming_stock']); ?>
+                                <?php endif; ?>
+                            </td>
                             <td data-label="Arrived"><?php echo app_escape((string) $variation['arrived_stock']); ?></td>
                             <td data-label="Last Updated" class="text-muted small"><?php echo $variation['updated_at'] !== null ? app_escape($variation['updated_at']) : '&mdash;'; ?></td>
                             <td data-label="" class="text-end">

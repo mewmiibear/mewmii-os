@@ -337,6 +337,16 @@ if (!migrate_column_exists($pdo, 'supplier_orders', 'notes')) {
     migrate_run($pdo, 'supplier_orders.notes', 'ALTER TABLE supplier_orders ADD COLUMN notes TEXT NULL AFTER received_date', $applied);
 }
 
+// products.availability_override: manual admin control ('auto'/'available'/'out_of_stock')
+// so Early Bird/Preorder purchasability is never silently computed from inventory
+// quantity (they were never gated on it before either - see catalog_product_is_orderable()
+// - this just adds an explicit manual override on top). Ready Stock still follows its
+// actual quantity unless this is set. Default 'auto' preserves every existing product's
+// current behavior untouched.
+if (!migrate_column_exists($pdo, 'products', 'availability_override')) {
+    migrate_run($pdo, 'products.availability_override', "ALTER TABLE products ADD COLUMN availability_override VARCHAR(20) NOT NULL DEFAULT 'auto' AFTER status", $applied);
+}
+
 // products.short_description: the customer-facing summary shown on the product form
 // (Basic Information section) and synced to WooCommerce's own short_description field -
 // separate from the long `description` field, and separate from the auto-generated

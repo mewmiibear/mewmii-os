@@ -330,14 +330,29 @@ function wc_client_build_product_payload(array $product, PDO $pdo): array
 
     if (in_array($product['product_type'] ?? 'ready_stock', ['preorder', 'early_bird'], true)) {
         // Preorder/early-bird stock is never tracked against available_quantity - it must
-        // stay purchasable at 0 stock, so WooCommerce stock management is left off entirely
-        // and purchasability is driven only by status/closing date instead.
+        // stay purchasable at 0 stock, so WooCommerce stock management is left off entirely.
+        // Two independent gates decide stock_status: is ordering currently open at all
+        // (catalog_product_is_orderable() - closing date/reopen) AND has an admin manually
+        // marked it Out of Stock (catalog_product_availability_status()) - quantity never
+        // factors into either one.
         $payload['manage_stock'] = false;
-        $payload['stock_status'] = catalog_product_is_orderable($product) ? 'instock' : 'outofstock';
+        $isAvailable = catalog_product_is_orderable($product) && catalog_product_availability_status($product) === 'available';
+        $payload['stock_status'] = $isAvailable ? 'instock' : 'outofstock';
     } else {
         $stock = product_effective_stock($pdo, $productId);
-        $payload['manage_stock'] = true;
-        $payload['stock_quantity'] = (int) $stock['available_quantity'];
+        $availabilityStatus = catalog_product_availability_status($product, (int) $stock['available_quantity']);
+
+        if (($product['availability_override'] ?? 'auto') === 'auto') {
+            // Untouched existing behavior: let WooCommerce compute in/out of stock from the
+            // real quantity itself.
+            $payload['manage_stock'] = true;
+            $payload['stock_quantity'] = (int) $stock['available_quantity'];
+        } else {
+            // Admin has manually forced Available/Out of Stock for this Ready Stock
+            // product, overriding the real quantity.
+            $payload['manage_stock'] = false;
+            $payload['stock_status'] = $availabilityStatus === 'available' ? 'instock' : 'outofstock';
+        }
     }
 
     $payload = array_merge($payload, wc_client_build_sale_price_fields($product));
@@ -481,12 +496,18 @@ function wc_client_sync_variable_product_from_mewmii(PDO $pdo, array $product): 
 
         if ($isPreorderType) {
             // Same reasoning as wc_client_build_product_payload(): a variation's
-            // available_quantity must never gate purchasability for these product types.
+            // available_quantity must never gate purchasability for these product types -
+            // only the closing-date/reopen gate and the parent's manual override do.
             $variationPayload['manage_stock'] = false;
-            $variationPayload['stock_status'] = catalog_product_is_orderable($product) ? 'instock' : 'outofstock';
-        } else {
+            $isAvailable = catalog_product_is_orderable($product) && catalog_product_availability_status($product) === 'available';
+            $variationPayload['stock_status'] = $isAvailable ? 'instock' : 'outofstock';
+        } elseif (($product['availability_override'] ?? 'auto') === 'auto') {
             $variationPayload['manage_stock'] = true;
             $variationPayload['stock_quantity'] = (int) $variation['available_quantity'];
+        } else {
+            // Ready Stock variation, but the parent product has a manual override set.
+            $variationPayload['manage_stock'] = false;
+            $variationPayload['stock_status'] = catalog_product_availability_status($product, (int) $variation['available_quantity']) === 'available' ? 'instock' : 'outofstock';
         }
 
         // A price_mode='custom' variation's price is fully its own - Early Bird sale

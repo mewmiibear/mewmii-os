@@ -213,6 +213,7 @@ CREATE TABLE IF NOT EXISTS products (
   preorder_reopened_at DATETIME NULL,
   expiry_date DATE NULL,
   status VARCHAR(50) NOT NULL DEFAULT 'coming_soon',
+  availability_override VARCHAR(20) NOT NULL DEFAULT 'auto',
   published_to_woocommerce TINYINT(1) NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

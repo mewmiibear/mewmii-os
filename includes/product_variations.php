@@ -446,7 +446,7 @@ function catalog_sellable_units(PDO $pdo): array
 
     $simpleStmt = $pdo->query("
         SELECT id, sku, name, selling_price, product_cost, product_type, status, preorder_closing_date,
-               preorder_reopened_at, sale_enabled, sale_price, sale_start_date
+               preorder_reopened_at, availability_override, sale_enabled, sale_price, sale_start_date
         FROM products
         WHERE catalog_type = 'simple'
         ORDER BY name ASC
@@ -464,6 +464,7 @@ function catalog_sellable_units(PDO $pdo): array
             'cost_price' => (float) $row['product_cost'],
             'product_type' => $row['product_type'],
             'status' => $row['status'],
+            'availability_override' => $row['availability_override'],
             'preorder_closing_date' => $row['preorder_closing_date'],
             'preorder_reopened_at' => $row['preorder_reopened_at'],
         ];
@@ -471,7 +472,7 @@ function catalog_sellable_units(PDO $pdo): array
 
     $variableStmt = $pdo->query("
         SELECT p.id AS product_id, p.name AS product_name, p.selling_price AS parent_price,
-               p.product_type, p.status, p.preorder_closing_date, p.preorder_reopened_at,
+               p.product_type, p.status, p.preorder_closing_date, p.preorder_reopened_at, p.availability_override,
                p.sale_enabled, p.sale_price, p.sale_start_date,
                pv.id AS variation_id, pv.sku, pv.price_mode, pv.custom_price, pv.cost_price
         FROM products p
@@ -505,6 +506,7 @@ function catalog_sellable_units(PDO $pdo): array
             'cost_price' => (float) $row['cost_price'],
             'product_type' => $row['product_type'],
             'status' => $row['status'],
+            'availability_override' => $row['availability_override'],
             'preorder_closing_date' => $row['preorder_closing_date'],
             'preorder_reopened_at' => $row['preorder_reopened_at'],
         ];
@@ -552,6 +554,38 @@ function catalog_product_is_orderable(array $product): bool
 
     // Closing date has passed - "waiting for release" until an admin manually reopens it.
     return !empty($product['preorder_reopened_at']);
+}
+
+/**
+ * Whether a product is "in stock" from a pure inventory-quantity standpoint - a SEPARATE,
+ * independent gate from catalog_product_is_orderable()'s closing-date/reopen state
+ * machine. Both must pass for a preorder/early_bird product to actually be purchasable
+ * (see wc_client_build_product_payload()); this function alone answers only "is it out of
+ * stock", never "is ordering currently open".
+ *
+ * Ready Stock: follows available_quantity, unless availability_override forces a value.
+ * Preorder/Early Bird: NEVER computed from quantity (they can be fully purchasable at 0
+ * stock - stock arrives later via Supplier Orders) - always 'available' unless an admin
+ * explicitly sets availability_override to 'out_of_stock'. Expects a row with at least
+ * product_type and availability_override (e.g. a `products` row); $availableQuantity is
+ * only consulted for ready_stock.
+ */
+function catalog_product_availability_status(array $product, int $availableQuantity = 0): string
+{
+    $override = (string) ($product['availability_override'] ?? 'auto');
+
+    if ($override === 'available') {
+        return 'available';
+    }
+    if ($override === 'out_of_stock') {
+        return 'out_of_stock';
+    }
+
+    if (($product['product_type'] ?? 'ready_stock') !== 'ready_stock') {
+        return 'available';
+    }
+
+    return $availableQuantity > 0 ? 'available' : 'out_of_stock';
 }
 
 /**
