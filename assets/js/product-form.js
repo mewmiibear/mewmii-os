@@ -828,7 +828,10 @@
             tbody.appendChild(row);
         });
 
-        document.getElementById('variation-table-wrapper').classList.remove('d-none');
+        var variationTableWrapper = document.getElementById('variation-table-wrapper');
+        if (variationTableWrapper) {
+            variationTableWrapper.classList.remove('d-none');
+        }
         initAvailabilityToggle();
     }
 
@@ -868,7 +871,10 @@
         variations.forEach(function (variation) {
             tbody.appendChild(renderServerVariationRow(variation));
         });
-        document.getElementById('variation-table-wrapper').classList.remove('d-none');
+        var variationTableWrapper = document.getElementById('variation-table-wrapper');
+        if (variationTableWrapper) {
+            variationTableWrapper.classList.remove('d-none');
+        }
         initAvailabilityToggle();
         attachRowActionHandlers();
     }

@@ -341,7 +341,7 @@
         </div>
     </div>
 
-    <div class="card p-4 mb-4 js-variable-section" id="variation-table-wrapper<?php echo ($isEdit && $variations !== []) ? '' : ' d-none'; ?>">
+    <div class="card p-4 mb-4 js-variable-section<?php echo ($isEdit && $variations !== []) ? '' : ' d-none'; ?>" id="variation-table-wrapper">
         <h5 class="mb-1">Variations</h5>
         <p class="text-muted small">Removing a variation always archives it - it is never deleted, so past orders stay intact.</p>
 

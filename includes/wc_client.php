@@ -273,13 +273,15 @@ function wc_client_build_preorder_blurb(array $product): ?string
         }
     }
 
-    if (!empty($product['estimated_arrival_date'])) {
-        $lines[] = 'Estimated arrival: ' . $product['estimated_arrival_date'] . '.';
-    }
     $releaseMonth = catalog_format_release_month($product['estimated_release_month'] ?? null);
     if ($releaseMonth !== null) {
         $lines[] = 'Estimated release: ' . $releaseMonth . '.';
     }
+    // Customer-facing arrival messaging is always this fixed line - never the raw
+    // estimated_arrival_date/supplier ETA, which is an internal logistics field only.
+    // Release timing itself is driven by Estimated Release Month and the actual
+    // release/reopen workflow (see catalog_product_is_orderable()), not this line.
+    $lines[] = 'Estimated arrival: 2-3 weeks after product release.';
 
     return implode("\n", $lines);
 }
