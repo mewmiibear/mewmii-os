@@ -39,13 +39,27 @@ function inventory_get_or_create_row(PDO $pdo, int $productId, ?int $variationId
     return $row;
 }
 
-function inventory_log_transaction(PDO $pdo, int $productId, string $type, int $quantity, string $referenceType, ?int $referenceId, ?int $variationId = null): void
+/**
+ * $reason/$notes are only ever populated by the manual Adjust Stock modal today - every
+ * other caller leaves them null. balance_after is a write-time snapshot of
+ * available_quantity, computed here (not passed in by callers) since every caller already
+ * updates mewmii_inventory before logging, inside the same transaction, so this read-back
+ * is always the correct resulting balance regardless of transaction_type - a generic
+ * retroactive reconstruction from the ledger alone isn't reliable, since quantity's effect
+ * on available_quantity isn't uniform across every transaction_type.
+ */
+function inventory_log_transaction(PDO $pdo, int $productId, string $type, int $quantity, string $referenceType, ?int $referenceId, ?int $variationId = null, ?string $reason = null, ?string $notes = null): void
 {
+    $balanceStmt = $pdo->prepare('SELECT available_quantity FROM mewmii_inventory WHERE product_id = ? AND variation_id <=> ?');
+    $balanceStmt->execute([$productId, $variationId]);
+    $balanceAfter = $balanceStmt->fetchColumn();
+    $balanceAfter = $balanceAfter !== false ? (int) $balanceAfter : null;
+
     $stmt = $pdo->prepare('
-        INSERT INTO inventory_transactions (product_id, variation_id, transaction_type, quantity, reference_type, reference_id)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO inventory_transactions (product_id, variation_id, transaction_type, quantity, reason, notes, balance_after, reference_type, reference_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ');
-    $stmt->execute([$productId, $variationId, $type, $quantity, $referenceType, $referenceId]);
+    $stmt->execute([$productId, $variationId, $type, $quantity, $reason, $notes, $balanceAfter, $referenceType, $referenceId]);
 }
 
 function inventory_order_items(PDO $pdo, int $orderId): array

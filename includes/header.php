@@ -44,6 +44,42 @@ $appTitle = 'Mewmii OS';
             background: linear-gradient(180deg, #fff 0%, #ffeef6 100%);
             min-height: 100vh;
         }
+
+        /* Reusable "stacked card" responsive table: below 768px, each row becomes its own
+           block and every cell stacks with its column header as a label (via data-label on
+           the <td>) instead of scrolling horizontally. Opt in per-table with this class. */
+        @media (max-width: 767.98px) {
+            .responsive-stack-table thead {
+                display: none;
+            }
+
+            .responsive-stack-table tr {
+                display: block;
+                margin-bottom: 1rem;
+                border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+            }
+
+            .responsive-stack-table td {
+                display: flex;
+                justify-content: space-between;
+                gap: 1rem;
+                text-align: right;
+                border: none !important;
+                padding-left: 0 !important;
+            }
+
+            .responsive-stack-table td[data-label]:not([data-label=""])::before {
+                content: attr(data-label);
+                font-weight: 600;
+                text-align: left;
+                color: #4a2c3a;
+            }
+
+            .responsive-stack-table td:not([data-label]),
+            .responsive-stack-table td[data-label=""] {
+                justify-content: flex-end;
+            }
+        }
     </style>
 </head>
 

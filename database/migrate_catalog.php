@@ -270,6 +270,21 @@ if (!migrate_column_exists($pdo, 'mewmii_inventory', 'arrived_quantity')) {
     migrate_run($pdo, 'mewmii_inventory.arrived_quantity', 'ALTER TABLE mewmii_inventory ADD COLUMN arrived_quantity INT NOT NULL DEFAULT 0 AFTER incoming_quantity', $applied);
 }
 
+// inventory_transactions: Reason/Notes (captured by the Adjust Stock modal) and a
+// write-time Stock Balance snapshot (populated by inventory_log_transaction() itself going
+// forward - existing rows stay NULL, shown as "-" rather than a retroactively-guessed
+// number, since quantity's effect on available_quantity isn't uniform across every
+// transaction_type).
+if (!migrate_column_exists($pdo, 'inventory_transactions', 'reason')) {
+    migrate_run($pdo, 'inventory_transactions.reason', 'ALTER TABLE inventory_transactions ADD COLUMN reason VARCHAR(100) NULL AFTER quantity', $applied);
+}
+if (!migrate_column_exists($pdo, 'inventory_transactions', 'notes')) {
+    migrate_run($pdo, 'inventory_transactions.notes', 'ALTER TABLE inventory_transactions ADD COLUMN notes VARCHAR(255) NULL AFTER reason', $applied);
+}
+if (!migrate_column_exists($pdo, 'inventory_transactions', 'balance_after')) {
+    migrate_run($pdo, 'inventory_transactions.balance_after', 'ALTER TABLE inventory_transactions ADD COLUMN balance_after INT NULL AFTER notes', $applied);
+}
+
 echo count($applied) . ' migration statement(s) applied:' . PHP_EOL;
 foreach ($applied as $item) {
     echo '  - ' . $item . PHP_EOL;
