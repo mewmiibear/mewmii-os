@@ -20,6 +20,31 @@ $canManage = app_has_permission('products.manage');
     <?php endif; ?>
 </div>
 
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <?php if (isset($_GET['sync'])): ?>
+            <div class="alert alert-info mb-0">
+                <?php
+                $successCount = isset($_GET['success']) ? (int) $_GET['success'] : 0;
+                $failedCount = isset($_GET['failed']) ? (int) $_GET['failed'] : 0;
+
+                if ($failedCount > 0) {
+                    echo 'WooCommerce sync completed. ' . $successCount . ' succeeded and ' . $failedCount . ' failed.';
+                } else {
+                    echo 'WooCommerce sync completed for ' . $successCount . ' product(s).';
+                }
+                ?>
+            </div>
+        <?php endif; ?>
+    </div>
+    <?php if ($canManage): ?>
+        <form method="post" action="/modules/products/sync.php" class="d-inline">
+            <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+            <button type="submit" class="btn btn-outline-secondary">Sync to WooCommerce</button>
+        </form>
+    <?php endif; ?>
+</div>
+
 <?php if (isset($_GET['created'])): ?>
     <div class="alert alert-success">Product created.</div>
 <?php endif; ?>
@@ -52,7 +77,9 @@ $canManage = app_has_permission('products.manage');
                 </tr>
             <?php endforeach; ?>
             <?php if ($products === []): ?>
-                <tr><td colspan="<?php echo $canManage ? 6 : 5; ?>" class="text-muted">No products yet.</td></tr>
+                <tr>
+                    <td colspan="<?php echo $canManage ? 6 : 5; ?>" class="text-muted">No products yet.</td>
+                </tr>
             <?php endif; ?>
         </tbody>
     </table>

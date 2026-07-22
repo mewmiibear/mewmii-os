@@ -103,3 +103,72 @@ function wc_client_put(string $endpoint, array $data = []): array
 {
     return wc_client_request('PUT', $endpoint, $data);
 }
+
+function wc_client_build_product_payload(array $product): array
+{
+    $name = trim((string) ($product['name'] ?? ''));
+    $description = trim((string) ($product['description'] ?? ''));
+    $price = number_format((float) ($product['selling_price'] ?? 0), 2, '.', '');
+
+    return [
+        'name' => $name,
+        'type' => 'simple',
+        'description' => $description,
+        'regular_price' => $price,
+        'price' => $price,
+        'status' => 'publish',
+    ];
+}
+
+function wc_client_find_product_by_sku(string $sku): ?array
+{
+    $products = wc_client_get('products', ['sku' => $sku, 'per_page' => 10]);
+
+    foreach ($products as $product) {
+        if (!is_array($product)) {
+            continue;
+        }
+
+        if (trim((string) ($product['sku'] ?? '')) === $sku) {
+            return $product;
+        }
+    }
+
+    return null;
+}
+
+function wc_client_sync_product_from_mewmii(PDO $pdo, array $product): array
+{
+    $productId = (int) ($product['id'] ?? 0);
+    $sku = trim((string) ($product['sku'] ?? ''));
+
+    if ($productId < 1) {
+        throw new RuntimeException('Product ID is missing.');
+    }
+
+    if ($sku === '') {
+        throw new RuntimeException('Product SKU is missing.');
+    }
+
+    $payload = wc_client_build_product_payload($product);
+    $payload['sku'] = $sku;
+
+    $existingProduct = wc_client_find_product_by_sku($sku);
+    $response = $existingProduct !== null
+        ? wc_client_put('products/' . (int) ($existingProduct['id'] ?? 0), $payload)
+        : wc_client_post('products', $payload);
+
+    $remoteProductId = (int) ($response['id'] ?? 0);
+    if ($remoteProductId < 1) {
+        throw new RuntimeException('WooCommerce did not return a product identifier.');
+    }
+
+    $stmt = $pdo->prepare('
+        UPDATE products
+        SET woocommerce_product_id = ?, published_to_woocommerce = 1, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    ');
+    $stmt->execute([$remoteProductId, $productId]);
+
+    return ['id' => $remoteProductId];
+}
