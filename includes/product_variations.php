@@ -426,7 +426,7 @@ function catalog_sellable_units(PDO $pdo): array
     $units = [];
 
     $simpleStmt = $pdo->query("
-        SELECT id, sku, name, selling_price, product_cost
+        SELECT id, sku, name, selling_price, product_cost, product_type, status, preorder_closing_date
         FROM products
         WHERE catalog_type = 'simple'
         ORDER BY name ASC
@@ -440,11 +440,15 @@ function catalog_sellable_units(PDO $pdo): array
             'label' => $row['name'],
             'selling_price' => (float) $row['selling_price'],
             'cost_price' => (float) $row['product_cost'],
+            'product_type' => $row['product_type'],
+            'status' => $row['status'],
+            'preorder_closing_date' => $row['preorder_closing_date'],
         ];
     }
 
     $variableStmt = $pdo->query("
         SELECT p.id AS product_id, p.name AS product_name, p.selling_price AS parent_price,
+               p.product_type, p.status, p.preorder_closing_date,
                pv.id AS variation_id, pv.sku, pv.price_mode, pv.custom_price, pv.cost_price
         FROM products p
         INNER JOIN product_variations pv ON pv.product_id = p.id
@@ -464,6 +468,9 @@ function catalog_sellable_units(PDO $pdo): array
             'label' => $row['product_name'] . ($label !== '' ? (' - ' . $label) : ''),
             'selling_price' => $price,
             'cost_price' => (float) $row['cost_price'],
+            'product_type' => $row['product_type'],
+            'status' => $row['status'],
+            'preorder_closing_date' => $row['preorder_closing_date'],
         ];
     }
 
@@ -480,4 +487,24 @@ function catalog_parse_sellable_key(string $key): array
         'product_id' => $productId,
         'variation_id' => $variationId > 0 ? $variationId : null,
     ];
+}
+
+/**
+ * Whether a preorder/early_bird product can currently be ordered, independent of
+ * available_quantity: it must be published (status = active) and, if a preorder closing
+ * date is set, that date must not have passed. ready_stock purchasability is governed by
+ * available_quantity instead - callers should only consult this for preorder/early_bird.
+ */
+function catalog_product_is_orderable(array $product): bool
+{
+    if (($product['status'] ?? '') !== 'active') {
+        return false;
+    }
+
+    $closingDate = $product['preorder_closing_date'] ?? null;
+    if (!empty($closingDate) && strtotime((string) $closingDate) < strtotime('today')) {
+        return false;
+    }
+
+    return true;
 }

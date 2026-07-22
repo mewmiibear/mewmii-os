@@ -48,7 +48,12 @@ function inventory_log_transaction(PDO $pdo, int $productId, string $type, int $
 
 function inventory_order_items(PDO $pdo, int $orderId): array
 {
-    $stmt = $pdo->prepare('SELECT product_id, variation_id, quantity FROM mewmii_order_items WHERE order_id = ?');
+    $stmt = $pdo->prepare('
+        SELECT oi.product_id, oi.variation_id, oi.quantity, p.product_type
+        FROM mewmii_order_items oi
+        INNER JOIN products p ON p.id = oi.product_id
+        WHERE oi.order_id = ?
+    ');
     $stmt->execute([$orderId]);
 
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -77,11 +82,18 @@ function inventory_net_reserved(PDO $pdo, int $orderId, int $productId, ?int $va
 
 /**
  * pending -> processing: move stock from available into reserved for every item on the order.
- * Throws RuntimeException (caller should roll back) if stock is insufficient.
+ * Throws RuntimeException (caller should roll back) if stock is insufficient. preorder/
+ * early_bird items are skipped entirely - they're never drawn from available_quantity,
+ * even at 0 stock (see catalog_product_is_orderable()); their real fulfillment happens
+ * later via arrived_quantity -> customer_storage allocation instead.
  */
 function inventory_reserve_for_order(PDO $pdo, int $orderId): void
 {
     foreach (inventory_order_items($pdo, $orderId) as $item) {
+        if (in_array($item['product_type'], ['preorder', 'early_bird'], true)) {
+            continue;
+        }
+
         $productId = (int) $item['product_id'];
         $variationId = $item['variation_id'] !== null ? (int) $item['variation_id'] : null;
         $qty = (int) $item['quantity'];
@@ -109,11 +121,17 @@ function inventory_reserve_for_order(PDO $pdo, int $orderId): void
 /**
  * shipping_status -> shipped: consume reserved stock for the order. Falls back to pulling
  * straight from available stock for any quantity that was never reserved (e.g. processing
- * was skipped), still refusing to go negative.
+ * was skipped), still refusing to go negative. preorder/early_bird items are skipped
+ * entirely - they were never reserved here, and their physical fulfillment ships via
+ * customer_storage instead (see ship_my_box.php), not this order-level mechanism.
  */
 function inventory_ship_for_order(PDO $pdo, int $orderId): void
 {
     foreach (inventory_order_items($pdo, $orderId) as $item) {
+        if (in_array($item['product_type'], ['preorder', 'early_bird'], true)) {
+            continue;
+        }
+
         $productId = (int) $item['product_id'];
         $variationId = $item['variation_id'] !== null ? (int) $item['variation_id'] : null;
         $qty = (int) $item['quantity'];

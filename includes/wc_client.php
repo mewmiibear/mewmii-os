@@ -242,7 +242,6 @@ function wc_client_build_product_payload(array $product, PDO $pdo): array
     $name = trim((string) ($product['name'] ?? ''));
     $description = trim((string) ($product['description'] ?? ''));
     $price = number_format((float) ($product['selling_price'] ?? 0), 2, '.', '');
-    $stock = product_effective_stock($pdo, $productId);
 
     $payload = [
         'name' => $name,
@@ -251,9 +250,19 @@ function wc_client_build_product_payload(array $product, PDO $pdo): array
         'regular_price' => $price,
         'price' => $price,
         'status' => 'publish',
-        'manage_stock' => true,
-        'stock_quantity' => (int) $stock['available_quantity'],
     ];
+
+    if (in_array($product['product_type'] ?? 'ready_stock', ['preorder', 'early_bird'], true)) {
+        // Preorder/early-bird stock is never tracked against available_quantity - it must
+        // stay purchasable at 0 stock, so WooCommerce stock management is left off entirely
+        // and purchasability is driven only by status/closing date instead.
+        $payload['manage_stock'] = false;
+        $payload['stock_status'] = catalog_product_is_orderable($product) ? 'instock' : 'outofstock';
+    } else {
+        $stock = product_effective_stock($pdo, $productId);
+        $payload['manage_stock'] = true;
+        $payload['stock_quantity'] = (int) $stock['available_quantity'];
+    }
 
     $images = wc_client_build_gallery_images($pdo, $productId);
     if ($images !== []) {
@@ -353,6 +362,7 @@ function wc_client_sync_variable_product_from_mewmii(PDO $pdo, array $product): 
     ')->execute([$remoteProductId, $productId]);
 
     $syncedVariations = 0;
+    $isPreorderType = in_array($product['product_type'] ?? 'ready_stock', ['preorder', 'early_bird'], true);
 
     foreach (variation_list_for_product($pdo, $productId) as $variation) {
         if ($variation['status'] === 'archived') {
@@ -370,10 +380,18 @@ function wc_client_sync_variable_product_from_mewmii(PDO $pdo, array $product): 
         $variationPayload = [
             'sku' => $variationSku,
             'regular_price' => number_format($price, 2, '.', ''),
-            'manage_stock' => true,
-            'stock_quantity' => (int) $variation['available_quantity'],
             'attributes' => wc_client_build_variation_attributes_payload($pdo, $variationId),
         ];
+
+        if ($isPreorderType) {
+            // Same reasoning as wc_client_build_product_payload(): a variation's
+            // available_quantity must never gate purchasability for these product types.
+            $variationPayload['manage_stock'] = false;
+            $variationPayload['stock_status'] = catalog_product_is_orderable($product) ? 'instock' : 'outofstock';
+        } else {
+            $variationPayload['manage_stock'] = true;
+            $variationPayload['stock_quantity'] = (int) $variation['available_quantity'];
+        }
 
         if (!empty($variation['weight'])) {
             $variationPayload['weight'] = (string) $variation['weight'];

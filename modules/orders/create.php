@@ -92,6 +92,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // Check stock availability per sellable unit (aggregated across rows) before committing.
+    // preorder/early_bird units are purchasable regardless of available_quantity - they're
+    // gated by status/closing date instead (see catalog_product_is_orderable()).
     if ($error === '') {
         $demand = [];
         foreach ($validItems as $line) {
@@ -101,6 +103,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         foreach ($demand as $key => $neededQty) {
             $unit = $unitsByKey[$key];
+
+            if (in_array($unit['product_type'], ['preorder', 'early_bird'], true)) {
+                if (!catalog_product_is_orderable($unit)) {
+                    $error = $unit['label'] . ' is not currently open for preorder.';
+                    break;
+                }
+                continue;
+            }
+
             $invStmt = $pdo->prepare('SELECT available_quantity FROM mewmii_inventory WHERE product_id = ? AND variation_id <=> ?');
             $invStmt->execute([$unit['product_id'], $unit['variation_id']]);
             $available = (int) $invStmt->fetchColumn();
