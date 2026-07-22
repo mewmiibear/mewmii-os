@@ -26,6 +26,7 @@ $form = [
     'name' => '',
     'sku' => '',
     'barcode' => '',
+    'short_description' => '',
     'description' => '',
     'brand_id' => '',
     'category_id' => '',
@@ -60,6 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form['name'] = trim((string) ($_POST['name'] ?? ''));
     $form['sku'] = trim((string) ($_POST['sku'] ?? ''));
     $form['barcode'] = trim((string) ($_POST['barcode'] ?? ''));
+    $form['short_description'] = trim((string) ($_POST['short_description'] ?? ''));
     $form['description'] = trim((string) ($_POST['description'] ?? ''));
     $form['brand_id'] = trim((string) ($_POST['brand_id'] ?? ''));
     $form['category_id'] = trim((string) ($_POST['category_id'] ?? ''));
@@ -87,6 +89,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'SKU is required and must be 100 characters or fewer.';
         } elseif ($form['name'] === '' || strlen($form['name']) > 255) {
             $error = 'Name is required and must be 255 characters or fewer.';
+        } elseif (strlen($form['short_description']) > 500) {
+            $error = 'Short description must be 500 characters or fewer.';
         } elseif (!in_array($form['catalog_type'], $catalogTypes, true)) {
             $error = 'Invalid product structure (simple/variable).';
         } elseif (!in_array($form['product_type'], $productTypes, true)) {
@@ -178,15 +182,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $stmt = $pdo->prepare('
                 INSERT INTO products (
-                    sku, name, description, product_type, catalog_type, brand_id, barcode,
+                    sku, name, short_description, description, product_type, catalog_type, brand_id, barcode,
                     supplier_id, product_cost, selling_price, sale_enabled, sale_price,
                     min_stock_threshold, sale_start_date, estimated_arrival_date, estimated_release_month,
                     preorder_closing_date, expiry_date, moq, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ');
             $stmt->execute([
                 $form['sku'],
                 $form['name'],
+                $form['short_description'] !== '' ? $form['short_description'] : null,
                 $form['description'] !== '' ? $form['description'] : null,
                 $form['product_type'],
                 $form['catalog_type'],
@@ -234,7 +239,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($form['catalog_type'] === 'variable') {
                 catalog_set_product_attributes($pdo, $productId, $attributeSelections);
                 $generated = variation_generate_combinations($pdo, $productId);
-                variation_apply_preview_edits($pdo, $productId, $generated['variations'], $form['product_type']);
+                variation_apply_preview_edits($pdo, $productId, $generated['variations']);
             }
 
             $pdo->commit();

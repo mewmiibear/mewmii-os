@@ -342,9 +342,15 @@ function wc_client_build_product_payload(array $product, PDO $pdo): array
 
     $payload = array_merge($payload, wc_client_build_sale_price_fields($product));
 
+    // The admin-entered short description (Basic Information section) and the
+    // auto-generated preorder/Early Bird blurb are two independent pieces of customer-
+    // facing text - the blurb is appended after the admin's own summary rather than
+    // replacing it, so setting one never silently erases the other.
+    $shortDescription = trim((string) ($product['short_description'] ?? ''));
     $preorderBlurb = wc_client_build_preorder_blurb($product);
-    if ($preorderBlurb !== null) {
-        $payload['short_description'] = $preorderBlurb;
+    $shortDescriptionParts = array_filter([$shortDescription !== '' ? $shortDescription : null, $preorderBlurb]);
+    if ($shortDescriptionParts !== []) {
+        $payload['short_description'] = implode("\n\n", $shortDescriptionParts);
     }
 
     $images = wc_client_build_gallery_images($pdo, $productId);
@@ -423,9 +429,11 @@ function wc_client_sync_variable_product_from_mewmii(PDO $pdo, array $product): 
         'attributes' => wc_client_build_variable_attributes_payload($pdo, $productId),
     ];
 
+    $shortDescription = trim((string) ($product['short_description'] ?? ''));
     $preorderBlurb = wc_client_build_preorder_blurb($product);
-    if ($preorderBlurb !== null) {
-        $payload['short_description'] = $preorderBlurb;
+    $shortDescriptionParts = array_filter([$shortDescription !== '' ? $shortDescription : null, $preorderBlurb]);
+    if ($shortDescriptionParts !== []) {
+        $payload['short_description'] = implode("\n\n", $shortDescriptionParts);
     }
 
     $images = wc_client_build_gallery_images($pdo, $productId);

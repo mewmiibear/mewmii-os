@@ -217,7 +217,7 @@ function variation_generate_combinations(PDO $pdo, int $productId): array
 
 /**
  * Applies the create-page's client-side preview-table edits (SKU/barcode/weight/price
- * mode/custom price/stock/status/image, posted as variation_sku[SIGNATURE] etc.) onto the
+ * mode/custom price/status/image, posted as variation_sku[SIGNATURE] etc.) onto the
  * variations variation_generate_combinations() just created, matching each by its
  * attribute-value combination signature - the same format the JS preview computes
  * client-side (sorted "attributeId:valueId" pairs joined by "|"), so both sides agree on
@@ -225,15 +225,16 @@ function variation_generate_combinations(PDO $pdo, int $productId): array
  * variation ids to key on until this exact moment. If a user-typed SKU collides with an
  * existing product/variation, that one field is silently left at its auto-generated
  * value (which is always guaranteed unique) rather than aborting the whole product save.
+ * Stock is never set here - inventory quantities are only ever adjusted via the
+ * Inventory module's Adjust Stock action, never from product creation/editing.
  */
-function variation_apply_preview_edits(PDO $pdo, int $productId, array $createdVariations, string $productType): void
+function variation_apply_preview_edits(PDO $pdo, int $productId, array $createdVariations): void
 {
     $skus = $_POST['variation_sku'] ?? [];
     $barcodes = $_POST['variation_barcode'] ?? [];
     $weights = $_POST['variation_weight'] ?? [];
     $priceModes = $_POST['variation_price_mode'] ?? [];
     $customPrices = $_POST['variation_custom_price'] ?? [];
-    $stocks = $_POST['variation_stock'] ?? [];
     $statuses = $_POST['variation_status'] ?? [];
     $imageFiles = image_upload_normalize_multi($_FILES['variation_image'] ?? []);
 
@@ -284,17 +285,6 @@ function variation_apply_preview_edits(PDO $pdo, int $productId, array $createdV
             $status,
             $variationId,
         ]);
-
-        // Stock is only settable for ready_stock - preorder/early_bird never request
-        // available stock, even from the create-page preview table.
-        if ($productType === 'ready_stock' && isset($stocks[$signature]) && $stocks[$signature] !== '' && is_numeric($stocks[$signature])) {
-            $stockValue = max(0, (int) $stocks[$signature]);
-            if ($stockValue > 0) {
-                $pdo->prepare('UPDATE mewmii_inventory SET available_quantity = ? WHERE product_id = ? AND variation_id = ?')
-                    ->execute([$stockValue, $productId, $variationId]);
-                inventory_log_transaction($pdo, $productId, 'manual_adjustment', $stockValue, 'variation_edit', $variationId, $variationId);
-            }
-        }
 
         if (isset($imageFiles[$signature])) {
             variation_image_set($pdo, $productId, $variationId, $imageFiles[$signature]);
@@ -363,7 +353,7 @@ function variation_effective_price(array $variation, $parentSellingPrice): float
 
 /**
  * Applies the same change to a batch of variations in one go: price mode (+ custom
- * price), status, and/or an absolute stock quantity. Only keys present in $changes are
+ * price), status, weight, and/or clearing the barcode. Only keys present in $changes are
  * touched. Caller is responsible for the surrounding transaction.
  */
 function variation_bulk_apply(PDO $pdo, array $variationIds, array $changes): void
@@ -404,38 +394,42 @@ function variation_bulk_apply(PDO $pdo, array $variationIds, array $changes): vo
             ->execute($variationIds);
     }
 
-    if (isset($changes['stock']) && $changes['stock'] !== '') {
-        $targetStock = max(0, (int) $changes['stock']);
-        $productLookup = $pdo->prepare('SELECT product_id FROM product_variations WHERE id = ?');
-
-        foreach ($variationIds as $variationId) {
-            $productLookup->execute([$variationId]);
-            $productId = (int) $productLookup->fetchColumn();
-            if ($productId < 1) {
-                continue;
-            }
-
-            $row = inventory_get_or_create_row($pdo, $productId, $variationId);
-            $delta = $targetStock - (int) $row['available_quantity'];
-
-            if ($delta === 0) {
-                continue;
-            }
-
-            $pdo->prepare('UPDATE mewmii_inventory SET available_quantity = ? WHERE product_id = ? AND variation_id = ?')
-                ->execute([$targetStock, $productId, $variationId]);
-
-            inventory_log_transaction($pdo, $productId, 'bulk_adjustment', $delta, 'variation_bulk_edit', $variationId, $variationId);
-        }
-    }
+    // Stock is deliberately not settable here - inventory quantities are only ever
+    // adjusted via the Inventory module's Adjust Stock action, never from bulk product
+    // form edits (see modules/inventory/index.php).
 }
 
-// --- Archive (never delete) ---------------------------------------------------------------
+// --- Delete (only if never actually used) --------------------------------------------------
 
-function variation_archive(PDO $pdo, int $variationId): void
+/**
+ * Hard-deletes a variation, but only if it has no real transaction history - checked
+ * against every table that can reference a variation_id and does NOT cascade-delete on
+ * its own (mewmii_order_items/supplier_order_items/customer_storage would raise a raw FK
+ * constraint error if deleted into anyway; inventory_transactions.variation_id is
+ * ON DELETE SET NULL, so the DB would silently let it through and lose the traceability -
+ * checked explicitly here so both cases get the same friendly message instead of one
+ * throwing an ugly SQL error). If none of those reference it, deleting the row cascades
+ * (ON DELETE CASCADE) to its attribute-value links, images, and mewmii_inventory row -
+ * nothing is left behind. Throws RuntimeException with an admin-facing message if blocked.
+ */
+function variation_delete_if_unused(PDO $pdo, int $variationId): void
 {
-    $pdo->prepare("UPDATE product_variations SET status = 'archived', archived_at = NOW() WHERE id = ?")
-        ->execute([$variationId]);
+    $checks = [
+        'mewmii_order_items' => 'This variation has existing order history and cannot be deleted.',
+        'inventory_transactions' => 'This variation has existing transaction history and cannot be deleted.',
+        'supplier_order_items' => 'This variation has existing supplier order history and cannot be deleted.',
+        'customer_storage' => 'This variation has existing customer storage history and cannot be deleted.',
+    ];
+
+    foreach ($checks as $table => $message) {
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM {$table} WHERE variation_id = ?");
+        $stmt->execute([$variationId]);
+        if ((int) $stmt->fetchColumn() > 0) {
+            throw new RuntimeException($message);
+        }
+    }
+
+    $pdo->prepare('DELETE FROM product_variations WHERE id = ?')->execute([$variationId]);
 }
 
 // --- Sellable units: what a staff member can actually pick in an order/PO/storage form ---

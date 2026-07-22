@@ -191,6 +191,7 @@ CREATE TABLE IF NOT EXISTS products (
   woocommerce_product_id BIGINT UNSIGNED NULL,
   sku VARCHAR(100) NOT NULL UNIQUE,
   name VARCHAR(255) NOT NULL,
+  short_description VARCHAR(500) NULL,
   description TEXT NULL,
   product_type VARCHAR(50) NOT NULL DEFAULT 'ready_stock',
   catalog_type VARCHAR(20) NOT NULL DEFAULT 'simple',

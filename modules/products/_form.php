@@ -61,39 +61,91 @@
     <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
 
     <div class="card p-4 mb-4">
-        <h5 class="mb-3">Product Type</h5>
-        <div class="d-flex gap-4">
-            <label class="form-check">
-                <input type="radio" class="form-check-input" name="catalog_type" value="simple" <?php echo $form['catalog_type'] === 'simple' ? 'checked' : ''; ?> <?php echo $isEdit && $product['catalog_type'] === 'variable' ? 'disabled title="Cannot switch back to simple while it has variations."' : ''; ?>>
-                <span class="form-check-label">Simple Product</span>
-            </label>
-            <label class="form-check">
-                <input type="radio" class="form-check-input" name="catalog_type" value="variable" <?php echo $form['catalog_type'] === 'variable' ? 'checked' : ''; ?>>
-                <span class="form-check-label">Variable Product</span>
-            </label>
-        </div>
-    </div>
-
-    <div class="card p-4 mb-4">
         <h5 class="mb-3">Basic Information</h5>
         <div class="row g-3">
-            <div class="col-md-8">
-                <label class="form-label">Product Name</label>
-                <input type="text" class="form-control" name="name" value="<?php echo app_escape($form['name']); ?>" maxlength="255" required>
+            <div class="col-12">
+                <label class="form-label">Product Image</label>
+                <?php if ($mainImage !== null): ?>
+                    <div class="mb-2 position-relative d-inline-block">
+                        <img src="/<?php echo app_escape($mainImage['image_path']); ?>" alt="Main image" style="max-width: 140px; max-height: 140px;" class="border rounded d-block">
+                    </div>
+                    <?php if ($canManage): ?>
+                        <label class="d-block small mb-2">
+                            <input type="checkbox" name="remove_main_image" value="1"> Remove current main image
+                        </label>
+                    <?php endif; ?>
+                <?php endif; ?>
+                <input type="file" class="form-control image-file-input" name="main_image" id="main-image-input" accept="image/*" style="max-width: 400px;">
+                <div class="form-text">Automatically resized, compressed, and converted to WebP.</div>
             </div>
+
             <div class="col-md-4">
                 <label class="form-label">SKU</label>
                 <input type="text" class="form-control" name="sku" value="<?php echo app_escape($form['sku']); ?>" maxlength="100" required>
             </div>
-            <div class="col-md-4">
-                <label class="form-label">Barcode</label>
-                <input type="text" class="form-control" name="barcode" value="<?php echo app_escape($form['barcode']); ?>">
+            <div class="col-md-8">
+                <label class="form-label">Product Name</label>
+                <input type="text" class="form-control" name="name" value="<?php echo app_escape($form['name']); ?>" maxlength="255" required>
+            </div>
+
+            <div class="col-12">
+                <label class="form-label">Short Description</label>
+                <textarea class="form-control" name="short_description" rows="2" maxlength="500"><?php echo app_escape($form['short_description']); ?></textarea>
+                <div class="form-text">Customer-facing summary - syncs to WooCommerce's short description.</div>
             </div>
             <div class="col-12">
                 <label class="form-label">Description</label>
                 <textarea class="form-control" name="description" rows="3"><?php echo app_escape($form['description']); ?></textarea>
             </div>
+            <div class="col-md-4">
+                <label class="form-label">Barcode</label>
+                <input type="text" class="form-control" name="barcode" value="<?php echo app_escape($form['barcode']); ?>">
+            </div>
+
+            <div class="col-12"><hr class="my-1"></div>
+
+            <div class="col-md-6">
+                <label class="form-label d-block">Product Type</label>
+                <div class="d-flex gap-4">
+                    <label class="form-check">
+                        <input type="radio" class="form-check-input" name="catalog_type" value="simple" <?php echo $form['catalog_type'] === 'simple' ? 'checked' : ''; ?> <?php echo $isEdit && $product['catalog_type'] === 'variable' ? 'disabled title="Cannot switch back to simple while it has variations."' : ''; ?>>
+                        <span class="form-check-label">Simple Product</span>
+                    </label>
+                    <label class="form-check">
+                        <input type="radio" class="form-check-input" name="catalog_type" value="variable" <?php echo $form['catalog_type'] === 'variable' ? 'checked' : ''; ?>>
+                        <span class="form-check-label">Variable Product</span>
+                    </label>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Product Availability Type</label>
+                <select class="form-select" name="product_type" id="availability-type" required>
+                    <option value="ready_stock" <?php echo $form['product_type'] === 'ready_stock' ? 'selected' : ''; ?>>Ready Stock</option>
+                    <option value="preorder" <?php echo $form['product_type'] === 'preorder' ? 'selected' : ''; ?>>Preorder</option>
+                    <option value="early_bird" <?php echo $form['product_type'] === 'early_bird' ? 'selected' : ''; ?>>Early Bird</option>
+                </select>
+            </div>
         </div>
+    </div>
+
+    <div class="card p-4 mb-4">
+        <h5 class="mb-3">Gallery Images</h5>
+        <input type="file" class="form-control" name="gallery_images[]" id="gallery-add-input" accept="image/*" multiple style="max-width: 400px;">
+        <?php if ($galleryImages !== []): ?>
+            <div id="gallery-container" class="d-flex flex-wrap gap-3 mt-3">
+                <?php foreach ($galleryImages as $image): ?>
+                    <div class="gallery-item border rounded p-2 text-center" style="width: 110px;" draggable="true" data-image-id="<?php echo (int) $image['id']; ?>">
+                        <img src="/<?php echo app_escape($image['image_path']); ?>" alt="" style="max-width: 90px; max-height: 90px;" class="mb-1">
+                        <input type="hidden" name="gallery_sort_order[<?php echo (int) $image['id']; ?>]" value="<?php echo (int) $image['sort_order']; ?>">
+                        <label class="small d-block">
+                            <input type="checkbox" class="gallery-delete" name="gallery_delete[]" value="<?php echo (int) $image['id']; ?>"> Delete
+                        </label>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        <?php else: ?>
+            <div id="gallery-container"></div>
+        <?php endif; ?>
     </div>
 
     <div class="card p-4 mb-4">
@@ -169,15 +221,6 @@
             </div>
 
             <div class="col-md-6">
-                <label class="form-label">Product Availability Type</label>
-                <select class="form-select" name="product_type" id="availability-type" required>
-                    <option value="ready_stock" <?php echo $form['product_type'] === 'ready_stock' ? 'selected' : ''; ?>>Ready Stock</option>
-                    <option value="preorder" <?php echo $form['product_type'] === 'preorder' ? 'selected' : ''; ?>>Preorder</option>
-                    <option value="early_bird" <?php echo $form['product_type'] === 'early_bird' ? 'selected' : ''; ?>>Early Bird</option>
-                </select>
-            </div>
-
-            <div class="col-md-4">
                 <label class="form-label">Status</label>
                 <select class="form-select" name="status">
                     <?php foreach ($statusOptions as $statusValue): ?>
@@ -248,18 +291,6 @@
                     <?php endif; ?>
                 </div>
             <?php endif; ?>
-
-            <div class="col-12">
-                <label class="form-check">
-                    <input type="checkbox" class="form-check-input" name="has_expiry" value="1" id="has-expiry-checkbox" <?php echo $form['expiry_date'] !== '' ? 'checked' : ''; ?>>
-                    <span class="form-check-label">Product has expiry date</span>
-                </label>
-            </div>
-            <div class="col-md-3 js-expiry-fields">
-                <label class="form-label">Expiry Date</label>
-                <input type="date" class="form-control" name="expiry_date" value="<?php echo app_escape($form['expiry_date']); ?>">
-                <div class="form-text">Only for products that physically expire (food, cosmetics, etc.) - does not affect pricing.</div>
-            </div>
         </div>
     </div>
 
@@ -294,53 +325,26 @@
                 <?php endif; ?>
             </div>
             <p class="text-muted small mb-0 js-stock-preorder">No stock quantity is requested here - stock arrives later via Supplier Orders receiving (marked as arrived), then gets manually allocated to outstanding orders from the Inventory page.</p>
-        </div>
-    </div>
 
-    <div class="card p-4 mb-4">
-        <h5 class="mb-3">Images</h5>
-        <div class="row g-3">
-            <div class="col-md-6">
-                <label class="form-label">Main Image</label>
-                <?php if ($mainImage !== null): ?>
-                    <div class="mb-2 position-relative d-inline-block">
-                        <img src="/<?php echo app_escape($mainImage['image_path']); ?>" alt="Main image" style="max-width: 140px; max-height: 140px;" class="border rounded d-block">
-                    </div>
-                    <?php if ($canManage): ?>
-                        <label class="d-block small mb-2">
-                            <input type="checkbox" name="remove_main_image" value="1"> Remove current main image
-                        </label>
-                    <?php endif; ?>
-                <?php endif; ?>
-                <input type="file" class="form-control image-file-input" name="main_image" id="main-image-input" accept="image/*">
-                <div class="form-text">Automatically resized, compressed, and converted to WebP.</div>
+            <div class="col-12"><hr class="my-1"></div>
+
+            <div class="col-12">
+                <label class="form-check">
+                    <input type="checkbox" class="form-check-input" name="has_expiry" value="1" id="has-expiry-checkbox" <?php echo $form['expiry_date'] !== '' ? 'checked' : ''; ?>>
+                    <span class="form-check-label">Product has expiry date</span>
+                </label>
             </div>
-
-            <div class="col-md-6">
-                <label class="form-label">Gallery Images</label>
-                <input type="file" class="form-control" name="gallery_images[]" id="gallery-add-input" accept="image/*" multiple>
-                <?php if ($galleryImages !== []): ?>
-                    <div id="gallery-container" class="d-flex flex-wrap gap-3 mt-3">
-                        <?php foreach ($galleryImages as $image): ?>
-                            <div class="gallery-item border rounded p-2 text-center" style="width: 110px;" draggable="true" data-image-id="<?php echo (int) $image['id']; ?>">
-                                <img src="/<?php echo app_escape($image['image_path']); ?>" alt="" style="max-width: 90px; max-height: 90px;" class="mb-1">
-                                <input type="hidden" name="gallery_sort_order[<?php echo (int) $image['id']; ?>]" value="<?php echo (int) $image['sort_order']; ?>">
-                                <label class="small d-block">
-                                    <input type="checkbox" class="gallery-delete" name="gallery_delete[]" value="<?php echo (int) $image['id']; ?>"> Delete
-                                </label>
-                            </div>
-                        <?php endforeach; ?>
-                    </div>
-                <?php else: ?>
-                    <div id="gallery-container"></div>
-                <?php endif; ?>
+            <div class="col-md-3 js-expiry-fields">
+                <label class="form-label">Expiry Date</label>
+                <input type="date" class="form-control" name="expiry_date" value="<?php echo app_escape($form['expiry_date']); ?>">
+                <div class="form-text">Only for products that physically expire (food, cosmetics, etc.) - independent from Early Bird/Preorder/Release Month/inventory.</div>
             </div>
         </div>
     </div>
 
     <div class="card p-4 mb-4 js-variable-section">
         <h5 class="mb-1">Variable Product: Attribute Builder</h5>
-        <p class="text-muted small">Character, Color, Size, and any other attribute are managed the same way - Character is not a separate list, it's just an attribute.</p>
+        <p class="text-muted small">Character, Color, Size, and any other attribute are managed the same way - Character is not a separate list, it's just an attribute. Each value has its own editable SKU prefix (max 5 letters/numbers) used to build variation SKUs - see catalog_attribute_value_sku_code().</p>
         <div class="d-flex justify-content-between align-items-center mb-2">
             <button type="button" class="btn btn-sm btn-link p-0" data-add-modal="attribute">+ Add Attribute (new global attribute)</button>
         </div>
@@ -353,7 +357,7 @@
 
     <div class="card p-4 mb-4 js-variable-section<?php echo ($isEdit && $variations !== []) ? '' : ' d-none'; ?>" id="variation-table-wrapper">
         <h5 class="mb-1">Variations</h5>
-        <p class="text-muted small">Removing a variation always archives it - it is never deleted, so past orders stay intact.</p>
+        <p class="text-muted small">Deleting a variation removes it completely - only possible if it has no order/inventory/supplier history. Otherwise deletion is blocked to protect that history.</p>
 
         <div class="border rounded p-3 mb-3 bg-light">
             <div class="fw-semibold mb-2">Bulk Edit Selected</div>
@@ -383,15 +387,11 @@
                         <option value="inactive">Inactive</option>
                     </select>
                 </div>
-                <div class="col-md-1">
-                    <label class="form-label small mb-1">Stock</label>
-                    <input type="number" min="0" class="form-control form-control-sm" id="bulk-stock">
-                </div>
-                <div class="col-md-2">
+                <div class="col-md-3">
                     <label class="form-label small mb-1">Image</label>
                     <input type="file" class="form-control form-control-sm" id="bulk-image" accept="image/*">
                 </div>
-                <div class="col-md-1 form-check mt-4">
+                <div class="col-md-2 form-check mt-4">
                     <input type="checkbox" class="form-check-input" id="bulk-clear-barcode">
                     <label class="form-check-label small">Clear barcode</label>
                 </div>
@@ -409,8 +409,8 @@
                         <th>Barcode</th>
                         <th>Weight</th>
                         <th>Price Mode / Price</th>
-                        <th>Image</th>
-                        <th>Stock</th>
+                        <th>Main Image</th>
+                        <th>Stock Status</th>
                         <th>Status</th>
                         <?php if ($isEdit): ?><th></th><?php endif; ?>
                     </tr>
@@ -422,6 +422,29 @@
 
     <button class="btn btn-primary btn-lg mt-2" type="submit"><?php echo $isEdit ? 'Save Changes' : 'Create Product'; ?></button>
 </form>
+
+<?php if ($isEdit): ?>
+<div class="modal fade" id="variationGalleryModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Variation Gallery</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small">Close-up photos, different angles, packaging, detail shots - separate from the variation's Main Image.</p>
+                <input type="file" class="form-control mb-3" id="variation-gallery-add-input" accept="image/*" multiple>
+                <div id="variation-gallery-modal-images" class="d-flex flex-wrap gap-3">
+                    <p class="text-muted small mb-0">Loading&hellip;</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 <script id="product-form-data" type="application/json"><?php echo json_encode([
     'csrfToken' => app_csrf_token(),
@@ -446,14 +469,18 @@
         'createTag' => '/modules/products/ajax/create_tag.php',
         'createAttribute' => '/modules/products/ajax/create_attribute.php',
         'createAttributeValue' => '/modules/products/ajax/create_attribute_value.php',
+        'updateAttributeValue' => '/modules/products/ajax/update_attribute_value.php',
         'saveAttributes' => '/modules/products/ajax/save_attributes.php',
         'generateVariations' => '/modules/products/ajax/generate_variations.php',
         'saveVariation' => '/modules/products/ajax/save_variation.php',
-        'archiveVariation' => '/modules/products/ajax/archive_variation.php',
+        'deleteVariation' => '/modules/products/ajax/delete_variation.php',
         'bulkVariationAction' => '/modules/products/ajax/bulk_variation_action.php',
         'uploadMainImage' => '/modules/products/ajax/upload_main_image.php',
         'addGalleryImages' => '/modules/products/ajax/add_gallery_images.php',
         'updateGallery' => '/modules/products/ajax/update_gallery.php',
+        'addVariationGalleryImages' => '/modules/products/ajax/add_variation_gallery_images.php',
+        'updateVariationGallery' => '/modules/products/ajax/update_variation_gallery.php',
+        'getVariationImages' => '/modules/products/ajax/get_variation_images.php',
     ],
 ]); ?></script>
 <script src="/assets/js/product-form.js"></script>

@@ -3,7 +3,6 @@ require_once __DIR__ . '/../../../includes/bootstrap.php';
 require_once __DIR__ . '/../../../includes/ajax_helpers.php';
 require_once __DIR__ . '/../../../includes/product_variations.php';
 require_once __DIR__ . '/../../../includes/product_images.php';
-require_once __DIR__ . '/../../../includes/inventory.php';
 
 ajax_require_permission('products.manage');
 ajax_require_csrf();
@@ -16,16 +15,11 @@ if ($productId < 1 || $variationId < 1) {
     ajax_json(['error' => 'Invalid variation.'], 400);
 }
 
-$productStmt = $pdo->prepare('SELECT product_type FROM products WHERE id = ?');
-$productStmt->execute([$productId]);
-$productType = (string) $productStmt->fetchColumn();
-
 $sku = trim((string) ($_POST['sku'] ?? ''));
 $barcode = trim((string) ($_POST['barcode'] ?? ''));
 $weight = trim((string) ($_POST['weight'] ?? ''));
 $priceMode = (string) ($_POST['price_mode'] ?? 'inherit');
 $customPrice = trim((string) ($_POST['custom_price'] ?? ''));
-$stock = trim((string) ($_POST['stock'] ?? ''));
 $status = (string) ($_POST['status'] ?? 'draft');
 
 if ($sku === '') {
@@ -71,20 +65,9 @@ try {
         $productId,
     ]);
 
-    // Stock is only settable for ready_stock - preorder/early_bird never request
-    // available stock, regardless of what was posted.
-    if ($productType === 'ready_stock' && $stock !== '' && is_numeric($stock)) {
-        $targetStock = max(0, (int) $stock);
-        $row = inventory_get_or_create_row($pdo, $productId, $variationId);
-        $delta = $targetStock - (int) $row['available_quantity'];
-
-        if ($delta !== 0) {
-            $pdo->prepare('UPDATE mewmii_inventory SET available_quantity = ? WHERE product_id = ? AND variation_id = ?')
-                ->execute([$targetStock, $productId, $variationId]);
-            inventory_log_transaction($pdo, $productId, 'manual_adjustment', $delta, 'variation_edit', $variationId, $variationId);
-        }
-    }
-
+    // Stock is no longer settable from the product form - inventory quantities are only
+    // ever adjusted via the Inventory module's Adjust Stock action (see
+    // modules/inventory/index.php), never here.
     if (!empty($_POST['remove_image'])) {
         variation_image_remove($pdo, $variationId);
     } elseif (!empty($_FILES['variation_image']['name'])) {

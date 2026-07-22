@@ -215,3 +215,78 @@ function variation_image_remove(PDO $pdo, int $variationId): void
     $pdo->prepare('DELETE FROM product_images WHERE id = ?')->execute([$old['id']]);
     image_upload_delete($old['image_path']);
 }
+
+// --- Variation gallery: close-up/angle/packaging shots, separate from the single "Main
+// Image" above (image_type = 'variation') - same image_type = 'gallery' the product-level
+// gallery already uses, just scoped to variation_id instead of NULL. ---------------------
+
+function variation_image_list_gallery(PDO $pdo, int $variationId): array
+{
+    $stmt = $pdo->prepare("
+        SELECT * FROM product_images
+        WHERE variation_id = ? AND image_type = 'gallery'
+        ORDER BY sort_order ASC, id ASC
+    ");
+    $stmt->execute([$variationId]);
+
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Appends one or more newly uploaded files to one variation's gallery, after any images
+ * already there. $uploadedFiles is a list of normalized single-file arrays (see
+ * image_upload_normalize_multi()).
+ */
+function variation_image_add_gallery(PDO $pdo, int $productId, int $variationId, array $uploadedFiles): void
+{
+    if ($uploadedFiles === []) {
+        return;
+    }
+
+    $maxOrderStmt = $pdo->prepare("SELECT COALESCE(MAX(sort_order), -1) FROM product_images WHERE variation_id = ? AND image_type = 'gallery'");
+    $maxOrderStmt->execute([$variationId]);
+    $nextOrder = (int) $maxOrderStmt->fetchColumn() + 1;
+
+    $insertStmt = $pdo->prepare("INSERT INTO product_images (product_id, variation_id, image_type, image_path, sort_order) VALUES (?, ?, 'gallery', ?, ?)");
+
+    foreach ($uploadedFiles as $file) {
+        $imagePath = image_upload_process($file, 'variations');
+        $insertStmt->execute([$productId, $variationId, $imagePath, $nextOrder]);
+        $nextOrder++;
+    }
+}
+
+/**
+ * Applies gallery deletions and sort-order edits in one pass, scoped to one variation's
+ * gallery images only - mirrors product_image_update_gallery() exactly, just keyed by
+ * variation_id instead of product_id (variation_id IS NULL).
+ */
+function variation_image_update_gallery(PDO $pdo, int $variationId, array $sortOrders, array $deleteIds): void
+{
+    $deleteIds = array_values(array_unique(array_map('intval', $deleteIds)));
+
+    if ($deleteIds !== []) {
+        $placeholders = implode(',', array_fill(0, count($deleteIds), '?'));
+        $stmt = $pdo->prepare("
+            SELECT id, image_path FROM product_images
+            WHERE variation_id = ? AND image_type = 'gallery' AND id IN ({$placeholders})
+        ");
+        $stmt->execute(array_merge([$variationId], $deleteIds));
+        $toDelete = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $deleteStmt = $pdo->prepare('DELETE FROM product_images WHERE id = ?');
+        foreach ($toDelete as $row) {
+            $deleteStmt->execute([$row['id']]);
+            image_upload_delete($row['image_path']);
+        }
+    }
+
+    $updateStmt = $pdo->prepare("UPDATE product_images SET sort_order = ? WHERE id = ? AND variation_id = ? AND image_type = 'gallery'");
+    foreach ($sortOrders as $imageId => $sortOrder) {
+        $imageId = (int) $imageId;
+        if (in_array($imageId, $deleteIds, true)) {
+            continue;
+        }
+        $updateStmt->execute([(int) $sortOrder, $imageId, $variationId]);
+    }
+}

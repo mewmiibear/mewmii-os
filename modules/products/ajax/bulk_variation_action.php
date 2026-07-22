@@ -15,10 +15,6 @@ if ($productId < 1 || $variationIds === []) {
     ajax_json(['error' => 'Select at least one variation.'], 400);
 }
 
-$productStmt = $pdo->prepare('SELECT product_type FROM products WHERE id = ?');
-$productStmt->execute([$productId]);
-$productType = (string) $productStmt->fetchColumn();
-
 try {
     $pdo->beginTransaction();
 
@@ -32,11 +28,6 @@ try {
     }
     if (!empty($_POST['status'])) {
         $changes['status'] = (string) $_POST['status'];
-    }
-    // Stock is only settable for ready_stock - preorder/early_bird never request
-    // available stock in bulk either, regardless of what was posted.
-    if ($productType === 'ready_stock' && isset($_POST['stock']) && $_POST['stock'] !== '') {
-        $changes['stock'] = (string) $_POST['stock'];
     }
     if (!empty($_POST['clear_barcode'])) {
         $changes['clear_barcode'] = true;

@@ -58,6 +58,7 @@ $form = [
     'name' => $product['name'],
     'sku' => $product['sku'],
     'barcode' => (string) ($product['barcode'] ?? ''),
+    'short_description' => (string) ($product['short_description'] ?? ''),
     'description' => (string) $product['description'],
     'brand_id' => $product['brand_id'] !== null ? (string) $product['brand_id'] : '',
     'category_id' => (string) (catalog_get_product_category_id($pdo, $productId) ?? ''),
@@ -92,6 +93,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form['name'] = trim((string) ($_POST['name'] ?? ''));
     $form['sku'] = trim((string) ($_POST['sku'] ?? ''));
     $form['barcode'] = trim((string) ($_POST['barcode'] ?? ''));
+    $form['short_description'] = trim((string) ($_POST['short_description'] ?? ''));
     $form['description'] = trim((string) ($_POST['description'] ?? ''));
     $form['brand_id'] = trim((string) ($_POST['brand_id'] ?? ''));
     $form['category_id'] = trim((string) ($_POST['category_id'] ?? ''));
@@ -119,6 +121,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'SKU is required and must be 100 characters or fewer.';
         } elseif ($form['name'] === '' || strlen($form['name']) > 255) {
             $error = 'Name is required and must be 255 characters or fewer.';
+        } elseif (strlen($form['short_description']) > 500) {
+            $error = 'Short description must be 500 characters or fewer.';
         } elseif (!in_array($form['catalog_type'], $catalogTypes, true)) {
             $error = 'Invalid product structure (simple/variable).';
         } elseif ($product['catalog_type'] === 'variable' && $form['catalog_type'] === 'simple') {
@@ -202,7 +206,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $stmt = $pdo->prepare('
                 UPDATE products
-                SET sku = ?, name = ?, description = ?, product_type = ?, catalog_type = ?, brand_id = ?, barcode = ?,
+                SET sku = ?, name = ?, short_description = ?, description = ?, product_type = ?, catalog_type = ?, brand_id = ?, barcode = ?,
                     supplier_id = ?, product_cost = ?, selling_price = ?, sale_enabled = ?, sale_price = ?,
                     min_stock_threshold = ?, sale_start_date = ?, estimated_arrival_date = ?, estimated_release_month = ?,
                     preorder_closing_date = ?, preorder_reopened_at = ?, expiry_date = ?, moq = ?, status = ?
@@ -211,6 +215,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute([
                 $form['sku'],
                 $form['name'],
+                $form['short_description'] !== '' ? $form['short_description'] : null,
                 $form['description'] !== '' ? $form['description'] : null,
                 $form['product_type'],
                 $form['catalog_type'],

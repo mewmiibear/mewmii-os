@@ -331,6 +331,15 @@ if (!migrate_column_exists($pdo, 'mewmii_orders', 'shipped_at')) {
     migrate_run($pdo, 'mewmii_orders.shipped_at', 'ALTER TABLE mewmii_orders ADD COLUMN shipped_at DATETIME NULL AFTER shipping_carrier', $applied);
 }
 
+// products.short_description: the customer-facing summary shown on the product form
+// (Basic Information section) and synced to WooCommerce's own short_description field -
+// separate from the long `description` field, and separate from the auto-generated
+// preorder/Early Bird blurb (see wc_client_build_product_payload()), which is appended
+// after it rather than replacing it.
+if (!migrate_column_exists($pdo, 'products', 'short_description')) {
+    migrate_run($pdo, 'products.short_description', 'ALTER TABLE products ADD COLUMN short_description VARCHAR(500) NULL AFTER name', $applied);
+}
+
 echo count($applied) . ' migration statement(s) applied:' . PHP_EOL;
 foreach ($applied as $item) {
     echo '  - ' . $item . PHP_EOL;

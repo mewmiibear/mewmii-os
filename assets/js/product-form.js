@@ -25,6 +25,12 @@
         attributesById[attr.id] = attr;
     });
 
+    function escapeHtml(value) {
+        var div = document.createElement('div');
+        div.textContent = value === null || value === undefined ? '' : String(value);
+        return div.innerHTML;
+    }
+
     function csrfField() {
         return config.csrfToken || '';
     }
@@ -99,13 +105,6 @@
         document.querySelectorAll('.js-stock-preorder').forEach(function (el) {
             el.classList.toggle('d-none', isReadyStock);
         });
-        document.querySelectorAll('.variation-stock-cell').forEach(function (cell) {
-            var input = cell.querySelector('input');
-            cell.classList.toggle('d-none', !isReadyStock);
-            if (input) {
-                input.disabled = !isReadyStock;
-            }
-        });
     }
 
     function initProductTypeToggle() {
@@ -126,6 +125,21 @@
         function apply() {
             applyFieldVisibility();
         }
+
+        // Switching TO Early Bird auto-enables Sale (Early Bird pricing is meaningless
+        // without it) - but switching away never auto-disables it, so an admin can still
+        // leave a sale event running independently. Only reacts to an actual change, never
+        // forced on page load, so an existing product's current sale_enabled value is
+        // never silently overridden just by opening the edit form.
+        select.addEventListener('change', function () {
+            if (select.value === 'early_bird') {
+                var enableSale = document.getElementById('enable-sale');
+                if (enableSale && !enableSale.checked) {
+                    enableSale.checked = true;
+                    enableSale.dispatchEvent(new Event('change'));
+                }
+            }
+        });
 
         select.addEventListener('change', apply);
         apply();
@@ -485,7 +499,7 @@
                         title: 'Add Value',
                         fields: [
                             { name: 'value', label: 'Value (e.g. Cinnamoroll)', type: 'text' },
-                            { name: 'code', label: 'Code (e.g. CN) - short inventory prefix for SKUs, optional', type: 'text' }
+                            { name: 'code', label: 'SKU Prefix (e.g. CN) - max 5 letters/numbers, required', type: 'text' }
                         ],
                         onSave: function (values) {
                             return postJson(config.urls.createAttributeValue, { attribute_id: attributeId, value: values.value, code: values.code }).then(function (result) {
@@ -509,12 +523,50 @@
     // ---------------------------------------------------------------------------------
     var attributeBlockIndex = 0;
 
+    // Each value gets its own editable SKU prefix (product_attribute_values.code) right
+    // next to its checkbox - see catalog_attribute_value_sku_code() for how it's used to
+    // build variation SKUs. Saved on blur via a dedicated endpoint, not the main form
+    // submit, since the value is global/shared across every product using this attribute.
     function addValueCheckbox(container, attributeId, valueId, valueLabel, checked, code) {
+        var wrap = document.createElement('span');
+        wrap.className = 'd-inline-flex align-items-center gap-1 me-3 mb-1';
+
         var label = document.createElement('label');
-        label.className = 'checkbox-item me-3';
-        var displayLabel = valueLabel + (code ? ' (' + code + ')' : '');
-        label.innerHTML = '<input type="checkbox" class="attribute-value-checkbox" data-attribute-id="' + attributeId + '" value="' + valueId + '"' + (checked ? ' checked' : '') + '> ' + displayLabel;
-        container.appendChild(label);
+        label.className = 'checkbox-item mb-0';
+        label.innerHTML = '<input type="checkbox" class="attribute-value-checkbox" data-attribute-id="' + attributeId + '" value="' + valueId + '"' + (checked ? ' checked' : '') + '> ' + escapeHtml(valueLabel);
+        wrap.appendChild(label);
+
+        var codeInput = document.createElement('input');
+        codeInput.type = 'text';
+        codeInput.className = 'form-control form-control-sm';
+        codeInput.style.width = '56px';
+        codeInput.maxLength = 5;
+        codeInput.placeholder = 'Prefix';
+        codeInput.title = 'SKU prefix (e.g. CN)';
+        codeInput.value = code || '';
+        codeInput.addEventListener('input', function () {
+            codeInput.value = codeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
+        });
+        codeInput.addEventListener('blur', function () {
+            var newCode = codeInput.value;
+            if (newCode === (code || '')) {
+                return;
+            }
+            postJson(config.urls.updateAttributeValue, { value_id: valueId, code: newCode }).then(function (result) {
+                code = result.code;
+                var attr = attributesById[attributeId];
+                var found = attr && (attr.values || []).filter(function (v) { return v.id === valueId; })[0];
+                if (found) {
+                    found.code = result.code;
+                }
+            }).catch(function (error) {
+                codeInput.value = code || '';
+                showError(error.message);
+            });
+        });
+        wrap.appendChild(codeInput);
+
+        container.appendChild(wrap);
     }
 
     function renderAttributeValues(block, attributeId, checkedValueIds) {
@@ -744,8 +796,12 @@
             '<td class="variation-image-cell">' + imagePreview +
             (options.canManage ? '<input type="file" class="form-control form-control-sm variation-image-input image-file-input"' + fieldName('variation_image') + ' accept="image/*">' +
                 (options.hasOwnImage ? '<label class="small d-block mt-1"><input type="checkbox" class="variation-image-remove"' + fieldName('variation_remove_image') + ' value="1"> Use parent image</label>' : '') : '') +
+            (options.canManage && options.showRowActions ? '<button type="button" class="btn btn-sm btn-outline-secondary variation-gallery-btn mt-1" data-variation-id="' + options.variationId + '">Gallery</button>' : '') +
             '</td>' +
-            '<td class="variation-stock-cell"><input type="number" min="0" class="form-control form-control-sm variation-stock"' + fieldName('variation_stock') + ' style="width:80px;" value="' + (options.stock || 0) + '"' + readonlyAttr + '></td>' +
+            // Inventory quantities are managed in the Inventory module, not here - this is a
+            // read-only at-a-glance indicator only (see options.stockStatus, computed from
+            // available_quantity by the caller).
+            '<td class="variation-stock-cell">' + (options.stockStatus === 'in_stock' ? '<span class="text-success">&#128994; In Stock</span>' : '<span class="text-danger">&#128308; Out of Stock</span>') + '</td>' +
             '<td>' +
             '<select class="form-select form-select-sm variation-status"' + fieldName('variation_status') + disabledAttr + '>' +
             ['draft', 'active', 'inactive'].map(function (statusValue) {
@@ -753,7 +809,7 @@
             }).join('') +
             '</select>' +
             '</td>' +
-            (options.canManage && options.showRowActions ? '<td class="text-end">' + (options.archived ? '<span class="badge bg-secondary">Archived</span>' : '<button type="button" class="btn btn-sm btn-outline-primary save-variation-row me-1">Save</button><button type="button" class="btn btn-sm btn-outline-danger archive-variation-row">Archive</button>') + '</td>' : '');
+            (options.canManage && options.showRowActions ? '<td class="text-end">' + (options.archived ? '<span class="badge bg-secondary">Archived</span>' : '<button type="button" class="btn btn-sm btn-outline-primary save-variation-row me-1">Save</button><button type="button" class="btn btn-sm btn-outline-danger delete-variation-row">Delete</button>') + '</td>' : '');
     }
 
     function priceModeChangeHandler(row) {
@@ -820,7 +876,7 @@
                 sku: buildPreviewSku(combo),
                 priceMode: 'inherit',
                 status: 'draft',
-                stock: 0,
+                stockStatus: 'out_of_stock',
                 fallbackNote: 'uses parent main image'
             });
             priceModeChangeHandler(row);
@@ -845,6 +901,7 @@
             canManage: true,
             showRowActions: true,
             archived: archived,
+            variationId: variation.id,
             label: variation.label || '(no attributes)',
             sku: variation.sku,
             barcode: variation.barcode,
@@ -853,7 +910,7 @@
             customPrice: variation.custom_price,
             imagePath: variation.image_path,
             hasOwnImage: !!variation.image_path,
-            stock: variation.available_quantity,
+            stockStatus: (variation.available_quantity > 0) ? 'in_stock' : 'out_of_stock',
             status: variation.status,
             readonly: archived
         });
@@ -896,7 +953,6 @@
                 formData.append('weight', row.querySelector('.variation-weight').value);
                 formData.append('price_mode', row.querySelector('.variation-price-mode').value);
                 formData.append('custom_price', row.querySelector('.variation-custom-price').value);
-                formData.append('stock', row.querySelector('.variation-stock').value);
                 formData.append('status', row.querySelector('.variation-status').value);
                 var imageInput = row.querySelector('.variation-image-input');
                 if (imageInput && imageInput.files && imageInput.files[0]) {
@@ -915,21 +971,31 @@
             });
         });
 
-        document.querySelectorAll('.archive-variation-row').forEach(function (button) {
+        document.querySelectorAll('.delete-variation-row').forEach(function (button) {
             if (button.dataset.bound) {
                 return;
             }
             button.dataset.bound = '1';
             button.addEventListener('click', function () {
-                if (!window.confirm('Archive this variation? It will no longer be sellable, but its history is kept.')) {
+                if (!window.confirm('Delete this variation? This cannot be undone.')) {
                     return;
                 }
                 var row = button.closest('.variation-row');
-                postJson(config.urls.archiveVariation, { variation_id: row.dataset.variationId }).then(function () {
+                postJson(config.urls.deleteVariation, { variation_id: row.dataset.variationId }).then(function () {
                     window.location.reload();
                 }).catch(function (error) {
                     showError(error.message);
                 });
+            });
+        });
+
+        document.querySelectorAll('.variation-gallery-btn').forEach(function (button) {
+            if (button.dataset.bound) {
+                return;
+            }
+            button.dataset.bound = '1';
+            button.addEventListener('click', function () {
+                openVariationGalleryModal(parseInt(button.dataset.variationId, 10));
             });
         });
     }
@@ -990,7 +1056,6 @@
             var customPrice = document.getElementById('bulk-custom-price').value;
             var weight = document.getElementById('bulk-weight').value;
             var status = document.getElementById('bulk-status').value;
-            var stock = document.getElementById('bulk-stock').value;
             var clearBarcode = document.getElementById('bulk-clear-barcode').checked;
             var imageFile = document.getElementById('bulk-image').files[0];
 
@@ -1008,9 +1073,6 @@
                     }
                     if (status) {
                         row.querySelector('.variation-status').value = status;
-                    }
-                    if (stock !== '') {
-                        row.querySelector('.variation-stock').value = stock;
                     }
                     if (clearBarcode) {
                         row.querySelector('.variation-barcode').value = '';
@@ -1045,9 +1107,6 @@
             }
             if (status) {
                 formData.append('status', status);
-            }
-            if (stock !== '') {
-                formData.append('stock', stock);
             }
             if (clearBarcode) {
                 formData.append('clear_barcode', '1');
@@ -1186,6 +1245,94 @@
     }
 
     // ---------------------------------------------------------------------------------
+    // Variation Gallery modal: lazy-loaded (fetched only when opened, mirroring the
+    // Inventory page's History modal), lets staff add/remove close-up/angle/packaging
+    // photos for one variation - separate from its single Main Image, which is still
+    // managed inline in the variation row via the existing file input.
+    // ---------------------------------------------------------------------------------
+    var galleryModalState = { variationId: null };
+
+    function renderVariationGalleryImages(images) {
+        var container = document.getElementById('variation-gallery-modal-images');
+        if (!container) {
+            return;
+        }
+        if (!images || images.length === 0) {
+            container.innerHTML = '<p class="text-muted small mb-0">No gallery images yet.</p>';
+            return;
+        }
+        container.innerHTML = images.map(function (image) {
+            return '<div class="gallery-item border rounded p-2 text-center" style="width:110px;" data-image-id="' + image.id + '">' +
+                '<img src="/' + escapeHtml(image.image_path) + '" alt="" style="max-width:90px;max-height:90px;" class="mb-1">' +
+                '<button type="button" class="btn btn-sm btn-outline-danger d-block w-100 variation-gallery-delete-btn" data-image-id="' + image.id + '">Delete</button>' +
+                '</div>';
+        }).join('');
+
+        container.querySelectorAll('.variation-gallery-delete-btn').forEach(function (button) {
+            button.addEventListener('click', function () {
+                var formData = new FormData();
+                formData.append('variation_id', galleryModalState.variationId);
+                formData.append('delete_ids[]', button.dataset.imageId);
+                postFormData(config.urls.updateVariationGallery, formData).then(function () {
+                    loadVariationGalleryImages();
+                }).catch(function (error) {
+                    showError(error.message);
+                });
+            });
+        });
+    }
+
+    function loadVariationGalleryImages() {
+        var container = document.getElementById('variation-gallery-modal-images');
+        if (container) {
+            container.innerHTML = '<p class="text-muted small mb-0">Loading&hellip;</p>';
+        }
+        fetch(config.urls.getVariationImages + '?variation_id=' + galleryModalState.variationId, { credentials: 'same-origin' })
+            .then(function (response) { return response.json(); })
+            .then(function (json) {
+                renderVariationGalleryImages(json.gallery || []);
+            })
+            .catch(function () {
+                if (container) {
+                    container.innerHTML = '<p class="text-danger small mb-0">Failed to load images.</p>';
+                }
+            });
+    }
+
+    function openVariationGalleryModal(variationId) {
+        galleryModalState.variationId = variationId;
+        var modalEl = document.getElementById('variationGalleryModal');
+        if (modalEl && window.bootstrap) {
+            window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        }
+        loadVariationGalleryImages();
+    }
+
+    function initVariationGalleryModal() {
+        var addInput = document.getElementById('variation-gallery-add-input');
+        if (!addInput) {
+            return;
+        }
+        addInput.addEventListener('change', function () {
+            if (!addInput.files || addInput.files.length === 0) {
+                return;
+            }
+            var formData = new FormData();
+            formData.append('product_id', config.productId);
+            formData.append('variation_id', galleryModalState.variationId);
+            Array.prototype.forEach.call(addInput.files, function (file) {
+                formData.append('gallery_images[]', file);
+            });
+            postFormData(config.urls.addVariationGalleryImages, formData).then(function () {
+                addInput.value = '';
+                loadVariationGalleryImages();
+            }).catch(function (error) {
+                showError(error.message);
+            });
+        });
+    }
+
+    // ---------------------------------------------------------------------------------
     // Boot.
     // ---------------------------------------------------------------------------------
     document.addEventListener('DOMContentLoaded', function () {
@@ -1199,6 +1346,7 @@
         initGenerateVariations();
         initBulkActions();
         initGallery();
+        initVariationGalleryModal();
 
         if (config.isEdit && (config.variations || []).length > 0) {
             renderServerVariationTable(config.variations);
