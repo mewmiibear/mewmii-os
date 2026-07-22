@@ -3,6 +3,26 @@
 require_once __DIR__ . '/inventory.php';
 require_once __DIR__ . '/product_images.php';
 
+/**
+ * The one place "which cost applies to this variation" gets decided, used by both
+ * catalog_sellable_units() and supplier_order_picker_products() so the priority can never
+ * drift between the two. A variation's own cost_price wins only when it's a real,
+ * explicitly-entered positive value - NULL/blank (never set) AND 0.00 (the old NOT NULL
+ * DEFAULT 0.00 schema's forced value, which pre-dates any UI that could actually write to
+ * this column) both mean "no cost of its own yet", so both fall back to the parent
+ * product's cost. This is deliberately NOT just a NULL check: existing rows saved before
+ * the cost_price_nullable migration/backfill ran may still be sitting at 0.00 rather than
+ * NULL, and 0.00 is never a legitimate real-world sourcing cost.
+ */
+function variation_effective_cost($variationCostPrice, $parentCost): float
+{
+    if ($variationCostPrice !== null && (float) $variationCostPrice > 0) {
+        return (float) $variationCostPrice;
+    }
+
+    return (float) $parentCost;
+}
+
 // --- SKU generation ---------------------------------------------------------------------
 
 function variation_generate_sku(string $parentSku, array $valueLabels): string
@@ -508,10 +528,7 @@ function catalog_sellable_units(PDO $pdo): array
             'sku' => $row['sku'],
             'label' => $row['product_name'] . ($label !== '' ? (' - ' . $label) : ''),
             'selling_price' => $price,
-            // The variation's own cost overrides the parent when set; a variation that has
-            // never had a cost entered (NULL - see the cost_price_nullable migration)
-            // inherits the parent's product_cost instead of silently pricing at RM0.
-            'cost_price' => $row['cost_price'] !== null ? (float) $row['cost_price'] : (float) $row['parent_cost'],
+            'cost_price' => variation_effective_cost($row['cost_price'], $row['parent_cost']),
             // MOQ belongs only to the parent product - variations always inherit it, there
             // is no separate variation-level MOQ (see supplier_order_picker_products()).
             'moq' => $row['parent_moq'] !== null ? (int) $row['parent_moq'] : null,
