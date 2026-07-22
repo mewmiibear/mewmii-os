@@ -5,7 +5,7 @@ app_require_login();
 $appTitle = 'Suppliers';
 require_once __DIR__ . '/../../includes/header.php';
 
-$stmt = app_db()->query('SELECT id, name, contact_person, phone, email, status FROM suppliers ORDER BY id DESC LIMIT 20');
+$stmt = app_db()->query('SELECT id, name, contact, country, notes FROM suppliers ORDER BY id DESC LIMIT 20');
 $suppliers = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -20,19 +20,17 @@ $suppliers = $stmt->fetchAll(PDO::FETCH_ASSOC);
             <tr>
                 <th>Name</th>
                 <th>Contact</th>
-                <th>Phone</th>
-                <th>Email</th>
-                <th>Status</th>
+                <th>Country</th>
+                <th>Notes</th>
             </tr>
         </thead>
         <tbody>
             <?php foreach ($suppliers as $supplier): ?>
                 <tr>
                     <td><?php echo app_escape($supplier['name']); ?></td>
-                    <td><?php echo app_escape($supplier['contact_person'] ?? '-'); ?></td>
-                    <td><?php echo app_escape($supplier['phone'] ?? '-'); ?></td>
-                    <td><?php echo app_escape($supplier['email'] ?? '-'); ?></td>
-                    <td><?php echo app_escape($supplier['status']); ?></td>
+                    <td><?php echo app_escape($supplier['contact'] ?? '-'); ?></td>
+                    <td><?php echo app_escape($supplier['country'] ?? '-'); ?></td>
+                    <td><?php echo app_escape($supplier['notes'] ?? '-'); ?></td>
                 </tr>
             <?php endforeach; ?>
         </tbody>

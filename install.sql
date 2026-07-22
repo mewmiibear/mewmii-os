@@ -1,3 +1,28 @@
+-- Mewmii OS - Complete Database Schema
+-- Import this file into u924285025_mewmii_os (or your target database) to create
+-- every table referenced by DATABASE.md and database/schema.sql.
+--
+-- This mirrors database/schema.sql exactly (that file is what install.php loads
+-- at runtime), so importing this once via phpMyAdmin/CLI has the same effect as
+-- letting install.php create the schema, minus needing PHP to run it.
+--
+-- After importing this file, run install.php once (visit it in the browser, or
+-- `php install.php` on the server) so it can seed roles, permissions,
+-- membership tiers, and the initial admin login. install.php already does this
+-- safely and idempotently (it only seeds when the `users` table is empty), so
+-- there is no need to duplicate that seed data here.
+--
+-- Known gap (not fixed by this file): login.php, modules/customers/index.php,
+-- modules/suppliers/index.php, and modules/inventory/index.php query columns
+-- that don't exist in this schema (users.password/role, customers.membership_tier/
+-- points, suppliers.contact_person/phone/email/status, products.stock_quantity/
+-- reserved_stock). Those pages will still error until that code is updated to
+-- match this schema (roles/role_id, customer_memberships/point_transactions,
+-- suppliers.contact, mewmii_inventory). See the assistant's summary for details.
+
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 1;
+
 CREATE TABLE IF NOT EXISTS roles (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(80) NOT NULL UNIQUE,

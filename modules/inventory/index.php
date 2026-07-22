@@ -5,7 +5,18 @@ app_require_login();
 $appTitle = 'Inventory';
 require_once __DIR__ . '/../../includes/header.php';
 
-$stmt = app_db()->query('SELECT p.id, p.sku, p.name, p.stock_quantity, p.reserved_stock FROM products p ORDER BY p.id DESC LIMIT 20');
+$stmt = app_db()->query('
+    SELECT
+        p.id,
+        p.sku,
+        p.name,
+        COALESCE(i.available_quantity, 0) AS stock_quantity,
+        COALESCE(i.reserved_quantity, 0) AS reserved_stock
+    FROM products p
+    LEFT JOIN mewmii_inventory i ON i.product_id = p.id
+    ORDER BY p.id DESC
+    LIMIT 20
+');
 $inventory = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">

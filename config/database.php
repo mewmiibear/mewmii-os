@@ -10,6 +10,7 @@ $host = $config['db']['host'] ?? 'localhost';
 $dbname = $config['db']['database'] ?? '';
 $username = $config['db']['username'] ?? '';
 $password = $config['db']['password'] ?? '';
+$charset = $config['db']['charset'] ?? 'utf8mb4';
 
 if (!$dbname || !$username) {
     die('Database configuration is incomplete. Please configure the database settings in config.php.');
@@ -17,7 +18,7 @@ if (!$dbname || !$username) {
 
 try {
     $pdo = new PDO(
-        "mysql:host=$host;dbname=$dbname;charset=utf8",
+        "mysql:host=$host;dbname=$dbname;charset=$charset",
         $username,
         $password
     );

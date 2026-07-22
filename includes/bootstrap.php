@@ -100,11 +100,19 @@ function app_validate_email(string $value): bool
 
 function app_has_permission(string $permission): bool
 {
-    // Mewmii OS simple admin access
-    // Later we can add staff permissions
+    if (empty($_SESSION['role_id'])) {
+        return false;
+    }
 
-    return isset($_SESSION['user_role'])
-        && $_SESSION['user_role'] === 'admin';
+    $stmt = app_db()->prepare('
+        SELECT COUNT(*)
+        FROM role_permissions rp
+        INNER JOIN permissions p ON p.id = rp.permission_id
+        WHERE rp.role_id = ? AND p.name = ?
+    ');
+    $stmt->execute([$_SESSION['role_id'], $permission]);
+
+    return (int) $stmt->fetchColumn() > 0;
 }
 
 

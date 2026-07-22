@@ -1,11 +1,7 @@
 <?php
 require_once __DIR__ . '/includes/bootstrap.php';
 
-app_require_login();
-
-if (!isset($_SESSION['user_role']) || $_SESSION['user_role'] !== 'admin') {
-    die('Access denied');
-}
+app_require_permission('dashboard.view');
 
 $appTitle = 'Dashboard';
 

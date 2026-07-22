@@ -40,13 +40,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $stmt = app_db()->prepare("
                 SELECT
-                    id,
-                    name,
-                    email,
-                    password,
-                    role
-                FROM users
-                WHERE email = ?
+                    u.id,
+                    u.name,
+                    u.email,
+                    u.password_hash,
+                    u.status,
+                    u.role_id,
+                    r.name AS role_name
+                FROM users u
+                INNER JOIN roles r ON r.id = u.role_id
+                WHERE u.email = ?
                 LIMIT 1
             ");
 
@@ -57,15 +60,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if (
                 $user &&
-                password_verify($password, $user['password'])
+                $user['status'] === 'active' &&
+                password_verify($password, $user['password_hash'])
             ) {
 
                 session_regenerate_id(true);
 
                 $_SESSION['user_id'] = (int)$user['id'];
                 $_SESSION['user_name'] = $user['name'];
-                $_SESSION['user_role'] = $user['role'];
-                $_SESSION['user_permissions'] = [];
+                $_SESSION['role_id'] = (int)$user['role_id'];
+                $_SESSION['user_role'] = $user['role_name'];
 
 
                 // Optional logging
