@@ -1,0 +1,188 @@
+<?php
+require_once __DIR__ . '/../../includes/bootstrap.php';
+app_require_permission('products.manage');
+
+$appTitle = 'Add Product';
+$error = '';
+
+$productTypes = ['ready_stock', 'preorder', 'early_bird'];
+$statuses = ['draft', 'coming_soon', 'active', 'preorder_closed', 'expired', 'hidden'];
+
+$pdo = app_db();
+
+$form = [
+    'sku' => '',
+    'name' => '',
+    'description' => '',
+    'product_type' => 'ready_stock',
+    'supplier_id' => '',
+    'product_cost' => '',
+    'selling_price' => '',
+    'status' => 'draft',
+];
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    try {
+        app_require_csrf();
+    } catch (RuntimeException $exception) {
+        $error = $exception->getMessage();
+    }
+
+    $form['sku'] = trim((string) ($_POST['sku'] ?? ''));
+    $form['name'] = trim((string) ($_POST['name'] ?? ''));
+    $form['description'] = trim((string) ($_POST['description'] ?? ''));
+    $form['product_type'] = (string) ($_POST['product_type'] ?? '');
+    $form['supplier_id'] = trim((string) ($_POST['supplier_id'] ?? ''));
+    $form['product_cost'] = trim((string) ($_POST['product_cost'] ?? ''));
+    $form['selling_price'] = trim((string) ($_POST['selling_price'] ?? ''));
+    $form['status'] = (string) ($_POST['status'] ?? '');
+
+    if ($error === '') {
+        if ($form['sku'] === '' || strlen($form['sku']) > 100) {
+            $error = 'SKU is required and must be 100 characters or fewer.';
+        } elseif ($form['name'] === '' || strlen($form['name']) > 255) {
+            $error = 'Name is required and must be 255 characters or fewer.';
+        } elseif (!in_array($form['product_type'], $productTypes, true)) {
+            $error = 'Invalid product type.';
+        } elseif (!in_array($form['status'], $statuses, true)) {
+            $error = 'Invalid status.';
+        } elseif (!is_numeric($form['product_cost']) || (float) $form['product_cost'] < 0) {
+            $error = 'Cost price must be a valid non-negative number.';
+        } elseif (!is_numeric($form['selling_price']) || (float) $form['selling_price'] < 0) {
+            $error = 'Selling price must be a valid non-negative number.';
+        }
+    }
+
+    $supplierId = null;
+    if ($error === '' && $form['supplier_id'] !== '') {
+        $supplierId = (int) $form['supplier_id'];
+        $supplierCheck = $pdo->prepare('SELECT COUNT(*) FROM suppliers WHERE id = ?');
+        $supplierCheck->execute([$supplierId]);
+        if ((int) $supplierCheck->fetchColumn() === 0) {
+            $error = 'Selected supplier does not exist.';
+        }
+    }
+
+    if ($error === '') {
+        $skuCheck = $pdo->prepare('SELECT COUNT(*) FROM products WHERE sku = ?');
+        $skuCheck->execute([$form['sku']]);
+        if ((int) $skuCheck->fetchColumn() > 0) {
+            $error = 'SKU already exists.';
+        }
+    }
+
+    if ($error === '') {
+        $pdo->beginTransaction();
+
+        try {
+            $stmt = $pdo->prepare('
+                INSERT INTO products (sku, name, description, product_type, supplier_id, product_cost, selling_price, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ');
+            $stmt->execute([
+                $form['sku'],
+                $form['name'],
+                $form['description'] !== '' ? $form['description'] : null,
+                $form['product_type'],
+                $supplierId,
+                round((float) $form['product_cost'], 2),
+                round((float) $form['selling_price'], 2),
+                $form['status'],
+            ]);
+
+            $pdo->commit();
+
+            app_redirect('/modules/products/index.php?created=1');
+        } catch (Exception $exception) {
+            $pdo->rollBack();
+            $error = 'Failed to create product.';
+        }
+    }
+}
+
+$suppliersStmt = $pdo->query('SELECT id, name FROM suppliers ORDER BY name ASC LIMIT 200');
+$suppliers = $suppliersStmt->fetchAll(PDO::FETCH_ASSOC);
+
+require_once __DIR__ . '/../../includes/header.php';
+?>
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="mb-1">Add Product</h2>
+        <p class="text-muted mb-0">Create a new product in the catalog.</p>
+    </div>
+    <a class="btn btn-outline-secondary btn-sm" href="/modules/products/index.php">Back to Products</a>
+</div>
+
+<?php if ($error !== ''): ?>
+    <div class="alert alert-danger"><?php echo app_escape($error); ?></div>
+<?php endif; ?>
+
+<div class="card p-4">
+    <form method="post">
+        <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label">SKU</label>
+                <input type="text" class="form-control" name="sku" value="<?php echo app_escape($form['sku']); ?>" maxlength="100" required>
+            </div>
+
+            <div class="col-md-8">
+                <label class="form-label">Name</label>
+                <input type="text" class="form-control" name="name" value="<?php echo app_escape($form['name']); ?>" maxlength="255" required>
+            </div>
+
+            <div class="col-12">
+                <label class="form-label">Description</label>
+                <textarea class="form-control" name="description" rows="3"><?php echo app_escape($form['description']); ?></textarea>
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">Product Type</label>
+                <select class="form-select" name="product_type" required>
+                    <?php foreach ($productTypes as $type): ?>
+                        <option value="<?php echo app_escape($type); ?>" <?php echo $form['product_type'] === $type ? 'selected' : ''; ?>>
+                            <?php echo app_escape($type); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">Status</label>
+                <select class="form-select" name="status" required>
+                    <?php foreach ($statuses as $statusOption): ?>
+                        <option value="<?php echo app_escape($statusOption); ?>" <?php echo $form['status'] === $statusOption ? 'selected' : ''; ?>>
+                            <?php echo app_escape($statusOption); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label">Supplier</label>
+                <select class="form-select" name="supplier_id">
+                    <option value="">None</option>
+                    <?php foreach ($suppliers as $supplier): ?>
+                        <option value="<?php echo (int) $supplier['id']; ?>" <?php echo $form['supplier_id'] === (string) $supplier['id'] ? 'selected' : ''; ?>>
+                            <?php echo app_escape($supplier['name']); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">Cost Price</label>
+                <input type="number" step="0.01" min="0" class="form-control" name="product_cost" value="<?php echo app_escape($form['product_cost']); ?>" required>
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">Selling Price</label>
+                <input type="number" step="0.01" min="0" class="form-control" name="selling_price" value="<?php echo app_escape($form['selling_price']); ?>" required>
+            </div>
+        </div>
+
+        <button class="btn btn-primary mt-4" type="submit">Create Product</button>
+    </form>
+</div>
+<?php require_once __DIR__ . '/../../includes/footer.php'; ?>
