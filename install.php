@@ -19,6 +19,7 @@ $permissionNames = [
     'inventory.view',
     'inventory.manage',
     'customers.view',
+    'customers.manage',
     'customer-storage.view',
     'customer-storage.manage',
     'ship-my-box.view',

@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
-app_require_login();
+app_require_permission('customers.view');
 
 $appTitle = 'Customers';
 require_once __DIR__ . '/../../includes/header.php';
@@ -22,13 +22,22 @@ $stmt = app_db()->query('
     LIMIT 20
 ');
 $customers = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$canManage = app_has_permission('customers.manage');
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <h2 class="mb-1">Customers</h2>
         <p class="text-muted mb-0">CRM foundation for memberships, loyalty, and customer storage.</p>
     </div>
+    <?php if ($canManage): ?>
+        <a class="btn btn-primary" href="/modules/customers/create.php">Add Customer</a>
+    <?php endif; ?>
 </div>
+
+<?php if (isset($_GET['created'])): ?>
+    <div class="alert alert-success">Customer created.</div>
+<?php endif; ?>
+
 <div class="card p-4">
     <table class="table table-hover align-middle">
         <thead>
@@ -38,6 +47,7 @@ $customers = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <th>Phone</th>
                 <th>Tier</th>
                 <th>Points</th>
+                <?php if ($canManage): ?><th></th><?php endif; ?>
             </tr>
         </thead>
         <tbody>
@@ -48,8 +58,16 @@ $customers = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     <td><?php echo app_escape($customer['phone'] ?? '-'); ?></td>
                     <td><?php echo app_escape($customer['membership_tier']); ?></td>
                     <td><?php echo app_escape((string) $customer['points']); ?></td>
+                    <?php if ($canManage): ?>
+                        <td class="text-end">
+                            <a class="btn btn-sm btn-outline-primary" href="/modules/customers/edit.php?id=<?php echo (int) $customer['id']; ?>">Edit</a>
+                        </td>
+                    <?php endif; ?>
                 </tr>
             <?php endforeach; ?>
+            <?php if ($customers === []): ?>
+                <tr><td colspan="<?php echo $canManage ? 6 : 5; ?>" class="text-muted">No customers yet.</td></tr>
+            <?php endif; ?>
         </tbody>
     </table>
 </div>
