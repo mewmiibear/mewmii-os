@@ -148,7 +148,13 @@ function wc_client_find_variation_by_sku(int $parentWcId, string $sku): ?array
 
 function wc_client_build_gallery_images(PDO $pdo, int $productId): array
 {
-    $stmt = $pdo->prepare('SELECT image_url FROM product_images WHERE product_id = ? AND variation_id IS NULL ORDER BY sort_order ASC, id ASC');
+    // Main image first (if any), then gallery images in order - matches WooCommerce's
+    // own model where images[0] is the featured image.
+    $stmt = $pdo->prepare("
+        SELECT image_path FROM product_images
+        WHERE product_id = ? AND variation_id IS NULL AND image_type IN ('main', 'gallery')
+        ORDER BY (image_type = 'gallery') ASC, sort_order ASC, id ASC
+    ");
     $stmt->execute([$productId]);
 
     $images = [];
@@ -163,7 +169,7 @@ function wc_client_build_gallery_images(PDO $pdo, int $productId): array
 
 function wc_client_build_variation_image(PDO $pdo, int $variationId): ?array
 {
-    $stmt = $pdo->prepare('SELECT image_url FROM product_images WHERE variation_id = ? LIMIT 1');
+    $stmt = $pdo->prepare("SELECT image_path FROM product_images WHERE variation_id = ? AND image_type = 'variation' LIMIT 1");
     $stmt->execute([$variationId]);
     $url = $stmt->fetchColumn();
 

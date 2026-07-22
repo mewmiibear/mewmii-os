@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/catalog.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
+require_once __DIR__ . '/../../includes/product_images.php';
 app_require_permission('products.manage');
 
 $appTitle = 'Add Product';
@@ -19,11 +20,10 @@ $form = [
     'description' => '',
     'product_type' => 'ready_stock',
     'catalog_type' => 'simple',
-    'brand' => '',
+    'brand_id' => '',
     'category' => '',
     'collection' => '',
-    'tags' => '',
-    'images' => '',
+    'tag_ids' => [],
     'supplier_id' => '',
     'product_cost' => '',
     'selling_price' => '',
@@ -42,11 +42,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form['description'] = trim((string) ($_POST['description'] ?? ''));
     $form['product_type'] = (string) ($_POST['product_type'] ?? '');
     $form['catalog_type'] = (string) ($_POST['catalog_type'] ?? 'simple');
-    $form['brand'] = trim((string) ($_POST['brand'] ?? ''));
+    $form['brand_id'] = trim((string) ($_POST['brand_id'] ?? ''));
     $form['category'] = trim((string) ($_POST['category'] ?? ''));
     $form['collection'] = trim((string) ($_POST['collection'] ?? ''));
-    $form['tags'] = trim((string) ($_POST['tags'] ?? ''));
-    $form['images'] = (string) ($_POST['images'] ?? '');
+    $form['tag_ids'] = array_map('intval', $_POST['tag_ids'] ?? []);
     $form['supplier_id'] = trim((string) ($_POST['supplier_id'] ?? ''));
     $form['product_cost'] = trim((string) ($_POST['product_cost'] ?? ''));
     $form['selling_price'] = trim((string) ($_POST['selling_price'] ?? ''));
@@ -80,6 +79,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    $brandId = null;
+    if ($error === '' && $form['brand_id'] !== '') {
+        $brandId = (int) $form['brand_id'];
+        $brandCheck = $pdo->prepare('SELECT COUNT(*) FROM brands WHERE id = ?');
+        $brandCheck->execute([$brandId]);
+        if ((int) $brandCheck->fetchColumn() === 0) {
+            $error = 'Selected brand does not exist.';
+        }
+    }
+
     if ($error === '') {
         $skuCheck = $pdo->prepare('SELECT COUNT(*) FROM products WHERE sku = ?');
         $skuCheck->execute([$form['sku']]);
@@ -92,8 +101,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->beginTransaction();
 
         try {
-            $brandId = catalog_get_or_create_brand($pdo, $form['brand']);
-
             $stmt = $pdo->prepare('
                 INSERT INTO products (sku, name, description, product_type, catalog_type, brand_id, supplier_id, product_cost, selling_price, status)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -116,8 +123,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $collectionId = catalog_get_or_create_collection($pdo, $form['collection']);
             catalog_sync_product_category($pdo, $productId, $categoryId);
             catalog_sync_product_collection($pdo, $productId, $collectionId);
-            catalog_sync_product_tags($pdo, $productId, $form['tags']);
-            product_sync_images($pdo, $productId, $form['images']);
+            catalog_sync_product_tag_ids($pdo, $productId, $form['tag_ids']);
+
+            if (!empty($_FILES['main_image']['name'])) {
+                product_image_set_main($pdo, $productId, $_FILES['main_image']);
+            }
+
+            $galleryFiles = image_upload_normalize_multi($_FILES['gallery_images'] ?? []);
+            if ($galleryFiles !== []) {
+                product_image_add_gallery($pdo, $productId, $galleryFiles);
+            }
 
             $pdo->commit();
 
@@ -126,6 +141,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             app_redirect('/modules/products/index.php?created=1');
+        } catch (RuntimeException $exception) {
+            $pdo->rollBack();
+            $error = $exception->getMessage();
         } catch (Exception $exception) {
             $pdo->rollBack();
             $error = 'Failed to create product.';
@@ -135,6 +153,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $suppliersStmt = $pdo->query('SELECT id, name FROM suppliers ORDER BY name ASC LIMIT 200');
 $suppliers = $suppliersStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$brands = catalog_list_brands($pdo);
+$tags = catalog_list_tags($pdo);
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
@@ -151,7 +172,7 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php endif; ?>
 
 <div class="card p-4">
-    <form method="post">
+    <form method="post" enctype="multipart/form-data">
         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
 
         <div class="row g-3">
@@ -172,7 +193,17 @@ require_once __DIR__ . '/../../includes/header.php';
 
             <div class="col-md-4">
                 <label class="form-label">Brand</label>
-                <input type="text" class="form-control" name="brand" value="<?php echo app_escape($form['brand']); ?>" placeholder="e.g. Sanrio">
+                <select class="form-select" name="brand_id">
+                    <option value="">None</option>
+                    <?php foreach ($brands as $brand): ?>
+                        <option value="<?php echo (int) $brand['id']; ?>" <?php echo $form['brand_id'] === (string) $brand['id'] ? 'selected' : ''; ?>>
+                            <?php echo app_escape($brand['name']); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+                <?php if ($brands === []): ?>
+                    <div class="form-text">No brands yet - <a href="/modules/brands/index.php">create one</a> first.</div>
+                <?php endif; ?>
             </div>
 
             <div class="col-md-4">
@@ -187,12 +218,28 @@ require_once __DIR__ . '/../../includes/header.php';
 
             <div class="col-12">
                 <label class="form-label">Tags</label>
-                <input type="text" class="form-control" name="tags" value="<?php echo app_escape($form['tags']); ?>" placeholder="Comma-separated, e.g. Cute, Limited Edition, Gift">
+                <div>
+                    <?php if ($tags === []): ?>
+                        <span class="text-muted small">No tags yet - <a href="/modules/tags/index.php">create some</a> first.</span>
+                    <?php endif; ?>
+                    <?php foreach ($tags as $tag): ?>
+                        <label class="me-3">
+                            <input type="checkbox" name="tag_ids[]" value="<?php echo (int) $tag['id']; ?>" <?php echo in_array((int) $tag['id'], $form['tag_ids'], true) ? 'checked' : ''; ?>>
+                            <?php echo app_escape($tag['name']); ?>
+                        </label>
+                    <?php endforeach; ?>
+                </div>
             </div>
 
-            <div class="col-12">
-                <label class="form-label">Image URLs</label>
-                <textarea class="form-control" name="images" rows="3" placeholder="One image URL per line"><?php echo app_escape($form['images']); ?></textarea>
+            <div class="col-md-6">
+                <label class="form-label">Main Image</label>
+                <input type="file" class="form-control" name="main_image" accept="image/*">
+                <div class="form-text">Uploaded images are automatically resized, compressed, and converted to WebP.</div>
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label">Gallery Images</label>
+                <input type="file" class="form-control" name="gallery_images[]" accept="image/*" multiple>
             </div>
 
             <div class="col-md-3">

@@ -269,15 +269,21 @@ CREATE TABLE IF NOT EXISTS product_variation_attribute_values (
   UNIQUE KEY uq_variation_attribute (variation_id, attribute_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- image_type distinguishes the product's single main image, its gallery images
+-- (both variation_id IS NULL), and a variation's own image (variation_id IS NOT NULL).
+-- image_path stores a path relative to the app root (e.g. "uploads/products/xxxx.webp"),
+-- written by includes/image_upload.php - never a manually-typed URL.
 CREATE TABLE IF NOT EXISTS product_images (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   product_id INT UNSIGNED NOT NULL,
   variation_id INT UNSIGNED NULL,
-  image_url VARCHAR(500) NOT NULL,
+  image_type VARCHAR(20) NOT NULL DEFAULT 'gallery',
+  image_path VARCHAR(500) NOT NULL,
   sort_order INT UNSIGNED NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_product_images_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
-  CONSTRAINT fk_product_images_variation FOREIGN KEY (variation_id) REFERENCES product_variations(id) ON DELETE CASCADE
+  CONSTRAINT fk_product_images_variation FOREIGN KEY (variation_id) REFERENCES product_variations(id) ON DELETE CASCADE,
+  INDEX idx_product_images_lookup (product_id, variation_id, image_type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Reusable attribute/value presets (e.g. "Sanrio Character Collection" = Character:

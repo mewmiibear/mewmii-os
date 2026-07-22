@@ -95,6 +95,19 @@ function catalog_get_or_create_collection(PDO $pdo, string $name): ?int
     return (int) $pdo->lastInsertId();
 }
 
+function catalog_list_brands(PDO $pdo): array
+{
+    return $pdo->query('SELECT id, name FROM brands ORDER BY name ASC')->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function catalog_brand_product_names(PDO $pdo, int $brandId): array
+{
+    $stmt = $pdo->prepare('SELECT name FROM products WHERE brand_id = ? ORDER BY name ASC');
+    $stmt->execute([$brandId]);
+
+    return $stmt->fetchAll(PDO::FETCH_COLUMN);
+}
+
 function catalog_sync_product_category(PDO $pdo, int $productId, ?int $categoryId): void
 {
     $pdo->prepare('DELETE FROM product_category_relationships WHERE product_id = ?')->execute([$productId]);
@@ -141,7 +154,12 @@ function catalog_product_collection_name(PDO $pdo, int $productId): ?string
     return $name !== false ? (string) $name : null;
 }
 
-// --- Tags: multi-value, comma-separated in the product form ---------------------------
+// --- Tags: admin-managed list, picked on the product form via checkboxes (no free text) -
+
+function catalog_list_tags(PDO $pdo): array
+{
+    return $pdo->query('SELECT id, name FROM product_tags ORDER BY name ASC')->fetchAll(PDO::FETCH_ASSOC);
+}
 
 function catalog_get_or_create_tag(PDO $pdo, string $name): int
 {
@@ -157,32 +175,38 @@ function catalog_get_or_create_tag(PDO $pdo, string $name): int
     return (int) $pdo->lastInsertId();
 }
 
-function catalog_sync_product_tags(PDO $pdo, int $productId, string $commaSeparatedNames): void
+function catalog_tag_product_count(PDO $pdo, int $tagId): int
 {
-    $names = array_filter(array_map('trim', explode(',', $commaSeparatedNames)), static function (string $name): bool {
-        return $name !== '';
-    });
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM product_tag_relationships WHERE tag_id = ?');
+    $stmt->execute([$tagId]);
+
+    return (int) $stmt->fetchColumn();
+}
+
+function catalog_get_product_tag_ids(PDO $pdo, int $productId): array
+{
+    $stmt = $pdo->prepare('SELECT tag_id FROM product_tag_relationships WHERE product_id = ?');
+    $stmt->execute([$productId]);
+
+    return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+}
+
+/**
+ * Replaces a product's tag selections with exactly the given tag ids - picked from the
+ * admin-managed tag list (modules/tags/index.php), never typed freehand on the product form.
+ */
+function catalog_sync_product_tag_ids(PDO $pdo, int $productId, array $tagIds): void
+{
+    $tagIds = array_values(array_unique(array_map('intval', $tagIds)));
 
     $pdo->prepare('DELETE FROM product_tag_relationships WHERE product_id = ?')->execute([$productId]);
 
     $insertStmt = $pdo->prepare('INSERT IGNORE INTO product_tag_relationships (product_id, tag_id) VALUES (?, ?)');
-    foreach (array_unique($names) as $name) {
-        $tagId = catalog_get_or_create_tag($pdo, $name);
-        $insertStmt->execute([$productId, $tagId]);
+    foreach ($tagIds as $tagId) {
+        if ($tagId > 0) {
+            $insertStmt->execute([$productId, $tagId]);
+        }
     }
-}
-
-function catalog_product_tags_string(PDO $pdo, int $productId): string
-{
-    $stmt = $pdo->prepare('
-        SELECT t.name FROM product_tags t
-        INNER JOIN product_tag_relationships r ON r.tag_id = t.id
-        WHERE r.product_id = ?
-        ORDER BY t.name ASC
-    ');
-    $stmt->execute([$productId]);
-
-    return implode(', ', $stmt->fetchAll(PDO::FETCH_COLUMN));
 }
 
 // --- Attributes: Character, Color, Size, ... (global, reusable across products) -------

@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/catalog.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
+require_once __DIR__ . '/../../includes/product_images.php';
 app_require_permission('products.view');
 
 $appTitle = 'Manage Variations';
@@ -133,7 +134,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $weights = $_POST['weight'] ?? [];
                 $priceModes = $_POST['price_mode'] ?? [];
                 $customPrices = $_POST['custom_price'] ?? [];
-                $images = $_POST['image_url'] ?? [];
+                $removeImageFlags = $_POST['remove_image'] ?? [];
+                $variationImageFiles = image_upload_normalize_multi($_FILES['variation_image'] ?? []);
 
                 $pdo->beginTransaction();
 
@@ -183,7 +185,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $productId,
                     ]);
 
-                    variation_set_image($pdo, $productId, $variationId, (string) ($images[$variationId] ?? ''));
+                    if (!empty($removeImageFlags[$variationId])) {
+                        variation_image_remove($pdo, $variationId);
+                    } elseif (isset($variationImageFiles[$variationId])) {
+                        variation_image_set($pdo, $productId, $variationId, $variationImageFiles[$variationId]);
+                    }
                 }
 
                 $pdo->commit();
@@ -395,7 +401,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <?php if ($variations === []): ?>
         <p class="text-muted mb-0">No variations yet. Generate combinations above once attributes and values are selected.</p>
     <?php else: ?>
-        <form method="post">
+        <form method="post" enctype="multipart/form-data">
             <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
 
             <?php if ($canManage): ?>
@@ -446,7 +452,7 @@ require_once __DIR__ . '/../../includes/header.php';
                             <th>Price Mode</th>
                             <th>Custom Price</th>
                             <th>Stock</th>
-                            <th>Image URL</th>
+                            <th>Image</th>
                             <th>Status</th>
                             <?php if ($canManage): ?><th></th><?php endif; ?>
                         </tr>
@@ -481,8 +487,25 @@ require_once __DIR__ . '/../../includes/header.php';
                                     <?php echo (int) $variation['available_quantity']; ?>
                                     <div class="text-muted small">reserved: <?php echo (int) $variation['reserved_quantity']; ?></div>
                                 </td>
-                                <td>
-                                    <input type="text" class="form-control form-control-sm" style="min-width: 160px;" name="image_url[<?php echo $variationId; ?>]" value="<?php echo app_escape((string) ($variation['image_url'] ?? '')); ?>" <?php echo ($canManage && !$archived) ? '' : 'readonly'; ?>>
+                                <td style="min-width: 160px;">
+                                    <?php $hasOwnImage = !empty($variation['image_path']); ?>
+                                    <?php $previewPath = $hasOwnImage ? $variation['image_path'] : variation_effective_image($pdo, $productId, $variationId); ?>
+                                    <?php if ($previewPath !== null): ?>
+                                        <img src="/<?php echo app_escape($previewPath); ?>" alt="" style="max-width: 60px; max-height: 60px;" class="border rounded d-block mb-1">
+                                        <?php if (!$hasOwnImage): ?>
+                                            <div class="text-muted small mb-1">using parent image</div>
+                                        <?php endif; ?>
+                                    <?php else: ?>
+                                        <div class="text-muted small mb-1">no image</div>
+                                    <?php endif; ?>
+                                    <?php if ($canManage && !$archived): ?>
+                                        <input type="file" class="form-control form-control-sm mb-1" name="variation_image[<?php echo $variationId; ?>]" accept="image/*">
+                                        <?php if ($hasOwnImage): ?>
+                                            <label class="small">
+                                                <input type="checkbox" name="remove_image[<?php echo $variationId; ?>]" value="1"> Remove (use parent image)
+                                            </label>
+                                        <?php endif; ?>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                     <span class="badge bg-<?php echo $archived ? 'secondary' : ($variation['status'] === 'active' ? 'success' : 'light text-dark'); ?>"><?php echo app_escape($variation['status']); ?></span>

@@ -181,6 +181,42 @@ if (!migrate_index_exists($pdo, 'mewmii_inventory', 'uq_inventory_product_variat
 }
 // Step 7: continue - the rest of the migration proceeds below exactly as before.
 
+// product_images: add image_type (backfilling existing rows), then rename image_url to
+// image_path. Each step is its own independent check, same reasoning as the
+// mewmii_inventory section above - safe to resume from any partial state.
+
+if (!migrate_column_exists($pdo, 'product_images', 'image_type')) {
+    migrate_run($pdo, 'product_images.image_type', "ALTER TABLE product_images ADD COLUMN image_type VARCHAR(20) NOT NULL DEFAULT 'gallery' AFTER variation_id", $applied);
+
+    // Backfill: a variation-scoped row is always 'variation'. Among product-scoped rows
+    // (variation_id IS NULL), the first one ever added (lowest id) per product becomes
+    // 'main' - matching how the old flat gallery was used as a single hero image plus
+    // extras - everything else stays 'gallery'.
+    migrate_run($pdo, 'product_images.backfill_variation_type', "UPDATE product_images SET image_type = 'variation' WHERE variation_id IS NOT NULL", $applied);
+
+    migrate_run($pdo, 'product_images.backfill_main_type', "
+        UPDATE product_images pi
+        INNER JOIN (
+            SELECT product_id, MIN(id) AS first_id
+            FROM product_images
+            WHERE variation_id IS NULL
+            GROUP BY product_id
+        ) firsts ON firsts.product_id = pi.product_id AND firsts.first_id = pi.id
+        SET pi.image_type = 'main'
+        WHERE pi.variation_id IS NULL
+    ", $applied);
+}
+
+if (migrate_column_exists($pdo, 'product_images', 'image_url') && !migrate_column_exists($pdo, 'product_images', 'image_path')) {
+    // CHANGE COLUMN renames in place and preserves every existing value - no data is
+    // touched, only the column's name.
+    migrate_run($pdo, 'product_images.rename_image_path', 'ALTER TABLE product_images CHANGE COLUMN image_url image_path VARCHAR(500) NOT NULL', $applied);
+}
+
+if (!migrate_index_exists($pdo, 'product_images', 'idx_product_images_lookup')) {
+    migrate_run($pdo, 'product_images.idx_lookup', 'ALTER TABLE product_images ADD INDEX idx_product_images_lookup (product_id, variation_id, image_type)', $applied);
+}
+
 echo count($applied) . ' migration statement(s) applied:' . PHP_EOL;
 foreach ($applied as $item) {
     echo '  - ' . $item . PHP_EOL;

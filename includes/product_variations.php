@@ -1,46 +1,7 @@
 <?php
 
 require_once __DIR__ . '/inventory.php';
-
-// --- Parent product images (shared gallery, variation_id IS NULL) ---------------------
-
-function product_sync_images(PDO $pdo, int $productId, string $newlineSeparatedUrls): void
-{
-    $normalized = str_replace("\r\n", "\n", $newlineSeparatedUrls);
-    $urls = array_filter(array_map('trim', explode("\n", $normalized)), static function (string $url): bool {
-        return $url !== '';
-    });
-
-    $pdo->prepare('DELETE FROM product_images WHERE product_id = ? AND variation_id IS NULL')->execute([$productId]);
-
-    $stmt = $pdo->prepare('INSERT INTO product_images (product_id, image_url, sort_order) VALUES (?, ?, ?)');
-    $order = 0;
-    foreach ($urls as $url) {
-        $stmt->execute([$productId, $url, $order]);
-        $order++;
-    }
-}
-
-function product_images_text(PDO $pdo, int $productId): string
-{
-    $stmt = $pdo->prepare('SELECT image_url FROM product_images WHERE product_id = ? AND variation_id IS NULL ORDER BY sort_order ASC, id ASC');
-    $stmt->execute([$productId]);
-
-    return implode("\n", $stmt->fetchAll(PDO::FETCH_COLUMN));
-}
-
-// --- Variation images (one per variation; upsert by delete-then-insert) ---------------
-
-function variation_set_image(PDO $pdo, int $productId, int $variationId, string $imageUrl): void
-{
-    $pdo->prepare('DELETE FROM product_images WHERE variation_id = ?')->execute([$variationId]);
-
-    $imageUrl = trim($imageUrl);
-    if ($imageUrl !== '') {
-        $pdo->prepare('INSERT INTO product_images (product_id, variation_id, image_url) VALUES (?, ?, ?)')
-            ->execute([$productId, $variationId, $imageUrl]);
-    }
-}
+require_once __DIR__ . '/product_images.php';
 
 // --- SKU generation ---------------------------------------------------------------------
 
@@ -244,10 +205,10 @@ function variation_list_for_product(PDO $pdo, int $productId): array
             pv.*,
             COALESCE(inv.available_quantity, 0) AS available_quantity,
             COALESCE(inv.reserved_quantity, 0) AS reserved_quantity,
-            img.image_url
+            img.image_path
         FROM product_variations pv
         LEFT JOIN mewmii_inventory inv ON inv.variation_id = pv.id
-        LEFT JOIN product_images img ON img.variation_id = pv.id
+        LEFT JOIN product_images img ON img.variation_id = pv.id AND img.image_type = 'variation'
         WHERE pv.product_id = ?
         ORDER BY (pv.status = 'archived') ASC, pv.id ASC
     ");

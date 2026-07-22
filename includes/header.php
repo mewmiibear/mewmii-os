@@ -69,6 +69,8 @@ $appTitle = 'Mewmii OS';
                         <a class="btn btn-light text-start" href="/index.php">Dashboard</a>
                         <a class="btn btn-light text-start" href="/modules/products/index.php">Products</a>
                         <a class="btn btn-light text-start" href="/modules/attributes/index.php">Attributes</a>
+                        <a class="btn btn-light text-start" href="/modules/brands/index.php">Brands</a>
+                        <a class="btn btn-light text-start" href="/modules/tags/index.php">Tags</a>
                         <a class="btn btn-light text-start" href="/modules/orders/index.php">Orders</a>
                         <a class="btn btn-light text-start" href="/modules/suppliers/index.php">Suppliers</a>
                         <a class="btn btn-light text-start" href="/modules/supplier-orders/index.php">Supplier Orders</a>
