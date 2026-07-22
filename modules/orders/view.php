@@ -181,6 +181,10 @@ require_once __DIR__ . '/../../includes/header.php';
     <a class="btn btn-outline-secondary btn-sm" href="/modules/orders/index.php">Back to Orders</a>
 </div>
 
+<?php if (isset($_GET['created'])): ?>
+    <div class="alert alert-success">Order created.</div>
+<?php endif; ?>
+
 <?php if (isset($_GET['updated'])): ?>
     <div class="alert alert-success">Order status updated.</div>
 <?php endif; ?>
