@@ -37,6 +37,8 @@ if (!$product) {
 $product['sale_enabled'] = $product['sale_enabled'] ?? 0;
 $product['sale_price'] = $product['sale_price'] ?? null;
 $product['min_stock_threshold'] = $product['min_stock_threshold'] ?? null;
+$product['preorder_closing_date'] = $product['preorder_closing_date'] ?? null;
+$product['preorder_reopened_at'] = $product['preorder_reopened_at'] ?? null;
 
 $catalogTypes = ['simple', 'variable'];
 $productTypes = ['ready_stock', 'preorder', 'early_bird'];
@@ -188,12 +190,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->beginTransaction();
 
         try {
+            $newClosingDate = $form['preorder_closing_date'] !== '' ? $form['preorder_closing_date'] : null;
+
+            // Reopening is scoped to one closing-date cycle: if the closing date itself is
+            // being changed (a new Early Bird cycle), a stale reopen from the previous cycle
+            // must not carry over - the new cycle needs its own fresh manual reopen. If the
+            // closing date is untouched, preserve whatever reopened state already exists.
+            $preorderReopenedAt = $newClosingDate === $product['preorder_closing_date']
+                ? $product['preorder_reopened_at']
+                : null;
+
             $stmt = $pdo->prepare('
                 UPDATE products
                 SET sku = ?, name = ?, description = ?, product_type = ?, catalog_type = ?, brand_id = ?, barcode = ?,
                     supplier_id = ?, product_cost = ?, selling_price = ?, sale_enabled = ?, sale_price = ?,
                     min_stock_threshold = ?, sale_start_date = ?, estimated_arrival_date = ?, estimated_release_month = ?,
-                    preorder_closing_date = ?, expiry_date = ?, moq = ?, status = ?
+                    preorder_closing_date = ?, preorder_reopened_at = ?, expiry_date = ?, moq = ?, status = ?
                 WHERE id = ?
             ');
             $stmt->execute([
@@ -213,7 +225,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $form['sale_start_date'] !== '' ? $form['sale_start_date'] : null,
                 $form['estimated_arrival_date'] !== '' ? $form['estimated_arrival_date'] : null,
                 $form['estimated_release_month'] !== '' ? $form['estimated_release_month'] : null,
-                $form['preorder_closing_date'] !== '' ? $form['preorder_closing_date'] : null,
+                $newClosingDate,
+                $preorderReopenedAt,
                 ($form['has_expiry'] && $form['expiry_date'] !== '') ? $form['expiry_date'] : null,
                 $form['moq'] !== '' ? max(1, (int) $form['moq']) : 1,
                 $form['status'],

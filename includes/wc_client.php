@@ -241,9 +241,14 @@ function wc_client_build_variation_attributes_payload(PDO $pdo, int $variationId
  * theme-rendered from stock_status and can't be reworded via the REST API - fixing that
  * fully requires a WordPress theme/plugin change outside this codebase. What we CAN do from
  * here is push a clear preorder blurb as the product's short_description (commonly shown
- * right next to Add to Cart), so customers see arrival/closing info regardless of the
- * native badge. Returns null for ready_stock (or any other type) - callers must leave
- * short_description untouched in that case, never overwriting what staff wrote manually.
+ * right next to Add to Cart), so customers see arrival/waiting-for-release info regardless
+ * of the native badge. Returns null for ready_stock (or any other type) - callers must
+ * leave short_description untouched in that case, never overwriting what staff wrote
+ * manually. Three distinct states, matching catalog_product_is_orderable(): still within
+ * the Early Bird window, waiting for release (closing date passed, not yet reopened), or
+ * reopened (closing date passed, admin manually reopened - Regular Price, no more Early
+ * Bird). There is no separate "Preorder Closing Date" - closing date only ever pauses
+ * ordering, and reopening is always a deliberate admin action, never automatic.
  */
 function wc_client_build_preorder_blurb(array $product): ?string
 {
@@ -253,7 +258,20 @@ function wc_client_build_preorder_blurb(array $product): ?string
     }
 
     $typeLabel = $productType === 'early_bird' ? 'Early Bird' : 'Preorder';
-    $lines = [$typeLabel . ' available.'];
+    $closingDate = $product['preorder_closing_date'] ?? null;
+    $hasClosed = !empty($closingDate) && strtotime((string) $closingDate) < strtotime('today');
+    $reopened = !empty($product['preorder_reopened_at']);
+
+    if ($hasClosed && !$reopened) {
+        $lines = [$typeLabel . ' has ended - now waiting for release.'];
+    } elseif ($hasClosed && $reopened) {
+        $lines = ['Preorder available at regular price.'];
+    } else {
+        $lines = [$typeLabel . ' available.'];
+        if (!empty($closingDate)) {
+            $lines[] = 'Early Bird pricing ends: ' . $closingDate . '.';
+        }
+    }
 
     if (!empty($product['estimated_arrival_date'])) {
         $lines[] = 'Estimated arrival: ' . $product['estimated_arrival_date'] . '.';
@@ -261,9 +279,6 @@ function wc_client_build_preorder_blurb(array $product): ?string
     $releaseMonth = catalog_format_release_month($product['estimated_release_month'] ?? null);
     if ($releaseMonth !== null) {
         $lines[] = 'Estimated release: ' . $releaseMonth . '.';
-    }
-    if (!empty($product['preorder_closing_date'])) {
-        $lines[] = 'Orders close: ' . $product['preorder_closing_date'] . '.';
     }
 
     return implode("\n", $lines);

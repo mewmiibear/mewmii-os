@@ -306,6 +306,18 @@ if (!migrate_column_exists($pdo, 'products', 'estimated_release_month')) {
     migrate_run($pdo, 'products.estimated_release_month', 'ALTER TABLE products ADD COLUMN estimated_release_month VARCHAR(7) NULL AFTER estimated_arrival_date', $applied);
 }
 
+// products.preorder_reopened_at: there is no separate "Preorder Closing Date" concept -
+// preorder_closing_date ("Early Bird Closing Date") only ever pauses ordering (product
+// enters a "waiting for release" state, regular price already applies per
+// catalog_product_effective_price()). Reopening is a deliberate admin action (see
+// modules/products/reopen_preorder.php), never automatic - not on estimated_release_month
+// arriving, not on any timer. Reset to NULL whenever preorder_closing_date itself changes
+// (see modules/products/edit.php), so each new closing-date cycle needs its own fresh
+// manual reopen rather than inheriting a stale one from a previous cycle.
+if (!migrate_column_exists($pdo, 'products', 'preorder_reopened_at')) {
+    migrate_run($pdo, 'products.preorder_reopened_at', 'ALTER TABLE products ADD COLUMN preorder_reopened_at DATETIME NULL AFTER preorder_closing_date', $applied);
+}
+
 echo count($applied) . ' migration statement(s) applied:' . PHP_EOL;
 foreach ($applied as $item) {
     echo '  - ' . $item . PHP_EOL;

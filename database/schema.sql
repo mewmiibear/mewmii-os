@@ -176,6 +176,7 @@ CREATE TABLE IF NOT EXISTS products (
   estimated_arrival_date DATE NULL,
   estimated_release_month VARCHAR(7) NULL,
   preorder_closing_date DATE NULL,
+  preorder_reopened_at DATETIME NULL,
   expiry_date DATE NULL,
   status VARCHAR(50) NOT NULL DEFAULT 'coming_soon',
   published_to_woocommerce TINYINT(1) NOT NULL DEFAULT 0,

@@ -40,6 +40,9 @@
 <?php if (isset($_GET['duplicated'])): ?>
     <div class="alert alert-success">Product duplicated as a draft. Review it below before publishing.</div>
 <?php endif; ?>
+<?php if (isset($_GET['reopened'])): ?>
+    <div class="alert alert-success">Preorder reopened. Regular Price now applies - Early Bird pricing does not return.</div>
+<?php endif; ?>
 <?php if ($error !== ''): ?>
     <div class="alert alert-danger"><?php echo app_escape($error); ?></div>
 <?php endif; ?>
@@ -204,8 +207,37 @@
             <div class="col-md-4 js-sale-fields">
                 <label class="form-label">Early Bird Closing Date</label>
                 <input type="date" class="form-control" name="preorder_closing_date" value="<?php echo app_escape($form['preorder_closing_date']); ?>">
-                <div class="form-text">Before this date, Sale Price (Early Bird Price) applies. After this date, the sale ends - and for Preorder/Early Bird products, ordering closes completely.</div>
+                <div class="form-text">Before this date, Sale Price (Early Bird Price) applies. After this date, the sale ends and - for Preorder/Early Bird products - ordering pauses until manually reopened (see below).</div>
             </div>
+
+            <?php
+            $showPreorderReopenControl = false;
+            $isWaitingForRelease = false;
+            if ($isEdit && in_array($form['product_type'], ['preorder', 'early_bird'], true) && !empty($product['preorder_closing_date'])) {
+                if (strtotime($product['preorder_closing_date']) < strtotime('today')) {
+                    $showPreorderReopenControl = true;
+                    $isWaitingForRelease = empty($product['preorder_reopened_at']);
+                }
+            }
+            ?>
+            <?php if ($showPreorderReopenControl): ?>
+                <div class="col-12">
+                    <?php if ($isWaitingForRelease): ?>
+                        <span class="badge bg-secondary">Waiting for Release</span>
+                        <span class="text-muted small">Early Bird has ended. Ordering is paused until you manually reopen it - it does not resume on its own, even once the Estimated Release Month arrives.</span>
+                        <?php if ($canManage): ?>
+                            <form method="post" action="/modules/products/reopen_preorder.php" class="mt-2">
+                                <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                                <input type="hidden" name="product_id" value="<?php echo (int) $productId; ?>">
+                                <button type="submit" class="btn btn-sm btn-primary" onclick="return confirm('Reopen preorder at Regular Price? Early Bird pricing will not return.');">Open Preorder</button>
+                            </form>
+                        <?php endif; ?>
+                    <?php else: ?>
+                        <span class="badge bg-success">Preorder Reopened</span>
+                        <span class="text-muted small">Reopened <?php echo app_escape($product['preorder_reopened_at']); ?> - Regular Price applies, Early Bird pricing will not return.</span>
+                    <?php endif; ?>
+                </div>
+            <?php endif; ?>
 
             <div class="col-12">
                 <label class="form-check">
