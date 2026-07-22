@@ -32,6 +32,12 @@ if (!$product) {
     exit;
 }
 
+// Older rows predating these columns won't have the keys at all (not just NULL values),
+// so ?? is required here rather than a plain null check.
+$product['sale_enabled'] = $product['sale_enabled'] ?? 0;
+$product['sale_price'] = $product['sale_price'] ?? null;
+$product['min_stock_threshold'] = $product['min_stock_threshold'] ?? null;
+
 $catalogTypes = ['simple', 'variable'];
 $productTypes = ['ready_stock', 'preorder', 'early_bird'];
 
