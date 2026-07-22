@@ -379,9 +379,12 @@ require_once __DIR__ . '/../../includes/header.php';
         <h2 class="mb-1">Inventory</h2>
         <p class="text-muted mb-0">Current stock at a glance - adjustments and history stay one click away.</p>
     </div>
-    <?php if ($canManage): ?>
-        <button type="button" class="btn btn-primary" onclick="InventoryUI.openAdjustModal('')">Adjust Stock</button>
-    <?php endif; ?>
+    <div class="d-flex gap-2">
+        <a class="btn btn-outline-primary" href="/modules/inventory/allocation-center.php">Allocate Preorders</a>
+        <?php if ($canManage): ?>
+            <button type="button" class="btn btn-primary" onclick="InventoryUI.openAdjustModal('')">Adjust Stock</button>
+        <?php endif; ?>
+    </div>
 </div>
 
 <?php if (isset($_GET['adjusted'])): ?>

@@ -107,7 +107,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
 
                         $itemStmt = $pdo->prepare('
-                            SELECT oi.id, oi.product_id, oi.variation_id, oi.quantity, o.customer_id, o.order_status, o.order_number
+                            SELECT oi.id, oi.product_id, oi.variation_id, oi.quantity, o.id AS order_id, o.customer_id, o.order_status, o.order_number
                             FROM mewmii_order_items oi
                             INNER JOIN mewmii_orders o ON o.id = oi.order_id
                             WHERE oi.id = ?
@@ -139,6 +139,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
 
                         customer_storage_add($pdo, (int) $orderItem['customer_id'], $productId, $qty, null, $variationId, $orderItemId, 'arrived');
+
+                        // See inventory_log_allocation_event() - there is no real customer
+                        // notification channel in this app yet, so this is logged on the
+                        // order's own timeline as the closest available stand-in.
+                        inventory_log_allocation_event(
+                            $pdo,
+                            (int) $orderItem['order_id'],
+                            'Preorder item(s) arrived and stored (qty ' . $qty . '). Customer notification: "Your preorder item has arrived and is now stored."'
+                        );
                     }
 
                     $pdo->commit();
@@ -154,6 +163,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo->rollBack();
                     $error = 'Failed to allocate stock.';
                 }
+            }
+        } elseif ($action === 'allocate_fifo') {
+            $pdo->beginTransaction();
+
+            try {
+                $allocations = inventory_allocate_fifo($pdo, $productId, $variationId);
+
+                if ($allocations === []) {
+                    throw new RuntimeException('Nothing to allocate - no arrived stock or no outstanding orders for this item.');
+                }
+
+                foreach ($allocations as $allocation) {
+                    inventory_log_allocation_event(
+                        $pdo,
+                        $allocation['order_id'],
+                        'Preorder item(s) arrived and stored (qty ' . $allocation['quantity'] . '). Customer notification: "Your preorder item has arrived and is now stored."'
+                    );
+                }
+
+                $pdo->commit();
+
+                $redirect = '/modules/inventory/allocate.php?product_id=' . $productId
+                    . ($variationId !== null ? '&variation_id=' . $variationId : '')
+                    . '&allocated=' . count($allocations);
+                app_redirect($redirect);
+            } catch (RuntimeException $exception) {
+                $pdo->rollBack();
+                $error = $exception->getMessage();
+            } catch (Exception $exception) {
+                $pdo->rollBack();
+                $error = 'Failed to auto-allocate stock.';
             }
         } elseif ($action === 'release') {
             $releaseQty = (int) ($_POST['release_quantity'] ?? 0);
@@ -243,7 +283,10 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php endif; ?>
         </p>
     </div>
-    <a class="btn btn-outline-secondary btn-sm" href="/modules/inventory/index.php">Back to Inventory</a>
+    <div class="d-flex gap-2">
+        <a class="btn btn-outline-secondary btn-sm" href="/modules/inventory/allocation-center.php">Back to Allocation Center</a>
+        <a class="btn btn-outline-secondary btn-sm" href="/modules/inventory/index.php">Back to Inventory</a>
+    </div>
 </div>
 
 <?php if (isset($_GET['allocated'])): ?>
@@ -262,8 +305,20 @@ require_once __DIR__ . '/../../includes/header.php';
 </div>
 
 <?php if ($canManage): ?>
+    <?php if ($candidates !== []): ?>
+        <div class="card p-4 mb-4">
+            <h5 class="mb-3">Option A: Allocate Automatically (FIFO)</h5>
+            <p class="text-muted small mb-3">Fills the oldest outstanding orders first from the arrived stock on hand. Stops once either the orders or the stock runs out - never allocates more than what's actually arrived.</p>
+            <form method="post" onsubmit="return confirm('Automatically allocate arrived stock to the oldest outstanding orders first?');">
+                <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                <input type="hidden" name="action" value="allocate_fifo">
+                <button class="btn btn-primary" type="submit">Allocate Automatically (FIFO)</button>
+            </form>
+        </div>
+    <?php endif; ?>
+
     <div class="card p-4 mb-4">
-        <h5 class="mb-3">Allocate to Customer Orders</h5>
+        <h5 class="mb-3">Option B: Manually Select Customers</h5>
         <?php if ($candidates === []): ?>
             <p class="text-muted mb-0">No outstanding customer orders for this product.</p>
         <?php else: ?>
