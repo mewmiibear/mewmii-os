@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/inventory.php';
 app_require_permission('orders.view');
 
 $appTitle = 'Order Detail';
@@ -110,9 +111,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $_SESSION['user_id'] ?? null,
                     ]);
 
+                    if ($statusField === 'order_status' && $oldStatus === 'pending' && $newStatus === 'processing') {
+                        inventory_reserve_for_order($pdo, $orderId);
+                    } elseif ($statusField === 'shipping_status' && $newStatus === 'shipped' && in_array($oldStatus, ['pending', 'packed'], true)) {
+                        inventory_ship_for_order($pdo, $orderId);
+                    } elseif ($statusField === 'order_status' && $newStatus === 'cancelled') {
+                        inventory_release_for_order($pdo, $orderId);
+                    }
+
                     $pdo->commit();
 
                     app_redirect('/modules/orders/view.php?id=' . $orderId . '&updated=1');
+                } catch (RuntimeException $exception) {
+                    $pdo->rollBack();
+                    $error = $exception->getMessage();
                 } catch (Exception $exception) {
                     $pdo->rollBack();
                     $error = 'Failed to update order status.';
@@ -146,6 +158,16 @@ $eventsStmt = $pdo->prepare('
 ');
 $eventsStmt->execute([$orderId]);
 $events = $eventsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$inventoryTxStmt = $pdo->prepare("
+    SELECT it.id, it.transaction_type, it.quantity, it.created_at, p.sku, p.name AS product_name
+    FROM inventory_transactions it
+    INNER JOIN products p ON p.id = it.product_id
+    WHERE it.reference_type = 'order' AND it.reference_id = ?
+    ORDER BY it.created_at DESC, it.id DESC
+");
+$inventoryTxStmt->execute([$orderId]);
+$inventoryTx = $inventoryTxStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $canManage = app_has_permission('orders.manage');
 
@@ -243,6 +265,26 @@ require_once __DIR__ . '/../../includes/header.php';
                 <?php endforeach; ?>
             </div>
         <?php endif; ?>
+
+        <div class="card p-4 mb-4">
+            <h5 class="mb-3">Inventory Activity</h5>
+            <ul class="list-unstyled mb-0">
+                <?php foreach ($inventoryTx as $tx): ?>
+                    <li class="mb-3">
+                        <div class="fw-semibold">
+                            <?php echo app_escape($tx['transaction_type']); ?>
+                            &middot; <?php echo app_escape($tx['sku']); ?> (<?php echo app_escape($tx['product_name']); ?>)
+                        </div>
+                        <div>Qty: <?php echo app_escape((string) $tx['quantity']); ?></div>
+                        <div class="text-muted small"><?php echo app_escape($tx['created_at']); ?></div>
+                    </li>
+                <?php endforeach; ?>
+                <?php if ($inventoryTx === []): ?>
+                    <li class="text-muted">No inventory activity for this order yet.</li>
+                <?php endif; ?>
+            </ul>
+            <a class="small" href="/modules/inventory/index.php">View full inventory transaction history &rarr;</a>
+        </div>
 
         <div class="card p-4">
             <h5 class="mb-3">Order Timeline</h5>

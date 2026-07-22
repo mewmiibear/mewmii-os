@@ -27,6 +27,7 @@ if ($existing === 0) {
         'orders.manage',
         'suppliers.view',
         'inventory.view',
+        'inventory.manage',
         'customers.view',
         'settings.manage'
     ];

@@ -1,11 +1,65 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
-app_require_login();
+require_once __DIR__ . '/../../includes/inventory.php';
+app_require_permission('inventory.view');
 
 $appTitle = 'Inventory';
-require_once __DIR__ . '/../../includes/header.php';
+$error = '';
+$pdo = app_db();
 
-$stmt = app_db()->query('
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    try {
+        app_require_csrf();
+    } catch (RuntimeException $exception) {
+        $error = $exception->getMessage();
+    }
+
+    if ($error === '' && !app_has_permission('inventory.manage')) {
+        http_response_code(403);
+        $error = 'You do not have permission to adjust inventory.';
+    }
+
+    if ($error === '') {
+        $productId = (int) ($_POST['product_id'] ?? 0);
+        $delta = (int) ($_POST['delta'] ?? 0);
+
+        if ($productId < 1) {
+            $error = 'Select a product.';
+        } elseif ($delta === 0) {
+            $error = 'Enter a non-zero adjustment quantity.';
+        } else {
+            $pdo->beginTransaction();
+
+            try {
+                $row = inventory_get_or_create_row($pdo, $productId);
+
+                if ($delta < 0 && (int) $row['available_quantity'] + $delta < 0) {
+                    throw new RuntimeException('Adjustment would result in negative available stock.');
+                }
+
+                $pdo->prepare('
+                    UPDATE mewmii_inventory
+                    SET available_quantity = available_quantity + ?
+                    WHERE product_id = ?
+                ')->execute([$delta, $productId]);
+
+                inventory_log_transaction($pdo, $productId, 'adjustment', $delta, 'manual_adjustment', (int) ($_SESSION['user_id'] ?? 0));
+
+                $pdo->commit();
+
+                app_redirect('/modules/inventory/index.php?adjusted=1');
+            } catch (RuntimeException $exception) {
+                $pdo->rollBack();
+                $error = $exception->getMessage();
+            } catch (Exception $exception) {
+                $pdo->rollBack();
+                $error = 'Failed to adjust inventory.';
+            }
+        }
+    }
+}
+
+$stmt = $pdo->query('
     SELECT
         p.id,
         p.sku,
@@ -18,14 +72,69 @@ $stmt = app_db()->query('
     LIMIT 20
 ');
 $inventory = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+$productsStmt = $pdo->query('SELECT id, sku, name FROM products ORDER BY name ASC LIMIT 200');
+$allProducts = $productsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$txStmt = $pdo->query("
+    SELECT it.id, it.transaction_type, it.quantity, it.reference_type, it.reference_id, it.created_at, p.sku, p.name AS product_name
+    FROM inventory_transactions it
+    INNER JOIN products p ON p.id = it.product_id
+    ORDER BY it.created_at DESC, it.id DESC
+    LIMIT 50
+");
+$transactions = $txStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$canManage = app_has_permission('inventory.manage');
+
+require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <h2 class="mb-1">Inventory</h2>
-        <p class="text-muted mb-0">Available, reserved, and incoming stock tracking foundation.</p>
+        <p class="text-muted mb-0">Available and reserved stock, driven by order workflow and manual adjustments.</p>
     </div>
 </div>
-<div class="card p-4">
+
+<?php if (isset($_GET['adjusted'])): ?>
+    <div class="alert alert-success">Inventory adjusted.</div>
+<?php endif; ?>
+
+<?php if ($error !== ''): ?>
+    <div class="alert alert-danger"><?php echo app_escape($error); ?></div>
+<?php endif; ?>
+
+<?php if ($canManage): ?>
+    <div class="card p-4 mb-4">
+        <h5 class="mb-3">Adjust Stock</h5>
+        <form method="post" class="row g-2 align-items-end">
+            <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+
+            <div class="col-md-6">
+                <label class="form-label">Product</label>
+                <select class="form-select" name="product_id" required>
+                    <option value="">Select a product&hellip;</option>
+                    <?php foreach ($allProducts as $product): ?>
+                        <option value="<?php echo (int) $product['id']; ?>">
+                            <?php echo app_escape($product['sku']); ?> &mdash; <?php echo app_escape($product['name']); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">Adjustment (+/-)</label>
+                <input type="number" class="form-control" name="delta" placeholder="e.g. 10 or -5" required>
+            </div>
+
+            <div class="col-md-3">
+                <button class="btn btn-primary w-100" type="submit">Apply Adjustment</button>
+            </div>
+        </form>
+    </div>
+<?php endif; ?>
+
+<div class="card p-4 mb-4">
     <table class="table table-hover align-middle">
         <thead>
             <tr>
@@ -44,6 +153,41 @@ $inventory = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     <td><?php echo app_escape((string) $item['reserved_stock']); ?></td>
                 </tr>
             <?php endforeach; ?>
+        </tbody>
+    </table>
+</div>
+
+<div class="card p-4">
+    <h5 class="mb-3">Transaction History</h5>
+    <table class="table table-hover align-middle">
+        <thead>
+            <tr>
+                <th>Product</th>
+                <th>Type</th>
+                <th>Qty</th>
+                <th>Reference</th>
+                <th>Date</th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php foreach ($transactions as $tx): ?>
+                <tr>
+                    <td><?php echo app_escape($tx['sku']); ?> &mdash; <?php echo app_escape($tx['product_name']); ?></td>
+                    <td><?php echo app_escape($tx['transaction_type']); ?></td>
+                    <td><?php echo app_escape((string) $tx['quantity']); ?></td>
+                    <td>
+                        <?php if ($tx['reference_type'] === 'order' && $tx['reference_id']): ?>
+                            <a href="/modules/orders/view.php?id=<?php echo (int) $tx['reference_id']; ?>">Order #<?php echo (int) $tx['reference_id']; ?></a>
+                        <?php else: ?>
+                            <?php echo app_escape($tx['reference_type'] ?? '-'); ?>
+                        <?php endif; ?>
+                    </td>
+                    <td><?php echo app_escape($tx['created_at']); ?></td>
+                </tr>
+            <?php endforeach; ?>
+            <?php if ($transactions === []): ?>
+                <tr><td colspan="5" class="text-muted">No inventory transactions yet.</td></tr>
+            <?php endif; ?>
         </tbody>
     </table>
 </div>
