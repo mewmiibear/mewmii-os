@@ -69,6 +69,7 @@ $form = [
     'supplier_id' => (string) $order['supplier_id'],
     'purchase_number' => $order['purchase_number'],
     'notes' => (string) ($order['notes'] ?? ''),
+    'shipping_fee' => (string) $order['shipping_fee'],
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -79,12 +80,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $form['notes'] = trim((string) ($_POST['notes'] ?? ''));
+    $form['shipping_fee'] = trim((string) ($_POST['shipping_fee'] ?? ''));
+
+    // Shipping fee is purely a Supplier Order-level expense, never tied to
+    // products/receiving history - it stays editable even once the order is Completed
+    // (unlike products/quantities/unit cost, which lock for receiving-history safety).
+    $shippingFee = 0.00;
+    if ($error === '') {
+        if ($form['shipping_fee'] !== '' && (!is_numeric($form['shipping_fee']) || (float) $form['shipping_fee'] < 0)) {
+            $error = 'Shipping fee must be a valid non-negative number.';
+        } else {
+            $shippingFee = $form['shipping_fee'] !== '' ? round((float) $form['shipping_fee'], 2) : 0.00;
+        }
+    }
 
     if ($isCompleted) {
-        // Completed: notes only, nothing else can be posted from this form at all.
+        // Completed: notes + shipping fee only, nothing else can be posted from this form.
         if ($error === '') {
-            $pdo->prepare('UPDATE supplier_orders SET notes = ? WHERE id = ?')
-                ->execute([$form['notes'] !== '' ? $form['notes'] : null, $orderId]);
+            $oldShippingFee = (float) $order['shipping_fee'];
+            if (abs($oldShippingFee - $shippingFee) > 0.001) {
+                supplier_order_log_event($pdo, $orderId, 'Shipping fee changed RM' . number_format($oldShippingFee, 2) . ' -> RM' . number_format($shippingFee, 2));
+            }
+
+            $pdo->prepare('UPDATE supplier_orders SET notes = ?, shipping_fee = ? WHERE id = ?')
+                ->execute([$form['notes'] !== '' ? $form['notes'] : null, $shippingFee, $orderId]);
 
             app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1');
         }
@@ -159,7 +178,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->beginTransaction();
 
             try {
-                supplier_order_apply_edit($pdo, $orderId, $supplierId, $form['notes'], $validItems);
+                supplier_order_apply_edit($pdo, $orderId, $supplierId, $form['notes'], $validItems, $shippingFee);
 
                 $pdo->commit();
 
@@ -206,9 +225,17 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="card p-4">
         <form method="post">
             <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
-            <label class="form-label">Notes</label>
-            <textarea class="form-control" name="notes" rows="3"><?php echo app_escape($form['notes']); ?></textarea>
-            <button class="btn btn-primary mt-3" type="submit">Save Notes</button>
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label">Shipping Fee (RM)</label>
+                    <input type="number" step="0.01" min="0" class="form-control" name="shipping_fee" value="<?php echo app_escape($form['shipping_fee']); ?>">
+                </div>
+                <div class="col-12">
+                    <label class="form-label">Notes</label>
+                    <textarea class="form-control" name="notes" rows="3"><?php echo app_escape($form['notes']); ?></textarea>
+                </div>
+            </div>
+            <button class="btn btn-primary mt-3" type="submit">Save Changes</button>
         </form>
     </div>
 <?php else: ?>
@@ -232,6 +259,11 @@ require_once __DIR__ . '/../../includes/header.php';
                 <div class="col-md-6">
                     <label class="form-label">Purchase Number</label>
                     <input type="text" class="form-control" value="<?php echo app_escape($form['purchase_number']); ?>" readonly disabled>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">Shipping Fee (RM)</label>
+                    <input type="number" step="0.01" min="0" class="form-control" id="supplier-order-shipping-fee" name="shipping_fee" value="<?php echo app_escape($form['shipping_fee']); ?>">
                 </div>
 
                 <div class="col-12">
@@ -260,6 +292,11 @@ require_once __DIR__ . '/../../includes/header.php';
                     </thead>
                     <tbody></tbody>
                     <tfoot>
+                        <tr>
+                            <td colspan="5" class="text-end fw-semibold">Product Subtotal</td>
+                            <td class="fw-semibold" id="supplier-order-product-subtotal">0.00</td>
+                            <td></td>
+                        </tr>
                         <tr>
                             <td colspan="5" class="text-end fw-semibold">Total Purchase Amount</td>
                             <td class="fw-semibold" id="supplier-order-total">0.00</td>

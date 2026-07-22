@@ -506,6 +506,7 @@ CREATE TABLE IF NOT EXISTS supplier_orders (
   status VARCHAR(30) NOT NULL DEFAULT 'draft',
   estimated_cost DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   actual_cost DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  shipping_fee DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   payment_date DATE NULL,
   order_date DATE NULL,
   received_date DATE NULL,

@@ -215,8 +215,9 @@ require_once __DIR__ . '/../../includes/header.php';
                 <tr><th>Status</th><td><?php echo supplier_order_status_badge($order['status']); ?></td></tr>
                 <tr><th>Supplier</th><td><?php echo app_escape($order['supplier_name']); ?></td></tr>
                 <tr><th>Created Date</th><td><?php echo app_escape($order['order_date'] ?? '-'); ?></td></tr>
-                <tr><th>Estimated Cost</th><td>RM <?php echo app_escape(number_format((float) $order['estimated_cost'], 2)); ?></td></tr>
-                <tr><th>Order Total</th><td>RM <?php echo app_escape(number_format($orderTotal, 2)); ?></td></tr>
+                <tr><th>Product Subtotal</th><td>RM <?php echo app_escape(number_format($orderTotal, 2)); ?></td></tr>
+                <tr><th>Shipping Fee</th><td>RM <?php echo app_escape(number_format((float) $order['shipping_fee'], 2)); ?></td></tr>
+                <tr><th>Total Purchase Amount</th><td>RM <?php echo app_escape(number_format($orderTotal + (float) $order['shipping_fee'], 2)); ?></td></tr>
                 <tr><th>Received Date</th><td><?php echo app_escape($order['received_date'] ?? '-'); ?></td></tr>
                 <?php if (!empty($order['notes'])): ?>
                     <tr><th>Notes</th><td><?php echo nl2br(app_escape($order['notes'])); ?></td></tr>

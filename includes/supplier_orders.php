@@ -332,8 +332,12 @@ function supplier_order_log_event(PDO $pdo, int $orderId, string $description): 
  * supplier_order_events. Caller is responsible for the surrounding transaction and for
  * blocking this entirely once the order is 'completed' (see modules/supplier-orders/edit.php).
  */
-function supplier_order_apply_edit(PDO $pdo, int $orderId, int $supplierId, string $notes, array $newLines): void
+function supplier_order_apply_edit(PDO $pdo, int $orderId, int $supplierId, string $notes, array $newLines, float $shippingFee = 0.00): void
 {
+    $oldShippingFeeStmt = $pdo->prepare('SELECT shipping_fee FROM supplier_orders WHERE id = ?');
+    $oldShippingFeeStmt->execute([$orderId]);
+    $oldShippingFee = (float) $oldShippingFeeStmt->fetchColumn();
+
     $existingStmt = $pdo->prepare('SELECT id, product_id, variation_id, total_quantity, supplier_price FROM supplier_order_items WHERE supplier_order_id = ?');
     $existingStmt->execute([$orderId]);
     $existingByKey = [];
@@ -419,13 +423,21 @@ function supplier_order_apply_edit(PDO $pdo, int $orderId, int $supplierId, stri
             ->execute([$quantity, $price, $subtotal, $itemId]);
     }
 
+    if (abs($oldShippingFee - $shippingFee) > 0.001) {
+        supplier_order_log_event($pdo, $orderId, 'Shipping fee changed RM' . number_format($oldShippingFee, 2) . ' -> RM' . number_format($shippingFee, 2));
+    }
+
     // Totals + supplier/notes always refreshed, even if nothing else changed this pass.
+    // estimated_cost stays the pure product subtotal (SUM of line subtotals) - shipping is
+    // never split into products or blended into it; the Total Purchase Amount shown to
+    // admins (view.php/index.php/create.php) is always estimated_cost + shipping_fee,
+    // computed at display time rather than stored as a third column.
     $totalStmt = $pdo->prepare('SELECT COALESCE(SUM(subtotal), 0) FROM supplier_order_items WHERE supplier_order_id = ?');
     $totalStmt->execute([$orderId]);
     $estimatedCost = round((float) $totalStmt->fetchColumn(), 2);
 
-    $pdo->prepare('UPDATE supplier_orders SET supplier_id = ?, estimated_cost = ?, notes = ? WHERE id = ?')
-        ->execute([$supplierId, $estimatedCost, $notes !== '' ? $notes : null, $orderId]);
+    $pdo->prepare('UPDATE supplier_orders SET supplier_id = ?, estimated_cost = ?, shipping_fee = ?, notes = ? WHERE id = ?')
+        ->execute([$supplierId, $estimatedCost, round($shippingFee, 2), $notes !== '' ? $notes : null, $orderId]);
 }
 
 /**

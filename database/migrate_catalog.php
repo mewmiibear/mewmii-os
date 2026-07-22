@@ -418,6 +418,15 @@ if (!migrate_column_is_nullable($pdo, 'product_variations', 'cost_price')) {
     migrate_run($pdo, 'product_variations.cost_price_backfill_null', 'UPDATE product_variations SET cost_price = NULL WHERE cost_price = 0.00', $applied);
 }
 
+// supplier_orders.shipping_fee: a Supplier Order-level expense, entered manually by the
+// admin - never split across line items, never touching product_cost/cost_price, and
+// never part of estimated_cost (which stays the pure SUM of line subtotals). The "Total
+// Purchase Amount" shown on create/edit/view/index is always estimated_cost + shipping_fee
+// computed at display time, not a stored third column.
+if (!migrate_column_exists($pdo, 'supplier_orders', 'shipping_fee')) {
+    migrate_run($pdo, 'supplier_orders.shipping_fee', 'ALTER TABLE supplier_orders ADD COLUMN shipping_fee DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER actual_cost', $applied);
+}
+
 echo count($applied) . ' migration statement(s) applied:' . PHP_EOL;
 foreach ($applied as $item) {
     echo '  - ' . $item . PHP_EOL;

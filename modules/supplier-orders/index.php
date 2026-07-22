@@ -7,7 +7,7 @@ $appTitle = 'Supplier Orders';
 $pdo = app_db();
 
 $stmt = $pdo->query('
-    SELECT so.id, so.purchase_number, so.status, so.estimated_cost, so.actual_cost, so.order_date, s.name AS supplier_name
+    SELECT so.id, so.purchase_number, so.status, so.estimated_cost, so.actual_cost, so.shipping_fee, so.order_date, s.name AS supplier_name
     FROM supplier_orders so
     INNER JOIN suppliers s ON s.id = so.supplier_id
     ORDER BY so.id DESC
@@ -43,7 +43,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 <th>Purchase #</th>
                 <th>Supplier</th>
                 <th>Status</th>
-                <th>Estimated Cost</th>
+                <th>Total Purchase Amount</th>
                 <th>Order Date</th>
                 <th></th>
             </tr>
@@ -54,7 +54,7 @@ require_once __DIR__ . '/../../includes/header.php';
                     <td><?php echo app_escape($order['purchase_number']); ?></td>
                     <td><?php echo app_escape($order['supplier_name']); ?></td>
                     <td><?php echo supplier_order_status_badge($order['status']); ?></td>
-                    <td>RM <?php echo app_escape(number_format((float) $order['estimated_cost'], 2)); ?></td>
+                    <td>RM <?php echo app_escape(number_format((float) $order['estimated_cost'] + (float) $order['shipping_fee'], 2)); ?></td>
                     <td><?php echo app_escape($order['order_date'] ?? '-'); ?></td>
                     <td class="text-end">
                         <div class="d-flex gap-1 justify-content-end">

@@ -34,7 +34,12 @@
     // Order items table.
     // ---------------------------------------------------------------------------------
     var tbody = document.querySelector('#supplier-order-items-table tbody');
+    var productSubtotalEl = document.getElementById('supplier-order-product-subtotal');
     var totalEl = document.getElementById('supplier-order-total');
+    var shippingFeeInput = document.getElementById('supplier-order-shipping-fee');
+    if (shippingFeeInput) {
+        shippingFeeInput.addEventListener('input', recalcTotal);
+    }
 
     function existingUnitKeys() {
         var keys = [];
@@ -67,16 +72,23 @@
     }
 
     function recalcTotal() {
-        if (!tbody || !totalEl) {
+        if (!tbody) {
             return;
         }
-        var total = 0;
+        var productSubtotal = 0;
         tbody.querySelectorAll('tr[data-unit-key]').forEach(function (row) {
             var qty = parseFloat(row.querySelector('.item-quantity').value) || 0;
             var cost = parseFloat(row.querySelector('.item-cost').value) || 0;
-            total += qty * cost;
+            productSubtotal += qty * cost;
         });
-        totalEl.textContent = formatMoney(total);
+
+        if (productSubtotalEl) {
+            productSubtotalEl.textContent = formatMoney(productSubtotal);
+        }
+        if (totalEl) {
+            var shippingFee = shippingFeeInput ? (parseFloat(shippingFeeInput.value) || 0) : 0;
+            totalEl.textContent = formatMoney(productSubtotal + shippingFee);
+        }
     }
 
     function addRow(unitKey, label, sku, quantity, cost, receivedQuantity, moq) {

@@ -13,6 +13,7 @@ $form = [
     'supplier_id' => '',
     'purchase_number' => 'PO-' . date('Ymd') . '-' . strtoupper(substr(bin2hex(random_bytes(2)), 0, 4)),
     'notes' => '',
+    'shipping_fee' => '0.00',
 ];
 $existingItems = [];
 
@@ -26,6 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form['supplier_id'] = trim((string) ($_POST['supplier_id'] ?? ''));
     $form['purchase_number'] = trim((string) ($_POST['purchase_number'] ?? ''));
     $form['notes'] = trim((string) ($_POST['notes'] ?? ''));
+    $form['shipping_fee'] = trim((string) ($_POST['shipping_fee'] ?? ''));
 
     $postedUnitKeys = $_POST['unit_key'] ?? [];
     $postedQuantities = $_POST['quantity'] ?? [];
@@ -104,6 +106,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Add at least one product with a quantity.';
     }
 
+    $shippingFee = 0.00;
+    if ($error === '') {
+        if ($form['shipping_fee'] !== '' && (!is_numeric($form['shipping_fee']) || (float) $form['shipping_fee'] < 0)) {
+            $error = 'Shipping fee must be a valid non-negative number.';
+        } else {
+            $shippingFee = $form['shipping_fee'] !== '' ? round((float) $form['shipping_fee'], 2) : 0.00;
+        }
+    }
+
     if ($error === '') {
         $estimatedCost = 0.00;
         foreach ($validItems as $line) {
@@ -114,10 +125,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         try {
             $orderStmt = $pdo->prepare("
-                INSERT INTO supplier_orders (supplier_id, purchase_number, status, estimated_cost, order_date, notes)
-                VALUES (?, ?, 'draft', ?, CURDATE(), ?)
+                INSERT INTO supplier_orders (supplier_id, purchase_number, status, estimated_cost, shipping_fee, order_date, notes)
+                VALUES (?, ?, 'draft', ?, ?, CURDATE(), ?)
             ");
-            $orderStmt->execute([$supplierId, $form['purchase_number'], round($estimatedCost, 2), $form['notes'] !== '' ? $form['notes'] : null]);
+            $orderStmt->execute([$supplierId, $form['purchase_number'], round($estimatedCost, 2), $shippingFee, $form['notes'] !== '' ? $form['notes'] : null]);
             $orderId = (int) $pdo->lastInsertId();
 
             $itemStmt = $pdo->prepare('
@@ -186,6 +197,11 @@ require_once __DIR__ . '/../../includes/header.php';
                 <input type="text" class="form-control" name="purchase_number" value="<?php echo app_escape($form['purchase_number']); ?>" maxlength="100" required>
             </div>
 
+            <div class="col-md-6">
+                <label class="form-label">Shipping Fee (RM)</label>
+                <input type="number" step="0.01" min="0" class="form-control" id="supplier-order-shipping-fee" name="shipping_fee" value="<?php echo app_escape($form['shipping_fee']); ?>">
+            </div>
+
             <div class="col-12">
                 <label class="form-label">Notes</label>
                 <textarea class="form-control" name="notes" rows="2"><?php echo app_escape($form['notes']); ?></textarea>
@@ -211,6 +227,11 @@ require_once __DIR__ . '/../../includes/header.php';
                 </thead>
                 <tbody></tbody>
                 <tfoot>
+                    <tr>
+                        <td colspan="5" class="text-end fw-semibold">Product Subtotal</td>
+                        <td class="fw-semibold" id="supplier-order-product-subtotal">0.00</td>
+                        <td></td>
+                    </tr>
                     <tr>
                         <td colspan="5" class="text-end fw-semibold">Total Purchase Amount</td>
                         <td class="fw-semibold" id="supplier-order-total">0.00</td>
