@@ -236,6 +236,35 @@ function wc_client_build_variation_attributes_payload(PDO $pdo, int $variationId
     return $attributes;
 }
 
+/**
+ * Preorder/early-bird storefront messaging: WooCommerce's native "Out of Stock" label is
+ * theme-rendered from stock_status and can't be reworded via the REST API - fixing that
+ * fully requires a WordPress theme/plugin change outside this codebase. What we CAN do from
+ * here is push a clear preorder blurb as the product's short_description (commonly shown
+ * right next to Add to Cart), so customers see arrival/closing info regardless of the
+ * native badge. Returns null for ready_stock (or any other type) - callers must leave
+ * short_description untouched in that case, never overwriting what staff wrote manually.
+ */
+function wc_client_build_preorder_blurb(array $product): ?string
+{
+    $productType = $product['product_type'] ?? 'ready_stock';
+    if (!in_array($productType, ['preorder', 'early_bird'], true)) {
+        return null;
+    }
+
+    $typeLabel = $productType === 'early_bird' ? 'Early Bird' : 'Preorder';
+    $lines = [$typeLabel . ' available.'];
+
+    if (!empty($product['estimated_arrival_date'])) {
+        $lines[] = 'Estimated arrival: ' . $product['estimated_arrival_date'] . '.';
+    }
+    if (!empty($product['preorder_closing_date'])) {
+        $lines[] = 'Orders close: ' . $product['preorder_closing_date'] . '.';
+    }
+
+    return implode("\n", $lines);
+}
+
 function wc_client_build_product_payload(array $product, PDO $pdo): array
 {
     $productId = (int) ($product['id'] ?? 0);
@@ -262,6 +291,11 @@ function wc_client_build_product_payload(array $product, PDO $pdo): array
         $stock = product_effective_stock($pdo, $productId);
         $payload['manage_stock'] = true;
         $payload['stock_quantity'] = (int) $stock['available_quantity'];
+    }
+
+    $preorderBlurb = wc_client_build_preorder_blurb($product);
+    if ($preorderBlurb !== null) {
+        $payload['short_description'] = $preorderBlurb;
     }
 
     $images = wc_client_build_gallery_images($pdo, $productId);
@@ -339,6 +373,11 @@ function wc_client_sync_variable_product_from_mewmii(PDO $pdo, array $product): 
         'status' => 'publish',
         'attributes' => wc_client_build_variable_attributes_payload($pdo, $productId),
     ];
+
+    $preorderBlurb = wc_client_build_preorder_blurb($product);
+    if ($preorderBlurb !== null) {
+        $payload['short_description'] = $preorderBlurb;
+    }
 
     $images = wc_client_build_gallery_images($pdo, $productId);
     if ($images !== []) {

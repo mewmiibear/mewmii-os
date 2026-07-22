@@ -34,7 +34,7 @@ function customer_storage_add(PDO $pdo, int $customerId, int $productId, int $qu
     $row = inventory_get_or_create_row($pdo, $productId, $variationId);
 
     if ((int) $row[$sourceColumn] < $quantity) {
-        $currentQtyLabel = $debitFrom === 'available' ? 'Available quantity' : (ucfirst($debitFrom) . ' quantity available');
+        $currentQtyLabel = ucfirst($debitFrom) . ' quantity';
         throw new RuntimeException(catalog_format_stock_error($pdo, 'Insufficient ' . $debitFrom . ' stock.', $productId, $variationId, $currentQtyLabel, (int) $row[$sourceColumn], $quantity));
     }
 
@@ -84,7 +84,7 @@ function customer_storage_remove(PDO $pdo, int $storageId, int $quantity): void
     }
 
     if ($quantity > (int) $storageRow['quantity']) {
-        throw new RuntimeException(catalog_format_stock_error($pdo, 'Cannot remove more than the stored quantity.', $productId, $variationId, 'Stored quantity', (int) $storageRow['quantity'], $quantity));
+        throw new RuntimeException(catalog_format_stock_error($pdo, 'Cannot remove more than the stored quantity.', $productId, $variationId, 'Customer storage quantity', (int) $storageRow['quantity'], $quantity));
     }
 
     $remaining = (int) $storageRow['quantity'] - $quantity;

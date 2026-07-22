@@ -36,7 +36,7 @@ function ship_request_process(PDO $pdo, int $shipRequestId): void
         $variationId = isset($storageRow['variation_id']) && $storageRow['variation_id'] !== null ? (int) $storageRow['variation_id'] : null;
 
         if ($storageRow['status'] !== 'stored' || (int) $storageRow['quantity'] < $requestedQty) {
-            throw new RuntimeException(catalog_format_stock_error($pdo, 'Insufficient stored quantity.', $productId, $variationId, 'Stored quantity', (int) $storageRow['quantity'], $requestedQty));
+            throw new RuntimeException(catalog_format_stock_error($pdo, 'Insufficient stored quantity.', $productId, $variationId, 'Customer storage quantity', (int) $storageRow['quantity'], $requestedQty));
         }
 
         $remaining = (int) $storageRow['quantity'] - $requestedQty;

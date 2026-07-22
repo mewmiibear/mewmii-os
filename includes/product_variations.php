@@ -570,8 +570,10 @@ function catalog_describe_unit(PDO $pdo, int $productId, ?int $variationId = nul
  * Builds a multi-line, admin-friendly stock shortfall message: which product/variation,
  * which inventory bucket ran short, how much is on hand, and how much was requested.
  * $currentQtyLabel is the exact line label for the on-hand figure (e.g. "Available
- * quantity", "Arrived quantity available", "Remaining ordered quantity") so each call site
- * can phrase it naturally rather than forcing one template onto every bucket name. Used
+ * quantity", "Arrived quantity", "Customer storage quantity", "Remaining ordered quantity")
+ * so each call site can phrase it naturally rather than forcing one template onto every
+ * bucket name - always name the bucket explicitly (never a bare "Quantity: N"), since this
+ * app has several inventory buckets and admins need to know exactly which one is short. Used
  * anywhere a stock check fails so warehouse/admin users never have to look up a raw
  * product_id/variation_id in the database.
  */

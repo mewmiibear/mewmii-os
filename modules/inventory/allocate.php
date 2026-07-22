@@ -96,7 +96,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
 
                     if ($requestedTotal > (int) $row['arrived_quantity']) {
-                        throw new RuntimeException(catalog_format_stock_error($pdo, 'Total allocated quantity exceeds arrived stock on hand.', $productId, $variationId, 'Arrived quantity available', (int) $row['arrived_quantity'], $requestedTotal));
+                        throw new RuntimeException(catalog_format_stock_error($pdo, 'Total allocated quantity exceeds arrived stock on hand.', $productId, $variationId, 'Arrived quantity', (int) $row['arrived_quantity'], $requestedTotal));
                     }
 
                     foreach ($tickedIds as $orderItemId) {
@@ -167,7 +167,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $row = inventory_get_or_create_row($pdo, $productId, $variationId);
 
                     if ($releaseQty > (int) $row['arrived_quantity']) {
-                        throw new RuntimeException(catalog_format_stock_error($pdo, 'Cannot release more than the arrived quantity on hand.', $productId, $variationId, 'Arrived quantity available', (int) $row['arrived_quantity'], $releaseQty));
+                        throw new RuntimeException(catalog_format_stock_error($pdo, 'Cannot release more than the arrived quantity on hand.', $productId, $variationId, 'Arrived quantity', (int) $row['arrived_quantity'], $releaseQty));
                     }
 
                     $pdo->prepare('

@@ -267,7 +267,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $brands = catalog_list_brands($pdo);
 $categoriesTree = catalog_list_categories_tree($pdo);
-$collections = $pdo->query('SELECT id, name FROM collections ORDER BY name ASC')->fetchAll(PDO::FETCH_ASSOC);
+$collections = catalog_list_collections($pdo);
 $tags = catalog_list_tags($pdo);
 $suppliers = $pdo->query('SELECT id, name FROM suppliers ORDER BY name ASC LIMIT 200')->fetchAll(PDO::FETCH_ASSOC);
 $attributes = array_map(static function (array $attribute) use ($pdo): array {

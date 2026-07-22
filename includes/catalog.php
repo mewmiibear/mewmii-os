@@ -132,6 +132,11 @@ function catalog_list_brands(PDO $pdo): array
     return $pdo->query('SELECT id, name FROM brands ORDER BY name ASC')->fetchAll(PDO::FETCH_ASSOC);
 }
 
+function catalog_list_collections(PDO $pdo): array
+{
+    return $pdo->query('SELECT id, name FROM collections ORDER BY name ASC')->fetchAll(PDO::FETCH_ASSOC);
+}
+
 function catalog_brand_product_names(PDO $pdo, int $brandId): array
 {
     $stmt = $pdo->prepare('SELECT name FROM products WHERE brand_id = ? ORDER BY name ASC');
