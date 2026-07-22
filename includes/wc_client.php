@@ -258,6 +258,10 @@ function wc_client_build_preorder_blurb(array $product): ?string
     if (!empty($product['estimated_arrival_date'])) {
         $lines[] = 'Estimated arrival: ' . $product['estimated_arrival_date'] . '.';
     }
+    $releaseMonth = catalog_format_release_month($product['estimated_release_month'] ?? null);
+    if ($releaseMonth !== null) {
+        $lines[] = 'Estimated release: ' . $releaseMonth . '.';
+    }
     if (!empty($product['preorder_closing_date'])) {
         $lines[] = 'Orders close: ' . $product['preorder_closing_date'] . '.';
     }

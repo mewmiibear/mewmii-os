@@ -285,6 +285,27 @@ if (!migrate_column_exists($pdo, 'inventory_transactions', 'balance_after')) {
     migrate_run($pdo, 'inventory_transactions.balance_after', 'ALTER TABLE inventory_transactions ADD COLUMN balance_after INT NULL AFTER notes', $applied);
 }
 
+// product_attribute_values.code: short inventory prefix (e.g. "CN" for Cinnamoroll) used
+// for variation SKU generation instead of the full customer-facing value name - see
+// variation_generate_sku()/catalog_attribute_value_sku_code(). Nullable + a NULL-tolerant
+// unique key (MySQL treats multiple NULLs as distinct) so existing values without a code
+// yet are unaffected; any two values under the same attribute that DO set a code can't
+// collide.
+if (!migrate_column_exists($pdo, 'product_attribute_values', 'code')) {
+    migrate_run($pdo, 'product_attribute_values.code', 'ALTER TABLE product_attribute_values ADD COLUMN code VARCHAR(10) NULL AFTER value', $applied);
+}
+if (!migrate_index_exists($pdo, 'product_attribute_values', 'uq_attribute_value_code')) {
+    migrate_run($pdo, 'product_attribute_values.uq_code', 'ALTER TABLE product_attribute_values ADD UNIQUE KEY uq_attribute_value_code (attribute_id, code)', $applied);
+}
+
+// products.estimated_release_month: stored as a plain "YYYY-MM" string (an HTML5 <input
+// type="month"> submits exactly this format) rather than a DATE, since there is
+// deliberately no day component to fabricate - display formatting (e.g. "September 2026")
+// happens at render time via catalog_format_release_month(), never stored pre-formatted.
+if (!migrate_column_exists($pdo, 'products', 'estimated_release_month')) {
+    migrate_run($pdo, 'products.estimated_release_month', 'ALTER TABLE products ADD COLUMN estimated_release_month VARCHAR(7) NULL AFTER estimated_arrival_date', $applied);
+}
+
 echo count($applied) . ' migration statement(s) applied:' . PHP_EOL;
 foreach ($applied as $item) {
     echo '  - ' . $item . PHP_EOL;

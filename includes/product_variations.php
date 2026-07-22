@@ -17,6 +17,26 @@ function variation_generate_sku(string $parentSku, array $valueLabels): string
 }
 
 /**
+ * The short SKU fragment for one attribute value: its explicit `code` (e.g. "CN" for
+ * "Cinnamoroll") if one was set, otherwise a short prefix auto-derived from the value name
+ * (first 3 alphanumeric characters, uppercased) so a variation SKU never embeds the full
+ * customer-facing name even for legacy values created before codes existed. Expects a row
+ * with 'code' and 'value' keys (e.g. a product_attribute_values row).
+ */
+function catalog_attribute_value_sku_code(array $attributeValue): string
+{
+    $code = trim((string) ($attributeValue['code'] ?? ''));
+    if ($code !== '') {
+        return $code;
+    }
+
+    $value = (string) ($attributeValue['value'] ?? '');
+    $alnum = (string) preg_replace('/[^A-Za-z0-9]+/', '', $value);
+
+    return $alnum !== '' ? strtoupper(substr($alnum, 0, 3)) : 'X';
+}
+
+/**
  * SKUs must be unique across both products and product_variations - there is no
  * single database-level constraint spanning both tables, so uniqueness is enforced
  * here at generation time.
@@ -78,7 +98,7 @@ function variation_generate_combinations(PDO $pdo, int $productId): array
     }
 
     $valueStmt = $pdo->prepare('
-        SELECT pav.id, pav.value
+        SELECT pav.id, pav.value, pav.code
         FROM product_attribute_assignment_values paav
         INNER JOIN product_attribute_values pav ON pav.id = paav.attribute_value_id
         WHERE paav.assignment_id = ?
@@ -110,6 +130,7 @@ function variation_generate_combinations(PDO $pdo, int $productId): array
                     'attribute_id' => $axis['attribute_id'],
                     'value_id' => (int) $value['id'],
                     'value_label' => (string) $value['value'],
+                    'value_code' => $value['code'] ?? null,
                 ]]);
             }
         }
@@ -163,8 +184,12 @@ function variation_generate_combinations(PDO $pdo, int $productId): array
             continue;
         }
 
-        $labels = array_column($combo, 'value_label');
-        $baseSku = variation_generate_sku((string) $product['sku'], $labels);
+        // Short per-value codes, not full value names - see catalog_attribute_value_sku_code().
+        $codes = array_map(
+            static fn (array $part): string => catalog_attribute_value_sku_code(['code' => $part['value_code'], 'value' => $part['value_label']]),
+            $combo
+        );
+        $baseSku = variation_generate_sku((string) $product['sku'], $codes);
         $sku = variation_unique_sku($pdo, $baseSku);
 
         $insertVariationStmt->execute([$productId, $sku]);

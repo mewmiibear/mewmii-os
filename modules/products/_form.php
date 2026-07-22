@@ -243,6 +243,14 @@
                 <label class="form-label">MOQ</label>
                 <input type="number" min="1" class="form-control" name="moq" value="<?php echo app_escape($form['moq']); ?>">
             </div>
+            <div class="col-md-4 js-stock-preorder">
+                <label class="form-label">Estimated Release Month</label>
+                <input type="month" class="form-control" name="estimated_release_month" value="<?php echo app_escape($form['estimated_release_month']); ?>">
+                <?php $releaseMonthDisplay = catalog_format_release_month($form['estimated_release_month'] !== '' ? $form['estimated_release_month'] : null); ?>
+                <?php if ($releaseMonthDisplay !== null): ?>
+                    <div class="form-text">Shown to customers as "<?php echo app_escape($releaseMonthDisplay); ?>".</div>
+                <?php endif; ?>
+            </div>
             <p class="text-muted small mb-0 js-stock-preorder">No stock quantity is requested here - stock arrives later via Supplier Orders receiving (marked as arrived), then gets manually allocated to outstanding orders from the Inventory page.</p>
         </div>
     </div>
@@ -383,7 +391,7 @@
             'id' => (int) $attribute['id'],
             'name' => $attribute['name'],
             'values' => array_map(static function (array $value): array {
-                return ['id' => (int) $value['id'], 'value' => $value['value']];
+                return ['id' => (int) $value['id'], 'value' => $value['value'], 'code' => $value['code'] ?? null];
             }, $attribute['values']),
         ];
     }, $attributes),

@@ -43,6 +43,7 @@ $form = [
     'stock_quantity' => '',
     'min_stock_threshold' => '',
     'estimated_arrival_date' => '',
+    'estimated_release_month' => '',
     'moq' => '1',
     'preorder_closing_date' => '',
 ];
@@ -76,6 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form['stock_quantity'] = trim((string) ($_POST['stock_quantity'] ?? ''));
     $form['min_stock_threshold'] = trim((string) ($_POST['min_stock_threshold'] ?? ''));
     $form['estimated_arrival_date'] = trim((string) ($_POST['estimated_arrival_date'] ?? ''));
+    $form['estimated_release_month'] = trim((string) ($_POST['estimated_release_month'] ?? ''));
     $form['moq'] = trim((string) ($_POST['moq'] ?? '1'));
     $form['preorder_closing_date'] = trim((string) ($_POST['preorder_closing_date'] ?? ''));
     $selectedTagIds = array_map('intval', $_POST['tag_ids'] ?? []);
@@ -97,6 +99,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Selling price must be a valid non-negative number.';
         } elseif ($form['sale_enabled'] && (!is_numeric($form['sale_price']) || (float) $form['sale_price'] < 0)) {
             $error = 'Enter a valid sale price, or disable Enable Sale.';
+        } elseif ($form['estimated_release_month'] !== '' && !preg_match('/^\d{4}-\d{2}$/', $form['estimated_release_month'])) {
+            $error = 'Estimated Release Month must be a valid month.';
         }
     }
 
@@ -176,9 +180,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 INSERT INTO products (
                     sku, name, description, product_type, catalog_type, brand_id, barcode,
                     supplier_id, product_cost, selling_price, sale_enabled, sale_price,
-                    min_stock_threshold, sale_start_date, estimated_arrival_date,
+                    min_stock_threshold, sale_start_date, estimated_arrival_date, estimated_release_month,
                     preorder_closing_date, expiry_date, moq, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ');
             $stmt->execute([
                 $form['sku'],
@@ -196,6 +200,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $form['min_stock_threshold'] !== '' ? (int) $form['min_stock_threshold'] : null,
                 $form['sale_start_date'] !== '' ? $form['sale_start_date'] : null,
                 $form['estimated_arrival_date'] !== '' ? $form['estimated_arrival_date'] : null,
+                $form['estimated_release_month'] !== '' ? $form['estimated_release_month'] : null,
                 $form['preorder_closing_date'] !== '' ? $form['preorder_closing_date'] : null,
                 ($form['has_expiry'] && $form['expiry_date'] !== '') ? $form['expiry_date'] : null,
                 $form['moq'] !== '' ? max(1, (int) $form['moq']) : 1,

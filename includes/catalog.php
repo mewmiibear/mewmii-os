@@ -8,6 +8,23 @@
  * taxonomies - they live entirely in product_attributes/product_attribute_values.
  */
 
+/**
+ * "2026-09" -> "September 2026" for display - products.estimated_release_month is stored
+ * as a plain YYYY-MM string (no day component to fabricate), so formatting always happens
+ * here at render time rather than being baked into storage. Returns null for anything
+ * empty or not in YYYY-MM shape, so callers can just skip rendering the line entirely.
+ */
+function catalog_format_release_month(?string $value): ?string
+{
+    if ($value === null || !preg_match('/^\d{4}-\d{2}$/', $value)) {
+        return null;
+    }
+
+    $timestamp = strtotime($value . '-01');
+
+    return $timestamp !== false ? date('F Y', $timestamp) : null;
+}
+
 function catalog_slugify(string $value): string
 {
     $slug = strtolower(trim($value));
@@ -273,7 +290,7 @@ function catalog_list_attributes(PDO $pdo): array
 
 function catalog_list_attribute_values(PDO $pdo, int $attributeId): array
 {
-    $stmt = $pdo->prepare('SELECT id, value FROM product_attribute_values WHERE attribute_id = ? ORDER BY sort_order ASC, value ASC');
+    $stmt = $pdo->prepare('SELECT id, value, code FROM product_attribute_values WHERE attribute_id = ? ORDER BY sort_order ASC, value ASC');
     $stmt->execute([$attributeId]);
 
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -295,7 +312,14 @@ function catalog_get_or_create_attribute(PDO $pdo, string $name): int
     return (int) $pdo->lastInsertId();
 }
 
-function catalog_get_or_create_attribute_value(PDO $pdo, int $attributeId, string $value): int
+/**
+ * $code is the short (usually 2-3 char) inventory prefix used for variation SKU
+ * generation instead of the full value name (e.g. "CN" for "Cinnamoroll") - see
+ * catalog_attribute_value_sku_code(). Only applied when actually creating a new value;
+ * an existing value's code is never silently overwritten by a repeat "get" call, since the
+ * value (and its code) is shared/global across every product that uses this attribute.
+ */
+function catalog_get_or_create_attribute_value(PDO $pdo, int $attributeId, string $value, ?string $code = null): int
 {
     $value = trim($value);
     $stmt = $pdo->prepare('SELECT id FROM product_attribute_values WHERE attribute_id = ? AND value = ?');
@@ -305,9 +329,10 @@ function catalog_get_or_create_attribute_value(PDO $pdo, int $attributeId, strin
         return (int) $id;
     }
 
+    $code = $code !== null ? trim($code) : '';
     $slug = catalog_unique_slug($pdo, 'product_attribute_values', catalog_slugify($value));
-    $stmt = $pdo->prepare('INSERT INTO product_attribute_values (attribute_id, value, slug) VALUES (?, ?, ?)');
-    $stmt->execute([$attributeId, $value, $slug]);
+    $stmt = $pdo->prepare('INSERT INTO product_attribute_values (attribute_id, value, code, slug) VALUES (?, ?, ?, ?)');
+    $stmt->execute([$attributeId, $value, $code !== '' ? $code : null, $slug]);
 
     return (int) $pdo->lastInsertId();
 }

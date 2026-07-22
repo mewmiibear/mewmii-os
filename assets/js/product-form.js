@@ -483,15 +483,18 @@
                     var attributeId = parseInt(button.dataset.attributeId, 10);
                     openAddModal({
                         title: 'Add Value',
-                        fields: [{ name: 'value', label: 'Value (e.g. Hello Kitty)', type: 'text' }],
+                        fields: [
+                            { name: 'value', label: 'Value (e.g. Cinnamoroll)', type: 'text' },
+                            { name: 'code', label: 'Code (e.g. CN) - short inventory prefix for SKUs, optional', type: 'text' }
+                        ],
                         onSave: function (values) {
-                            return postJson(config.urls.createAttributeValue, { attribute_id: attributeId, value: values.value }).then(function (result) {
+                            return postJson(config.urls.createAttributeValue, { attribute_id: attributeId, value: values.value, code: values.code }).then(function (result) {
                                 var attr = attributesById[attributeId];
                                 if (attr) {
-                                    attr.values.push({ id: result.id, value: result.value });
+                                    attr.values.push({ id: result.id, value: result.value, code: result.code });
                                 }
                                 document.querySelectorAll('.attribute-values-container[data-attribute-id="' + attributeId + '"]').forEach(function (container) {
-                                    addValueCheckbox(container, attributeId, result.id, result.value, true);
+                                    addValueCheckbox(container, attributeId, result.id, result.value, true, result.code);
                                 });
                             });
                         }
@@ -506,10 +509,11 @@
     // ---------------------------------------------------------------------------------
     var attributeBlockIndex = 0;
 
-    function addValueCheckbox(container, attributeId, valueId, valueLabel, checked) {
+    function addValueCheckbox(container, attributeId, valueId, valueLabel, checked, code) {
         var label = document.createElement('label');
         label.className = 'checkbox-item me-3';
-        label.innerHTML = '<input type="checkbox" class="attribute-value-checkbox" data-attribute-id="' + attributeId + '" value="' + valueId + '"' + (checked ? ' checked' : '') + '> ' + valueLabel;
+        var displayLabel = valueLabel + (code ? ' (' + code + ')' : '');
+        label.innerHTML = '<input type="checkbox" class="attribute-value-checkbox" data-attribute-id="' + attributeId + '" value="' + valueId + '"' + (checked ? ' checked' : '') + '> ' + displayLabel;
         container.appendChild(label);
     }
 
@@ -522,7 +526,7 @@
             return;
         }
         (attr.values || []).forEach(function (value) {
-            addValueCheckbox(container, attributeId, value.id, value.value, (checkedValueIds || []).indexOf(value.id) !== -1);
+            addValueCheckbox(container, attributeId, value.id, value.value, (checkedValueIds || []).indexOf(value.id) !== -1, value.code);
         });
         var addValueBtn = block.querySelector('.add-value-btn');
         if (addValueBtn) {
@@ -664,7 +668,8 @@
                         attributeId: selection.attributeId,
                         attributeName: selection.attributeName,
                         valueId: value.id,
-                        value: value.value
+                        value: value.value,
+                        code: value.code
                     }]));
                 });
             });
@@ -683,9 +688,19 @@
         return (text || '').toUpperCase().replace(/[^A-Z0-9]+/g, '') || 'X';
     }
 
+    // Mirrors includes/product_variations.php's catalog_attribute_value_sku_code(): a
+    // value's explicit code if set, else a short 3-char prefix auto-derived from its name -
+    // never the full customer-facing value name.
+    function skuCodeForValue(part) {
+        if (part.code && String(part.code).trim() !== '') {
+            return slugForSku(part.code);
+        }
+        return slugForSku(part.value).substring(0, 3) || 'X';
+    }
+
     function buildPreviewSku(combo) {
         var parts = combo.map(function (part) {
-            return slugForSku(part.value);
+            return skuCodeForValue(part);
         });
         return (config.parentSku || 'SKU') + '-' + parts.join('-');
     }

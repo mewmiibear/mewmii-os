@@ -141,6 +141,7 @@ CREATE TABLE IF NOT EXISTS product_attribute_values (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   attribute_id INT UNSIGNED NOT NULL,
   value VARCHAR(150) NOT NULL,
+  code VARCHAR(10) NULL,
   slug VARCHAR(170) NOT NULL,
   brand_id INT UNSIGNED NULL,
   sort_order INT UNSIGNED NOT NULL DEFAULT 0,
@@ -148,7 +149,8 @@ CREATE TABLE IF NOT EXISTS product_attribute_values (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_attribute_values_attribute FOREIGN KEY (attribute_id) REFERENCES product_attributes(id) ON DELETE CASCADE,
   CONSTRAINT fk_attribute_values_brand FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE SET NULL,
-  UNIQUE KEY uq_attribute_value (attribute_id, value)
+  UNIQUE KEY uq_attribute_value (attribute_id, value),
+  UNIQUE KEY uq_attribute_value_code (attribute_id, code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS products (
@@ -172,6 +174,7 @@ CREATE TABLE IF NOT EXISTS products (
   sale_end_date DATE NULL,
   official_release_date DATE NULL,
   estimated_arrival_date DATE NULL,
+  estimated_release_month VARCHAR(7) NULL,
   preorder_closing_date DATE NULL,
   expiry_date DATE NULL,
   status VARCHAR(50) NOT NULL DEFAULT 'coming_soon',
