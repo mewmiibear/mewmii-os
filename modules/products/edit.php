@@ -315,6 +315,17 @@ foreach (catalog_get_product_attribute_assignments($pdo, $productId) as $assignm
 }
 
 $variations = $product['catalog_type'] === 'variable' ? variation_list_for_product($pdo, $productId) : [];
+
+// Computed server-side (not in JS from raw available_quantity) since availability depends
+// on the PARENT product's type/override/lifecycle state, none of which the variation table
+// otherwise has access to - see catalog_product_availability_status(). Every variation
+// shares the same parent, so this is purchasable/not-purchasable, never a per-variation
+// quantity check for preorder/early_bird.
+foreach ($variations as &$variation) {
+    $variation['is_available'] = catalog_product_availability_status($product, (int) $variation['available_quantity']) === 'available';
+}
+unset($variation);
+
 $mainImage = product_image_get_main($pdo, $productId);
 $galleryImages = product_image_list_gallery($pdo, $productId);
 

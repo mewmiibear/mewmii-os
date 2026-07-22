@@ -159,6 +159,16 @@ $historyStmt = $pdo->prepare("
 $historyStmt->execute([$orderId]);
 $receivingHistory = $historyStmt->fetchAll(PDO::FETCH_ASSOC);
 
+$editHistoryStmt = $pdo->prepare('
+    SELECT e.description, e.created_at, u.name AS user_name
+    FROM supplier_order_events e
+    LEFT JOIN users u ON u.id = e.created_by
+    WHERE e.supplier_order_id = ?
+    ORDER BY e.created_at DESC, e.id DESC
+');
+$editHistoryStmt->execute([$orderId]);
+$editHistory = $editHistoryStmt->fetchAll(PDO::FETCH_ASSOC);
+
 $canManage = app_has_permission('supplier-orders.manage');
 $nextStatus = supplier_order_status_next((string) $order['status']);
 
@@ -170,7 +180,7 @@ require_once __DIR__ . '/../../includes/header.php';
         <p class="text-muted mb-0"><?php echo app_escape($order['supplier_name']); ?></p>
     </div>
     <div class="d-flex gap-2">
-        <?php if ($canManage && $order['status'] === 'draft'): ?>
+        <?php if ($canManage): ?>
             <a class="btn btn-outline-secondary btn-sm" href="/modules/supplier-orders/edit.php?id=<?php echo (int) $orderId; ?>">Edit</a>
         <?php endif; ?>
         <?php if ($canManage): ?>
@@ -189,9 +199,6 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php endif; ?>
 <?php if (isset($_GET['updated'])): ?>
     <div class="alert alert-success">Supplier order updated.</div>
-<?php endif; ?>
-<?php if (isset($_GET['edit_blocked'])): ?>
-    <div class="alert alert-warning">Only a Draft supplier order can be edited.</div>
 <?php endif; ?>
 <?php if (isset($_GET['delete_error'])): ?>
     <div class="alert alert-danger"><?php echo app_escape($_GET['delete_error'] === '1' ? 'Failed to delete supplier order.' : $_GET['delete_error']); ?></div>
@@ -296,7 +303,7 @@ require_once __DIR__ . '/../../includes/header.php';
             </div>
         <?php endif; ?>
 
-        <div class="card p-4">
+        <div class="card p-4 mb-4">
             <h5 class="mb-3">Receiving History</h5>
             <ul class="list-unstyled mb-0">
                 <?php foreach ($receivingHistory as $entry): ?>
@@ -308,6 +315,26 @@ require_once __DIR__ . '/../../includes/header.php';
                 <?php endforeach; ?>
                 <?php if ($receivingHistory === []): ?>
                     <li class="text-muted">No items received yet.</li>
+                <?php endif; ?>
+            </ul>
+        </div>
+
+        <div class="card p-4">
+            <h5 class="mb-3">Edit History</h5>
+            <ul class="list-unstyled mb-0">
+                <?php foreach ($editHistory as $entry): ?>
+                    <li class="mb-3">
+                        <div><?php echo app_escape($entry['description']); ?></div>
+                        <div class="text-muted small">
+                            <?php echo app_escape($entry['created_at']); ?>
+                            <?php if (!empty($entry['user_name'])): ?>
+                                &middot; <?php echo app_escape($entry['user_name']); ?>
+                            <?php endif; ?>
+                        </div>
+                    </li>
+                <?php endforeach; ?>
+                <?php if ($editHistory === []): ?>
+                    <li class="text-muted">No edits recorded yet.</li>
                 <?php endif; ?>
             </ul>
         </div>

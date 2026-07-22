@@ -66,10 +66,20 @@
         totalEl.textContent = formatMoney(total);
     }
 
-    function addRow(unitKey, label, sku, quantity, cost) {
+    function addRow(unitKey, label, sku, quantity, cost, receivedQuantity) {
         if (!tbody || existingUnitKeys().indexOf(unitKey) !== -1) {
             return;
         }
+
+        // A line that already has received quantity (edit mode only) can be increased but
+        // never removed or reduced below what's already been received - the quantity
+        // input's min enforces the floor client-side, and the server re-validates the same
+        // rule via supplier_order_apply_edit() regardless.
+        var received = parseInt(receivedQuantity, 10) || 0;
+        var qtyMin = Math.max(1, received);
+        var actionCell = received > 0
+            ? '<span class="badge bg-secondary" title="Already received ' + received + ' unit(s) - cannot be removed">Received ' + received + '</span>'
+            : '<button type="button" class="btn btn-sm btn-outline-danger remove-item-row">Remove</button>';
 
         var row = document.createElement('tr');
         row.setAttribute('data-unit-key', unitKey);
@@ -77,10 +87,10 @@
             '<td>' + escapeHtml(label) +
             '<input type="hidden" name="unit_key[]" value="' + escapeHtml(unitKey) + '"></td>' +
             '<td>' + escapeHtml(sku) + '</td>' +
-            '<td><input type="number" class="form-control form-control-sm item-quantity" name="quantity[]" min="1" style="width:90px;" value="' + escapeHtml(quantity || 1) + '"></td>' +
+            '<td><input type="number" class="form-control form-control-sm item-quantity" name="quantity[]" min="' + qtyMin + '" style="width:90px;" value="' + escapeHtml(quantity || 1) + '"></td>' +
             '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm item-cost" name="supplier_price[]" style="width:110px;" value="' + escapeHtml(cost || '0.00') + '"></td>' +
             '<td class="item-subtotal">0.00</td>' +
-            '<td class="text-end"><button type="button" class="btn btn-sm btn-outline-danger remove-item-row">Remove</button></td>';
+            '<td class="text-end">' + actionCell + '</td>';
 
         row.querySelector('.item-quantity').addEventListener('input', function () {
             recalcRow(row);
@@ -90,10 +100,13 @@
             recalcRow(row);
             recalcTotal();
         });
-        row.querySelector('.remove-item-row').addEventListener('click', function () {
-            row.remove();
-            recalcTotal();
-        });
+        var removeBtn = row.querySelector('.remove-item-row');
+        if (removeBtn) {
+            removeBtn.addEventListener('click', function () {
+                row.remove();
+                recalcTotal();
+            });
+        }
 
         tbody.appendChild(row);
         recalcRow(row);
@@ -102,7 +115,7 @@
 
     // Pre-existing rows (edit mode, or a re-displayed form after a validation error).
     (config.existingItems || []).forEach(function (item) {
-        addRow(item.unit_key, item.label, item.sku, item.quantity, item.supplier_price);
+        addRow(item.unit_key, item.label, item.sku, item.quantity, item.supplier_price, item.received_quantity);
     });
 
     // ---------------------------------------------------------------------------------

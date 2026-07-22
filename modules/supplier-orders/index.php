@@ -59,7 +59,7 @@ require_once __DIR__ . '/../../includes/header.php';
                     <td class="text-end">
                         <div class="d-flex gap-1 justify-content-end">
                             <a class="btn btn-sm btn-outline-primary" href="/modules/supplier-orders/view.php?id=<?php echo (int) $order['id']; ?>">View</a>
-                            <?php if ($canManage && $order['status'] === 'draft'): ?>
+                            <?php if ($canManage): ?>
                                 <a class="btn btn-sm btn-outline-secondary" href="/modules/supplier-orders/edit.php?id=<?php echo (int) $order['id']; ?>">Edit</a>
                             <?php endif; ?>
                             <?php if ($canManage): ?>

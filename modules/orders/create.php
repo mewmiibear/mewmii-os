@@ -104,12 +104,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         foreach ($demand as $key => $neededQty) {
             $unit = $unitsByKey[$key];
+            $override = $unit['availability_override'] ?? 'auto';
+
+            // Priority: manual override first (authoritative), then lifecycle state
+            // (Preorder/Early Bird), then stock quantity (Ready Stock) - see
+            // catalog_product_availability_status(). Never re-derive this ordering here.
+            if ($override === 'out_of_stock') {
+                $error = $unit['label'] . ' has been manually marked unavailable.';
+                break;
+            }
 
             if (in_array($unit['product_type'], ['preorder', 'early_bird'], true)) {
-                if (!catalog_product_is_orderable($unit)) {
+                if ($override !== 'available' && !catalog_product_is_orderable($unit)) {
                     $error = $unit['label'] . ' is not currently open for preorder.';
                     break;
                 }
+                continue;
+            }
+
+            if ($override === 'available') {
+                // Ready Stock forced available by an admin - skip the quantity check.
                 continue;
             }
 

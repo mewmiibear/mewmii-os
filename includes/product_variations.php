@@ -557,18 +557,22 @@ function catalog_product_is_orderable(array $product): bool
 }
 
 /**
- * Whether a product is "in stock" from a pure inventory-quantity standpoint - a SEPARATE,
- * independent gate from catalog_product_is_orderable()'s closing-date/reopen state
- * machine. Both must pass for a preorder/early_bird product to actually be purchasable
- * (see wc_client_build_product_payload()); this function alone answers only "is it out of
- * stock", never "is ordering currently open".
- *
- * Ready Stock: follows available_quantity, unless availability_override forces a value.
- * Preorder/Early Bird: NEVER computed from quantity (they can be fully purchasable at 0
- * stock - stock arrives later via Supplier Orders) - always 'available' unless an admin
- * explicitly sets availability_override to 'out_of_stock'. Expects a row with at least
- * product_type and availability_override (e.g. a `products` row); $availableQuantity is
- * only consulted for ready_stock.
+ * The single authoritative "is this available right now" decision - for a product's own
+ * row, or one of its variations (pass the variation's own available_quantity; every other
+ * field - product_type, availability_override, preorder_closing_date, etc - always comes
+ * from the PARENT product, since a variation never has its own type/override/lifecycle
+ * state). Every caller that needs to know whether something is purchasable/in-stock
+ * (WooCommerce sync, Inventory display, order creation, lifecycle badges, the product
+ * form's variation table) should go through this one function - never re-derive the
+ * priority order locally. Strict priority, each tier only consulted if the one above
+ * doesn't decide it:
+ *   1. availability_override = 'available'/'out_of_stock' - authoritative, skips
+ *      everything else below (including the closing-date/reopen lifecycle gate - a manual
+ *      override is a deliberate admin escape hatch, even out of "Waiting for Release").
+ *   2. Lifecycle state (catalog_product_is_orderable()) - Preorder/Early Bird only, the
+ *      closing-date/reopen state machine. Quantity never factors in here.
+ *   3. Stock quantity - Ready Stock only, via $availableQuantity. Unchanged from before
+ *      this function existed.
  */
 function catalog_product_availability_status(array $product, int $availableQuantity = 0): string
 {
@@ -582,7 +586,7 @@ function catalog_product_availability_status(array $product, int $availableQuant
     }
 
     if (($product['product_type'] ?? 'ready_stock') !== 'ready_stock') {
-        return 'available';
+        return catalog_product_is_orderable($product) ? 'available' : 'out_of_stock';
     }
 
     return $availableQuantity > 0 ? 'available' : 'out_of_stock';

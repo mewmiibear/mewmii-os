@@ -512,6 +512,17 @@ CREATE TABLE IF NOT EXISTS supplier_orders (
   CONSTRAINT fk_supplier_orders_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS supplier_order_events (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  supplier_order_id INT UNSIGNED NOT NULL,
+  event_type VARCHAR(80) NOT NULL,
+  description VARCHAR(255) NULL,
+  created_by INT UNSIGNED NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_supplier_order_events_order FOREIGN KEY (supplier_order_id) REFERENCES supplier_orders(id) ON DELETE CASCADE,
+  CONSTRAINT fk_supplier_order_events_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS supplier_order_items (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   supplier_order_id INT UNSIGNED NOT NULL,

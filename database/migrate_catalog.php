@@ -337,6 +337,24 @@ if (!migrate_column_exists($pdo, 'supplier_orders', 'notes')) {
     migrate_run($pdo, 'supplier_orders.notes', 'ALTER TABLE supplier_orders ADD COLUMN notes TEXT NULL AFTER received_date', $applied);
 }
 
+// supplier_order_events: audit trail for supplier order edits (who/when/what changed) -
+// mirrors mewmii_order_events exactly, just scoped to supplier_orders instead of
+// mewmii_orders.
+if (!migrate_column_exists($pdo, 'supplier_order_events', 'id')) {
+    migrate_run($pdo, 'supplier_order_events.create', "
+        CREATE TABLE IF NOT EXISTS supplier_order_events (
+            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            supplier_order_id INT UNSIGNED NOT NULL,
+            event_type VARCHAR(80) NOT NULL,
+            description VARCHAR(255) NULL,
+            created_by INT UNSIGNED NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT fk_supplier_order_events_order FOREIGN KEY (supplier_order_id) REFERENCES supplier_orders(id) ON DELETE CASCADE,
+            CONSTRAINT fk_supplier_order_events_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ", $applied);
+}
+
 // products.availability_override: manual admin control ('auto'/'available'/'out_of_stock')
 // so Early Bird/Preorder purchasability is never silently computed from inventory
 // quantity (they were never gated on it before either - see catalog_product_is_orderable()

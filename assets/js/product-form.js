@@ -910,7 +910,10 @@
             customPrice: variation.custom_price,
             imagePath: variation.image_path,
             hasOwnImage: !!variation.image_path,
-            stockStatus: (variation.available_quantity > 0) ? 'in_stock' : 'out_of_stock',
+            // Server-computed (see modules/products/edit.php) - never derived from
+            // available_quantity here, since Preorder/Early Bird availability depends on
+            // the parent product's lifecycle state/override, not raw quantity.
+            stockStatus: variation.is_available ? 'in_stock' : 'out_of_stock',
             status: variation.status,
             readonly: archived
         });

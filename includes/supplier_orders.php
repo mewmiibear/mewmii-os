@@ -281,6 +281,153 @@ function supplier_order_reverse_incoming(PDO $pdo, int $productId, ?int $variati
 }
 
 /**
+ * Applies a signed delta to one line item's incoming_quantity - the general-purpose
+ * version of supplier_order_mark_incoming() (delta = full quantity, on creation) and
+ * supplier_order_reverse_incoming() (delta = negative full quantity, on delete/removal).
+ * Used when an existing order's line quantity is edited (see supplier_order_apply_edit()):
+ * increasing the ordered quantity adds to incoming, decreasing it removes the difference -
+ * never touches arrived_quantity/available_quantity, so already-received stock is
+ * completely unaffected either way.
+ */
+function supplier_order_adjust_incoming(PDO $pdo, int $productId, ?int $variationId, int $itemId, int $delta): void
+{
+    if ($delta === 0) {
+        return;
+    }
+
+    inventory_get_or_create_row($pdo, $productId, $variationId);
+
+    $pdo->prepare('
+        UPDATE mewmii_inventory
+        SET incoming_quantity = GREATEST(incoming_quantity + ?, 0)
+        WHERE product_id = ? AND variation_id <=> ?
+    ')->execute([$delta, $productId, $variationId]);
+
+    inventory_log_transaction($pdo, $productId, 'supplier_order_adjusted', $delta, 'supplier_order_item', $itemId, $variationId);
+}
+
+function supplier_order_log_event(PDO $pdo, int $orderId, string $description): void
+{
+    $pdo->prepare('
+        INSERT INTO supplier_order_events (supplier_order_id, event_type, description, created_by)
+        VALUES (?, ?, ?, ?)
+    ')->execute([$orderId, 'edit', $description, $_SESSION['user_id'] ?? null]);
+}
+
+/**
+ * Full add/edit/remove reconciliation for an existing supplier order - the only way its
+ * line items change after creation (see modules/supplier-orders/edit.php). $newLines is
+ * the same per-line shape modules/supplier-orders/create.php builds: a list of
+ * ['product_id', 'variation_id', 'quantity', 'supplier_price'], keyed internally by
+ * "productId:variationId" (the same sellable-unit key used everywhere else in this app).
+ *
+ * Receiving history is never rewritten: a line that already has ANY received quantity
+ * cannot be removed, and its quantity cannot be reduced below what's already been
+ * received - both throw with an admin-facing message naming the product. Only the
+ * still-outstanding incoming_quantity moves, via supplier_order_adjust_incoming() (a
+ * signed delta = new_quantity - old_quantity, which is correct regardless of how much has
+ * already been received: incoming = ordered - received, so the received term cancels out
+ * of the delta). Every add/remove/quantity-change/cost-change is logged individually to
+ * supplier_order_events. Caller is responsible for the surrounding transaction and for
+ * blocking this entirely once the order is 'completed' (see modules/supplier-orders/edit.php).
+ */
+function supplier_order_apply_edit(PDO $pdo, int $orderId, int $supplierId, string $notes, array $newLines): void
+{
+    $existingStmt = $pdo->prepare('SELECT id, product_id, variation_id, total_quantity, supplier_price FROM supplier_order_items WHERE supplier_order_id = ?');
+    $existingStmt->execute([$orderId]);
+    $existingByKey = [];
+    foreach ($existingStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $key = $row['product_id'] . ':' . (int) ($row['variation_id'] ?? 0);
+        $existingByKey[$key] = $row;
+    }
+
+    $newByKey = [];
+    foreach ($newLines as $line) {
+        $key = $line['product_id'] . ':' . (int) ($line['variation_id'] ?? 0);
+        $newByKey[$key] = $line;
+    }
+
+    // Removed lines: only safe if nothing has been received against them yet.
+    foreach ($existingByKey as $key => $existing) {
+        if (isset($newByKey[$key])) {
+            continue;
+        }
+
+        $itemId = (int) $existing['id'];
+        $received = supplier_order_item_received_quantity($pdo, $itemId);
+        $unit = catalog_describe_unit($pdo, (int) $existing['product_id'], $existing['variation_id'] !== null ? (int) $existing['variation_id'] : null);
+        $label = $unit['product_name'] . (!empty($unit['variation_label']) ? ' (' . $unit['variation_label'] . ')' : '');
+
+        if ($received > 0) {
+            throw new RuntimeException($label . ' already has received quantity and cannot be removed from this order.');
+        }
+
+        supplier_order_reverse_incoming($pdo, (int) $existing['product_id'], $existing['variation_id'] !== null ? (int) $existing['variation_id'] : null, $itemId, (int) $existing['total_quantity']);
+        $pdo->prepare('DELETE FROM supplier_order_items WHERE id = ?')->execute([$itemId]);
+        supplier_order_log_event($pdo, $orderId, 'Removed ' . $label . ' x' . (int) $existing['total_quantity']);
+    }
+
+    // New and updated lines.
+    foreach ($newByKey as $key => $line) {
+        $productId = (int) $line['product_id'];
+        $variationId = $line['variation_id'] !== null ? (int) $line['variation_id'] : null;
+        $quantity = (int) $line['quantity'];
+        $price = round((float) $line['supplier_price'], 2);
+        $subtotal = round($quantity * $price, 2);
+
+        $unit = catalog_describe_unit($pdo, $productId, $variationId);
+        $label = $unit['product_name'] . (!empty($unit['variation_label']) ? ' (' . $unit['variation_label'] . ')' : '');
+
+        if (!isset($existingByKey[$key])) {
+            // New line.
+            $insertStmt = $pdo->prepare('
+                INSERT INTO supplier_order_items (supplier_order_id, product_id, variation_id, total_quantity, supplier_price, subtotal)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ');
+            $insertStmt->execute([$orderId, $productId, $variationId, $quantity, $price, $subtotal]);
+            $itemId = (int) $pdo->lastInsertId();
+
+            supplier_order_mark_incoming($pdo, $productId, $itemId, $quantity, $variationId);
+            supplier_order_log_event($pdo, $orderId, 'Added ' . $label . ' x' . $quantity);
+
+            continue;
+        }
+
+        // Existing line - reconcile quantity/cost.
+        $existing = $existingByKey[$key];
+        $itemId = (int) $existing['id'];
+        $oldQuantity = (int) $existing['total_quantity'];
+        $oldPrice = (float) $existing['supplier_price'];
+        $received = supplier_order_item_received_quantity($pdo, $itemId);
+
+        if ($quantity < $received) {
+            throw new RuntimeException($label . ' has already received ' . $received . ' unit(s) and cannot be reduced below that.');
+        }
+
+        $delta = $quantity - $oldQuantity;
+        if ($delta !== 0) {
+            supplier_order_adjust_incoming($pdo, $productId, $variationId, $itemId, $delta);
+            supplier_order_log_event($pdo, $orderId, 'Changed ' . $label . ' quantity ' . $oldQuantity . ' -> ' . $quantity);
+        }
+
+        if (abs($oldPrice - $price) > 0.001) {
+            supplier_order_log_event($pdo, $orderId, 'Changed ' . $label . ' unit cost RM' . number_format($oldPrice, 2) . ' -> RM' . number_format($price, 2));
+        }
+
+        $pdo->prepare('UPDATE supplier_order_items SET total_quantity = ?, supplier_price = ?, subtotal = ? WHERE id = ?')
+            ->execute([$quantity, $price, $subtotal, $itemId]);
+    }
+
+    // Totals + supplier/notes always refreshed, even if nothing else changed this pass.
+    $totalStmt = $pdo->prepare('SELECT COALESCE(SUM(subtotal), 0) FROM supplier_order_items WHERE supplier_order_id = ?');
+    $totalStmt->execute([$orderId]);
+    $estimatedCost = round((float) $totalStmt->fetchColumn(), 2);
+
+    $pdo->prepare('UPDATE supplier_orders SET supplier_id = ?, estimated_cost = ?, notes = ? WHERE id = ?')
+        ->execute([$supplierId, $estimatedCost, $notes !== '' ? $notes : null, $orderId]);
+}
+
+/**
  * Deletes a supplier order entirely, but only if nothing has ever actually been received
  * against it (see supplier_order_has_receiving_history()) - otherwise throws with the
  * admin-facing message so the caller can show it instead of a raw SQL/FK error. Every

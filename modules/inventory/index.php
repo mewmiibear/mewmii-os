@@ -357,8 +357,13 @@ function inventory_availability_phrase(string $productType, string $overrideValu
 
     $typeLabel = $productType === 'early_bird' ? 'Early Bird' : 'Preorder';
 
+    // Priority: manual override first (authoritative, bypasses lifecycle entirely - see
+    // catalog_product_availability_status()), then the closing-date/reopen lifecycle gate.
     if ($overrideValue === 'out_of_stock') {
         return 'Closed (Manual)';
+    }
+    if ($overrideValue === 'available') {
+        return $typeLabel . ' Open';
     }
     if (!$isOrderable) {
         return 'Waiting for Release';

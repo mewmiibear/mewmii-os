@@ -331,13 +331,11 @@ function wc_client_build_product_payload(array $product, PDO $pdo): array
     if (in_array($product['product_type'] ?? 'ready_stock', ['preorder', 'early_bird'], true)) {
         // Preorder/early-bird stock is never tracked against available_quantity - it must
         // stay purchasable at 0 stock, so WooCommerce stock management is left off entirely.
-        // Two independent gates decide stock_status: is ordering currently open at all
-        // (catalog_product_is_orderable() - closing date/reopen) AND has an admin manually
-        // marked it Out of Stock (catalog_product_availability_status()) - quantity never
+        // catalog_product_availability_status() already folds in both the manual override
+        // (checked first) and the closing-date/reopen lifecycle gate - quantity never
         // factors into either one.
         $payload['manage_stock'] = false;
-        $isAvailable = catalog_product_is_orderable($product) && catalog_product_availability_status($product) === 'available';
-        $payload['stock_status'] = $isAvailable ? 'instock' : 'outofstock';
+        $payload['stock_status'] = catalog_product_availability_status($product) === 'available' ? 'instock' : 'outofstock';
     } else {
         $stock = product_effective_stock($pdo, $productId);
         $availabilityStatus = catalog_product_availability_status($product, (int) $stock['available_quantity']);
@@ -497,10 +495,9 @@ function wc_client_sync_variable_product_from_mewmii(PDO $pdo, array $product): 
         if ($isPreorderType) {
             // Same reasoning as wc_client_build_product_payload(): a variation's
             // available_quantity must never gate purchasability for these product types -
-            // only the closing-date/reopen gate and the parent's manual override do.
+            // only catalog_product_availability_status()'s override/lifecycle checks do.
             $variationPayload['manage_stock'] = false;
-            $isAvailable = catalog_product_is_orderable($product) && catalog_product_availability_status($product) === 'available';
-            $variationPayload['stock_status'] = $isAvailable ? 'instock' : 'outofstock';
+            $variationPayload['stock_status'] = catalog_product_availability_status($product) === 'available' ? 'instock' : 'outofstock';
         } elseif (($product['availability_override'] ?? 'auto') === 'auto') {
             $variationPayload['manage_stock'] = true;
             $variationPayload['stock_quantity'] = (int) $variation['available_quantity'];
