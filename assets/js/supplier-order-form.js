@@ -1,0 +1,215 @@
+/**
+ * Vanilla JS for the Supplier Order create/edit page: the "+ Add Product" picker modal
+ * (11.2) and the dynamic order-items table (11.3) it feeds into. No framework, no build
+ * step - reads its data from a <script type="application/json" id="supplier-order-form-data">
+ * tag (see modules/supplier-orders/create.php / edit.php), same convention as
+ * assets/js/product-form.js.
+ *
+ * Every item row keeps real name="unit_key[]"/"quantity[]"/"supplier_price[]" attributes,
+ * so the whole table still posts as a plain array-of-rows form on submit - this file only
+ * builds/removes rows and computes subtotals, it never talks to the server itself (no
+ * inventory reservation/stock logic lives here at all).
+ */
+(function () {
+    'use strict';
+
+    var configEl = document.getElementById('supplier-order-form-data');
+    if (!configEl) {
+        return;
+    }
+    var config = JSON.parse(configEl.textContent || '{}');
+    var products = config.products || [];
+
+    function escapeHtml(value) {
+        var div = document.createElement('div');
+        div.textContent = value === null || value === undefined ? '' : String(value);
+        return div.innerHTML;
+    }
+
+    function formatMoney(value) {
+        return (Math.round((value + Number.EPSILON) * 100) / 100).toFixed(2);
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Order items table.
+    // ---------------------------------------------------------------------------------
+    var tbody = document.querySelector('#supplier-order-items-table tbody');
+    var totalEl = document.getElementById('supplier-order-total');
+
+    function existingUnitKeys() {
+        var keys = [];
+        if (!tbody) {
+            return keys;
+        }
+        tbody.querySelectorAll('tr[data-unit-key]').forEach(function (row) {
+            keys.push(row.getAttribute('data-unit-key'));
+        });
+        return keys;
+    }
+
+    function recalcRow(row) {
+        var qty = parseFloat(row.querySelector('.item-quantity').value) || 0;
+        var cost = parseFloat(row.querySelector('.item-cost').value) || 0;
+        row.querySelector('.item-subtotal').textContent = formatMoney(qty * cost);
+    }
+
+    function recalcTotal() {
+        if (!tbody || !totalEl) {
+            return;
+        }
+        var total = 0;
+        tbody.querySelectorAll('tr[data-unit-key]').forEach(function (row) {
+            var qty = parseFloat(row.querySelector('.item-quantity').value) || 0;
+            var cost = parseFloat(row.querySelector('.item-cost').value) || 0;
+            total += qty * cost;
+        });
+        totalEl.textContent = formatMoney(total);
+    }
+
+    function addRow(unitKey, label, sku, quantity, cost) {
+        if (!tbody || existingUnitKeys().indexOf(unitKey) !== -1) {
+            return;
+        }
+
+        var row = document.createElement('tr');
+        row.setAttribute('data-unit-key', unitKey);
+        row.innerHTML =
+            '<td>' + escapeHtml(label) +
+            '<input type="hidden" name="unit_key[]" value="' + escapeHtml(unitKey) + '"></td>' +
+            '<td>' + escapeHtml(sku) + '</td>' +
+            '<td><input type="number" class="form-control form-control-sm item-quantity" name="quantity[]" min="1" style="width:90px;" value="' + escapeHtml(quantity || 1) + '"></td>' +
+            '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm item-cost" name="supplier_price[]" style="width:110px;" value="' + escapeHtml(cost || '0.00') + '"></td>' +
+            '<td class="item-subtotal">0.00</td>' +
+            '<td class="text-end"><button type="button" class="btn btn-sm btn-outline-danger remove-item-row">Remove</button></td>';
+
+        row.querySelector('.item-quantity').addEventListener('input', function () {
+            recalcRow(row);
+            recalcTotal();
+        });
+        row.querySelector('.item-cost').addEventListener('input', function () {
+            recalcRow(row);
+            recalcTotal();
+        });
+        row.querySelector('.remove-item-row').addEventListener('click', function () {
+            row.remove();
+            recalcTotal();
+        });
+
+        tbody.appendChild(row);
+        recalcRow(row);
+        recalcTotal();
+    }
+
+    // Pre-existing rows (edit mode, or a re-displayed form after a validation error).
+    (config.existingItems || []).forEach(function (item) {
+        addRow(item.unit_key, item.label, item.sku, item.quantity, item.supplier_price);
+    });
+
+    // ---------------------------------------------------------------------------------
+    // Product Picker modal.
+    // ---------------------------------------------------------------------------------
+    function unitMatchesSearch(product, unit, needle) {
+        if (!needle) {
+            return true;
+        }
+        needle = needle.toLowerCase();
+        return product.name.toLowerCase().indexOf(needle) !== -1 ||
+            product.sku.toLowerCase().indexOf(needle) !== -1 ||
+            unit.sku.toLowerCase().indexOf(needle) !== -1;
+    }
+
+    function renderPicker() {
+        var results = document.getElementById('picker-results');
+        if (!results) {
+            return;
+        }
+
+        var search = (document.getElementById('picker-search').value || '').trim();
+        var supplierFilter = document.getElementById('picker-supplier-filter').value;
+        var categoryFilter = document.getElementById('picker-category-filter').value;
+        var typeFilter = document.getElementById('picker-type-filter').value;
+        var added = existingUnitKeys();
+
+        var html = '';
+        products.forEach(function (product) {
+            if (supplierFilter && String(product.supplier_id) !== supplierFilter) {
+                return;
+            }
+            if (categoryFilter && String(product.category_id) !== categoryFilter) {
+                return;
+            }
+            if (typeFilter && product.product_type !== typeFilter) {
+                return;
+            }
+
+            var matchingUnits = product.units.filter(function (unit) {
+                return unitMatchesSearch(product, unit, search);
+            });
+            if (matchingUnits.length === 0) {
+                return;
+            }
+
+            html += '<div class="border rounded p-2 mb-2">';
+            html += '<div class="fw-semibold">' + escapeHtml(product.sku) + ' &mdash; ' + escapeHtml(product.name) + '</div>';
+
+            if (product.catalog_type === 'variable') {
+                html += '<div class="ms-3 mt-1">';
+                matchingUnits.forEach(function (unit) {
+                    var checked = added.indexOf(unit.key) !== -1;
+                    html += '<label class="d-block checkbox-item">' +
+                        '<input type="checkbox" class="picker-unit-checkbox" value="' + escapeHtml(unit.key) +
+                        '" data-label="' + escapeHtml(product.name + ' - ' + (unit.label || '')) +
+                        '" data-sku="' + escapeHtml(unit.sku) + '"' + (checked ? ' checked disabled' : '') + '> ' +
+                        escapeHtml(unit.label || '(no attributes)') + ' <span class="text-muted small">' + escapeHtml(unit.sku) + '</span>' +
+                        (checked ? ' <span class="badge bg-secondary">Added</span>' : '') +
+                        '</label>';
+                });
+                html += '</div>';
+            } else {
+                var unit = matchingUnits[0];
+                var isAdded = added.indexOf(unit.key) !== -1;
+                html += '<label class="d-block checkbox-item">' +
+                    '<input type="checkbox" class="picker-unit-checkbox" value="' + escapeHtml(unit.key) +
+                    '" data-label="' + escapeHtml(product.name) +
+                    '" data-sku="' + escapeHtml(unit.sku) + '"' + (isAdded ? ' checked disabled' : '') + '> Add this product' +
+                    (isAdded ? ' <span class="badge bg-secondary">Added</span>' : '') +
+                    '</label>';
+            }
+
+            html += '</div>';
+        });
+
+        results.innerHTML = html || '<p class="text-muted small mb-0">No products match.</p>';
+    }
+
+    function initProductPicker() {
+        var modalEl = document.getElementById('productPickerModal');
+        var addBtn = document.getElementById('add-product-btn');
+        if (!modalEl || !addBtn) {
+            return;
+        }
+
+        addBtn.addEventListener('click', function () {
+            if (window.bootstrap) {
+                window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
+            }
+            renderPicker();
+        });
+
+        ['picker-search', 'picker-supplier-filter', 'picker-category-filter', 'picker-type-filter'].forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) {
+                el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', renderPicker);
+            }
+        });
+
+        document.getElementById('picker-add-selected-btn').addEventListener('click', function () {
+            document.querySelectorAll('.picker-unit-checkbox:checked:not(:disabled)').forEach(function (checkbox) {
+                addRow(checkbox.value, checkbox.dataset.label, checkbox.dataset.sku, 1, '0.00');
+            });
+            window.bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+        });
+    }
+
+    initProductPicker();
+})();

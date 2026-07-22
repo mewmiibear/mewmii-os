@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/supplier_orders.php';
 app_require_permission('supplier-orders.view');
 
 $appTitle = 'Supplier Orders';
@@ -31,6 +32,9 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php if (isset($_GET['created'])): ?>
     <div class="alert alert-success">Supplier order created.</div>
 <?php endif; ?>
+<?php if (isset($_GET['deleted'])): ?>
+    <div class="alert alert-success">Supplier order deleted.</div>
+<?php endif; ?>
 
 <div class="card p-4">
     <table class="table table-hover align-middle">
@@ -49,11 +53,23 @@ require_once __DIR__ . '/../../includes/header.php';
                 <tr>
                     <td><?php echo app_escape($order['purchase_number']); ?></td>
                     <td><?php echo app_escape($order['supplier_name']); ?></td>
-                    <td><?php echo app_escape($order['status']); ?></td>
-                    <td><?php echo app_escape((string) $order['estimated_cost']); ?></td>
+                    <td><?php echo supplier_order_status_badge($order['status']); ?></td>
+                    <td>RM <?php echo app_escape(number_format((float) $order['estimated_cost'], 2)); ?></td>
                     <td><?php echo app_escape($order['order_date'] ?? '-'); ?></td>
                     <td class="text-end">
-                        <a class="btn btn-sm btn-outline-primary" href="/modules/supplier-orders/view.php?id=<?php echo (int) $order['id']; ?>">View</a>
+                        <div class="d-flex gap-1 justify-content-end">
+                            <a class="btn btn-sm btn-outline-primary" href="/modules/supplier-orders/view.php?id=<?php echo (int) $order['id']; ?>">View</a>
+                            <?php if ($canManage && $order['status'] === 'draft'): ?>
+                                <a class="btn btn-sm btn-outline-secondary" href="/modules/supplier-orders/edit.php?id=<?php echo (int) $order['id']; ?>">Edit</a>
+                            <?php endif; ?>
+                            <?php if ($canManage): ?>
+                                <form method="post" action="/modules/supplier-orders/delete.php" class="d-inline" onsubmit="return confirm('Delete this supplier order? This cannot be undone.');">
+                                    <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                                    <input type="hidden" name="order_id" value="<?php echo (int) $order['id']; ?>">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                                </form>
+                            <?php endif; ?>
+                        </div>
                     </td>
                 </tr>
             <?php endforeach; ?>

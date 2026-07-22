@@ -505,6 +505,7 @@ CREATE TABLE IF NOT EXISTS supplier_orders (
   payment_date DATE NULL,
   order_date DATE NULL,
   received_date DATE NULL,
+  notes TEXT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_supplier_orders_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE

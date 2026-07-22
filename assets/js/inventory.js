@@ -131,26 +131,40 @@
      * (see modules/inventory/index.php) - clicking the parent toggles them open/closed.
      * Clicks on an action button/link inside the row (Adjust Stock, View History, Edit
      * Product) must not trigger the toggle, since those already have their own onclick/href.
+     *
+     * Uses one delegated listener on the table body rather than a listener per row - this
+     * is deliberate, not just a style choice: it can't silently fail to bind if this script
+     * ever loads/re-runs before the table has rendered, and it needs no re-binding if rows
+     * are ever added later. Delegating from the table (not `document`) keeps it scoped to
+     * the inventory table only.
      */
     function initGroupToggles() {
-        document.querySelectorAll('.js-inventory-parent').forEach(function (row) {
-            row.addEventListener('click', function (event) {
-                if (event.target.closest('button, a')) {
-                    return;
-                }
+        var table = document.getElementById('inventory-table');
+        if (!table) {
+            return;
+        }
 
-                var group = row.getAttribute('data-group');
-                var expand = row.getAttribute('data-expanded') !== '1';
-                row.setAttribute('data-expanded', expand ? '1' : '0');
+        table.addEventListener('click', function (event) {
+            if (event.target.closest('button, a')) {
+                return;
+            }
 
-                var caret = row.querySelector('.js-inventory-caret');
-                if (caret) {
-                    caret.innerHTML = expand ? '&#9660;' : '&#9654;';
-                }
+            var row = event.target.closest('tr.js-inventory-parent');
+            if (!row || !table.contains(row)) {
+                return;
+            }
 
-                document.querySelectorAll('tr.inventory-variation-row[data-group="' + group + '"]').forEach(function (variationRow) {
-                    variationRow.classList.toggle('d-none', !expand);
-                });
+            var group = row.getAttribute('data-group');
+            var expand = row.getAttribute('data-expanded') !== '1';
+            row.setAttribute('data-expanded', expand ? '1' : '0');
+
+            var caret = row.querySelector('.js-inventory-caret');
+            if (caret) {
+                caret.innerHTML = expand ? '&#9660;' : '&#9654;';
+            }
+
+            table.querySelectorAll('tr.inventory-variation-row[data-group="' + group + '"]').forEach(function (variationRow) {
+                variationRow.classList.toggle('d-none', !expand);
             });
         });
     }

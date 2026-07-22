@@ -331,6 +331,12 @@ if (!migrate_column_exists($pdo, 'mewmii_orders', 'shipped_at')) {
     migrate_run($pdo, 'mewmii_orders.shipped_at', 'ALTER TABLE mewmii_orders ADD COLUMN shipped_at DATETIME NULL AFTER shipping_carrier', $applied);
 }
 
+// supplier_orders.notes: free-text notes shown on the supplier order detail/edit pages -
+// no other business logic reads this column.
+if (!migrate_column_exists($pdo, 'supplier_orders', 'notes')) {
+    migrate_run($pdo, 'supplier_orders.notes', 'ALTER TABLE supplier_orders ADD COLUMN notes TEXT NULL AFTER received_date', $applied);
+}
+
 // products.short_description: the customer-facing summary shown on the product form
 // (Basic Information section) and synced to WooCommerce's own short_description field -
 // separate from the long `description` field, and separate from the auto-generated

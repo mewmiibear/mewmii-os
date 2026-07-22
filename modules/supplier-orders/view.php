@@ -7,9 +7,6 @@ app_require_permission('supplier-orders.view');
 $appTitle = 'Supplier Order Detail';
 $error = '';
 
-$statuses = ['draft', 'waiting_payment', 'ordered', 'shipping', 'received', 'completed'];
-$terminalStatuses = ['completed'];
-
 $orderId = (int) ($_GET['id'] ?? 0);
 
 if ($orderId < 1) {
@@ -79,23 +76,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $error = 'Failed to receive item.';
                 }
             }
-        } elseif ($action === 'status') {
-            $newStatus = (string) ($_POST['new_status'] ?? '');
-            $oldStatus = (string) $order['status'];
-
-            if (!in_array($newStatus, $statuses, true)) {
-                $error = 'Invalid status.';
-            } elseif (in_array($oldStatus, $terminalStatuses, true)) {
-                $error = 'This order is final and cannot be changed.';
-            } elseif ($oldStatus === $newStatus) {
-                $error = 'Order is already in that status.';
+        } elseif ($action === 'mark_arrived') {
+            if ($order['status'] !== 'ordered') {
+                $error = 'Only an Ordered supplier order can be marked arrived.';
             } else {
                 $pdo->beginTransaction();
 
                 try {
-                    $pdo->prepare('UPDATE supplier_orders SET status = ? WHERE id = ?')
-                        ->execute([$newStatus, $orderId]);
+                    supplier_order_receive_all_remaining($pdo, $orderId);
+                    $pdo->commit();
 
+                    app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1');
+                } catch (RuntimeException $exception) {
+                    $pdo->rollBack();
+                    $error = $exception->getMessage();
+                } catch (Exception $exception) {
+                    $pdo->rollBack();
+                    $error = 'Failed to mark order as arrived.';
+                }
+            }
+        } elseif ($action === 'advance_status') {
+            $targetStatus = (string) ($_POST['target_status'] ?? '');
+            $expectedNext = supplier_order_status_next((string) $order['status']);
+
+            if ($expectedNext === null || $targetStatus !== $expectedNext) {
+                $error = 'Invalid status transition.';
+            } elseif ($targetStatus === 'received') {
+                $error = 'Use "Mark Arrived" to receive this order.';
+            } else {
+                $pdo->beginTransaction();
+
+                try {
+                    $pdo->prepare('UPDATE supplier_orders SET status = ? WHERE id = ?')->execute([$targetStatus, $orderId]);
                     $pdo->commit();
 
                     app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1');
@@ -127,10 +139,12 @@ $itemsStmt = $pdo->prepare('
 $itemsStmt->execute([$orderId]);
 $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
 
+$orderTotal = 0.0;
 foreach ($items as &$item) {
     $item['received_quantity'] = supplier_order_item_received_quantity($pdo, (int) $item['id']);
     $item['remaining_quantity'] = (int) $item['total_quantity'] - $item['received_quantity'];
     $item['variation_label'] = $item['variation_id'] !== null ? variation_build_label($pdo, (int) $item['variation_id']) : '';
+    $orderTotal += (float) $item['subtotal'];
 }
 unset($item);
 
@@ -146,6 +160,7 @@ $historyStmt->execute([$orderId]);
 $receivingHistory = $historyStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $canManage = app_has_permission('supplier-orders.manage');
+$nextStatus = supplier_order_status_next((string) $order['status']);
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
@@ -154,17 +169,33 @@ require_once __DIR__ . '/../../includes/header.php';
         <h2 class="mb-1">Supplier Order <?php echo app_escape($order['purchase_number']); ?></h2>
         <p class="text-muted mb-0"><?php echo app_escape($order['supplier_name']); ?></p>
     </div>
-    <a class="btn btn-outline-secondary btn-sm" href="/modules/supplier-orders/index.php">Back to Supplier Orders</a>
+    <div class="d-flex gap-2">
+        <?php if ($canManage && $order['status'] === 'draft'): ?>
+            <a class="btn btn-outline-secondary btn-sm" href="/modules/supplier-orders/edit.php?id=<?php echo (int) $orderId; ?>">Edit</a>
+        <?php endif; ?>
+        <?php if ($canManage): ?>
+            <form method="post" action="/modules/supplier-orders/delete.php" class="d-inline" onsubmit="return confirm('Delete this supplier order? This cannot be undone.');">
+                <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                <input type="hidden" name="order_id" value="<?php echo (int) $orderId; ?>">
+                <button type="submit" class="btn btn-outline-danger btn-sm">Delete</button>
+            </form>
+        <?php endif; ?>
+        <a class="btn btn-outline-secondary btn-sm" href="/modules/supplier-orders/index.php">Back to Supplier Orders</a>
+    </div>
 </div>
 
 <?php if (isset($_GET['created'])): ?>
     <div class="alert alert-success">Supplier order created.</div>
 <?php endif; ?>
-
 <?php if (isset($_GET['updated'])): ?>
     <div class="alert alert-success">Supplier order updated.</div>
 <?php endif; ?>
-
+<?php if (isset($_GET['edit_blocked'])): ?>
+    <div class="alert alert-warning">Only a Draft supplier order can be edited.</div>
+<?php endif; ?>
+<?php if (isset($_GET['delete_error'])): ?>
+    <div class="alert alert-danger"><?php echo app_escape($_GET['delete_error'] === '1' ? 'Failed to delete supplier order.' : $_GET['delete_error']); ?></div>
+<?php endif; ?>
 <?php if ($error !== ''): ?>
     <div class="alert alert-danger"><?php echo nl2br(app_escape($error)); ?></div>
 <?php endif; ?>
@@ -174,12 +205,15 @@ require_once __DIR__ . '/../../includes/header.php';
         <div class="card p-4 mb-4">
             <h5 class="mb-3">Order Summary</h5>
             <table class="table table-borderless mb-0">
-                <tr><th>Status</th><td><?php echo app_escape($order['status']); ?></td></tr>
-                <tr><th>Estimated Cost</th><td><?php echo app_escape((string) $order['estimated_cost']); ?></td></tr>
-                <tr><th>Actual Cost</th><td><?php echo app_escape((string) $order['actual_cost']); ?></td></tr>
-                <tr><th>Order Date</th><td><?php echo app_escape($order['order_date'] ?? '-'); ?></td></tr>
-                <tr><th>Payment Date</th><td><?php echo app_escape($order['payment_date'] ?? '-'); ?></td></tr>
+                <tr><th>Status</th><td><?php echo supplier_order_status_badge($order['status']); ?></td></tr>
+                <tr><th>Supplier</th><td><?php echo app_escape($order['supplier_name']); ?></td></tr>
+                <tr><th>Created Date</th><td><?php echo app_escape($order['order_date'] ?? '-'); ?></td></tr>
+                <tr><th>Estimated Cost</th><td>RM <?php echo app_escape(number_format((float) $order['estimated_cost'], 2)); ?></td></tr>
+                <tr><th>Order Total</th><td>RM <?php echo app_escape(number_format($orderTotal, 2)); ?></td></tr>
                 <tr><th>Received Date</th><td><?php echo app_escape($order['received_date'] ?? '-'); ?></td></tr>
+                <?php if (!empty($order['notes'])): ?>
+                    <tr><th>Notes</th><td><?php echo nl2br(app_escape($order['notes'])); ?></td></tr>
+                <?php endif; ?>
             </table>
         </div>
 
@@ -192,8 +226,8 @@ require_once __DIR__ . '/../../includes/header.php';
                         <th>Product</th>
                         <th>Ordered</th>
                         <th>Received</th>
-                        <th>Remaining</th>
-                        <th>Price</th>
+                        <th>Outstanding</th>
+                        <th>Unit Cost</th>
                         <?php if ($canManage): ?><th></th><?php endif; ?>
                     </tr>
                 </thead>
@@ -210,16 +244,16 @@ require_once __DIR__ . '/../../includes/header.php';
                             <td><?php echo app_escape((string) $item['total_quantity']); ?></td>
                             <td><?php echo app_escape((string) $item['received_quantity']); ?></td>
                             <td><?php echo app_escape((string) $item['remaining_quantity']); ?></td>
-                            <td><?php echo app_escape((string) $item['supplier_price']); ?></td>
+                            <td>RM <?php echo app_escape(number_format((float) $item['supplier_price'], 2)); ?></td>
                             <?php if ($canManage): ?>
                                 <td class="text-end">
                                     <?php if ($item['remaining_quantity'] > 0): ?>
-                                        <form method="post" class="d-flex gap-1 justify-content-end">
+                                        <form method="post" class="d-flex gap-1 justify-content-end" onsubmit="return confirm('Record a partial receipt for this line?');">
                                             <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                                             <input type="hidden" name="action" value="receive">
                                             <input type="hidden" name="item_id" value="<?php echo (int) $item['id']; ?>">
                                             <input type="number" class="form-control form-control-sm" style="width: 80px;" name="quantity" min="1" max="<?php echo (int) $item['remaining_quantity']; ?>" placeholder="Qty" required>
-                                            <button class="btn btn-sm btn-outline-success" type="submit">Mark Arrived</button>
+                                            <button class="btn btn-sm btn-outline-secondary" type="submit">Partial Receive</button>
                                         </form>
                                     <?php else: ?>
                                         <span class="badge bg-success">Complete</span>
@@ -239,23 +273,25 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="col-lg-5">
         <?php if ($canManage): ?>
             <div class="card p-4 mb-4">
-                <h5 class="mb-3">Change Status</h5>
-                <?php if (in_array($order['status'], $terminalStatuses, true)): ?>
-                    <span class="badge bg-secondary">Final</span>
-                <?php else: ?>
-                    <form method="post" class="d-flex gap-2 flex-wrap align-items-start">
+                <h5 class="mb-3">Order Workflow</h5>
+                <div class="mb-3"><?php echo supplier_order_status_badge($order['status']); ?></div>
+
+                <?php if ($nextStatus === 'received'): ?>
+                    <form method="post" onsubmit="return confirm('Mark this entire order as arrived? Every remaining ordered quantity will be received in full.');">
                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
-                        <input type="hidden" name="action" value="status">
-
-                        <select class="form-select form-select-sm w-auto" name="new_status" required>
-                            <?php foreach ($statuses as $statusOption): ?>
-                                <?php if ($statusOption === $order['status']) { continue; } ?>
-                                <option value="<?php echo app_escape($statusOption); ?>"><?php echo app_escape($statusOption); ?></option>
-                            <?php endforeach; ?>
-                        </select>
-
-                        <button class="btn btn-primary btn-sm" type="submit">Update</button>
+                        <input type="hidden" name="action" value="mark_arrived">
+                        <button type="submit" class="btn btn-primary btn-sm">Mark Arrived</button>
                     </form>
+                    <div class="form-text">Only a partial shipment? Use Partial Receive on the specific line below instead.</div>
+                <?php elseif ($nextStatus !== null): ?>
+                    <form method="post" onsubmit="return confirm('<?php echo app_escape((string) supplier_order_status_next_action_label((string) $order['status'])); ?>?');">
+                        <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                        <input type="hidden" name="action" value="advance_status">
+                        <input type="hidden" name="target_status" value="<?php echo app_escape($nextStatus); ?>">
+                        <button type="submit" class="btn btn-primary btn-sm"><?php echo app_escape((string) supplier_order_status_next_action_label((string) $order['status'])); ?></button>
+                    </form>
+                <?php else: ?>
+                    <span class="badge bg-secondary">Final</span>
                 <?php endif; ?>
             </div>
         <?php endif; ?>

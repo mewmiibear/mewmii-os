@@ -5,16 +5,71 @@ require_once __DIR__ . '/../../includes/product_variations.php';
 require_once __DIR__ . '/../../includes/catalog.php';
 app_require_permission('supplier-orders.manage');
 
-$appTitle = 'New Supplier Order';
+$appTitle = 'Edit Supplier Order';
 $error = '';
 $pdo = app_db();
 
+$orderId = (int) ($_GET['id'] ?? 0);
+
+if ($orderId < 1) {
+    http_response_code(404);
+    require_once __DIR__ . '/../../includes/header.php';
+    echo '<div class="alert alert-danger">Supplier order not found.</div>';
+    require_once __DIR__ . '/../../includes/footer.php';
+    exit;
+}
+
+$orderStmt = $pdo->prepare('SELECT * FROM supplier_orders WHERE id = ? LIMIT 1');
+$orderStmt->execute([$orderId]);
+$order = $orderStmt->fetch(PDO::FETCH_ASSOC);
+
+if (!$order) {
+    http_response_code(404);
+    require_once __DIR__ . '/../../includes/header.php';
+    echo '<div class="alert alert-danger">Supplier order not found.</div>';
+    require_once __DIR__ . '/../../includes/footer.php';
+    exit;
+}
+
+// Editing is scoped to Draft orders only - once submitted (status = ordered) a PO has
+// been sent to the supplier, and once anything has actually been received, the ordered
+// quantities it drove into incoming_quantity can no longer be silently rewritten (see
+// supplier_order_has_receiving_history()). This is deliberately the stricter of the two
+// checks - not just "no receiving yet" - since re-opening an already-submitted PO for
+// silent edits could contradict what the supplier was actually told.
+if ($order['status'] !== 'draft') {
+    app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&edit_blocked=1');
+}
+
+$itemsStmt = $pdo->prepare('
+    SELECT soi.id, soi.product_id, soi.variation_id, soi.total_quantity, soi.supplier_price,
+           COALESCE(pv.sku, p.sku) AS sku, p.name AS product_name
+    FROM supplier_order_items soi
+    INNER JOIN products p ON p.id = soi.product_id
+    LEFT JOIN product_variations pv ON pv.id = soi.variation_id
+    WHERE soi.supplier_order_id = ?
+    ORDER BY soi.id ASC
+');
+$itemsStmt->execute([$orderId]);
+$existingDbItems = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$existingItems = array_map(static function (array $item) use ($pdo): array {
+    $variationLabel = $item['variation_id'] !== null ? variation_build_label($pdo, (int) $item['variation_id']) : '';
+
+    return [
+        'unit_key' => $item['product_id'] . ':' . (int) ($item['variation_id'] ?? 0),
+        'label' => $item['product_name'] . ($variationLabel !== '' ? (' - ' . $variationLabel) : ''),
+        'sku' => $item['sku'],
+        'quantity' => (string) (int) $item['total_quantity'],
+        'supplier_price' => (string) $item['supplier_price'],
+    ];
+}, $existingDbItems);
+
 $form = [
-    'supplier_id' => '',
-    'purchase_number' => 'PO-' . date('Ymd') . '-' . strtoupper(substr(bin2hex(random_bytes(2)), 0, 4)),
-    'notes' => '',
+    'supplier_id' => (string) $order['supplier_id'],
+    'purchase_number' => $order['purchase_number'],
+    'notes' => (string) ($order['notes'] ?? ''),
 ];
-$existingItems = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
@@ -24,7 +79,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $form['supplier_id'] = trim((string) ($_POST['supplier_id'] ?? ''));
-    $form['purchase_number'] = trim((string) ($_POST['purchase_number'] ?? ''));
     $form['notes'] = trim((string) ($_POST['notes'] ?? ''));
 
     $postedUnitKeys = $_POST['unit_key'] ?? [];
@@ -35,6 +89,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $unitsByKey = array_column($sellableUnits, null, 'key');
 
     $validItems = [];
+    $existingItems = [];
 
     for ($i = 0; $i < count($postedUnitKeys); $i++) {
         $rowUnitKey = trim((string) ($postedUnitKeys[$i] ?? ''));
@@ -85,39 +140,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    if ($error === '') {
-        if ($form['purchase_number'] === '' || strlen($form['purchase_number']) > 100) {
-            $error = 'Purchase number is required and must be 100 characters or fewer.';
-        }
-    }
-
-    if ($error === '') {
-        $poCheck = $pdo->prepare('SELECT COUNT(*) FROM supplier_orders WHERE purchase_number = ?');
-        $poCheck->execute([$form['purchase_number']]);
-        if ((int) $poCheck->fetchColumn() > 0) {
-            $error = 'Purchase number already exists.';
-        }
-    }
-
     if ($error === '' && $validItems === []) {
         $error = 'Add at least one product with a quantity.';
     }
 
-    if ($error === '') {
-        $estimatedCost = 0.00;
-        foreach ($validItems as $line) {
-            $estimatedCost += $line['quantity'] * $line['supplier_price'];
-        }
+    if ($error === '' && supplier_order_has_receiving_history($pdo, $orderId)) {
+        // Re-checked at save time too, not just on page load - in case receiving happened
+        // in another tab/session between opening this form and submitting it.
+        $error = 'This order has already received inventory and can no longer be edited.';
+    }
 
+    if ($error === '') {
         $pdo->beginTransaction();
 
         try {
-            $orderStmt = $pdo->prepare("
-                INSERT INTO supplier_orders (supplier_id, purchase_number, status, estimated_cost, order_date, notes)
-                VALUES (?, ?, 'draft', ?, CURDATE(), ?)
-            ");
-            $orderStmt->execute([$supplierId, $form['purchase_number'], round($estimatedCost, 2), $form['notes'] !== '' ? $form['notes'] : null]);
-            $orderId = (int) $pdo->lastInsertId();
+            // Reverse every existing line's incoming contribution, then delete the lines -
+            // safe because we've just confirmed nothing has ever been received against this
+            // order (supplier_order_has_receiving_history() above).
+            foreach ($existingDbItems as $oldItem) {
+                supplier_order_reverse_incoming(
+                    $pdo,
+                    (int) $oldItem['product_id'],
+                    $oldItem['variation_id'] !== null ? (int) $oldItem['variation_id'] : null,
+                    (int) $oldItem['id'],
+                    (int) $oldItem['total_quantity']
+                );
+            }
+            $pdo->prepare('DELETE FROM supplier_order_items WHERE supplier_order_id = ?')->execute([$orderId]);
+
+            $estimatedCost = 0.00;
+            foreach ($validItems as $line) {
+                $estimatedCost += $line['quantity'] * $line['supplier_price'];
+            }
+
+            $pdo->prepare('UPDATE supplier_orders SET supplier_id = ?, estimated_cost = ?, notes = ? WHERE id = ?')
+                ->execute([$supplierId, round($estimatedCost, 2), $form['notes'] !== '' ? $form['notes'] : null, $orderId]);
 
             $itemStmt = $pdo->prepare('
                 INSERT INTO supplier_order_items (supplier_order_id, product_id, variation_id, total_quantity, supplier_price, subtotal)
@@ -134,10 +191,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $pdo->commit();
 
-            app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&created=1');
+            app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1');
+        } catch (RuntimeException $exception) {
+            $pdo->rollBack();
+            $error = $exception->getMessage();
         } catch (Exception $exception) {
             $pdo->rollBack();
-            $error = 'Failed to create supplier order.';
+            $error = 'Failed to update supplier order.';
         }
     }
 }
@@ -153,10 +213,10 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1">New Supplier Order</h2>
-        <p class="text-muted mb-0">Create a purchase order and mark the ordered stock as incoming.</p>
+        <h2 class="mb-1">Edit Supplier Order <?php echo app_escape($order['purchase_number']); ?></h2>
+        <p class="text-muted mb-0">Only Draft orders can be edited - once submitted, use Cancel/replace instead.</p>
     </div>
-    <a class="btn btn-outline-secondary btn-sm" href="/modules/supplier-orders/index.php">Back to Supplier Orders</a>
+    <a class="btn btn-outline-secondary btn-sm" href="/modules/supplier-orders/view.php?id=<?php echo (int) $orderId; ?>">Back to Order</a>
 </div>
 
 <?php if ($error !== ''): ?>
@@ -182,7 +242,7 @@ require_once __DIR__ . '/../../includes/header.php';
 
             <div class="col-md-6">
                 <label class="form-label">Purchase Number</label>
-                <input type="text" class="form-control" name="purchase_number" value="<?php echo app_escape($form['purchase_number']); ?>" maxlength="100" required>
+                <input type="text" class="form-control" value="<?php echo app_escape($form['purchase_number']); ?>" readonly disabled>
             </div>
 
             <div class="col-12">
@@ -218,7 +278,7 @@ require_once __DIR__ . '/../../includes/header.php';
             </table>
         </div>
 
-        <button class="btn btn-primary mt-3" type="submit">Create Supplier Order</button>
+        <button class="btn btn-primary mt-3" type="submit">Save Changes</button>
     </form>
 </div>
 

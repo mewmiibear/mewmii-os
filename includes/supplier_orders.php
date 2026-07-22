@@ -4,6 +4,89 @@ require_once __DIR__ . '/inventory.php';
 require_once __DIR__ . '/customer_storage.php';
 require_once __DIR__ . '/product_variations.php';
 
+// --- Workflow: Draft -> Ordered -> Arrived -> Completed --------------------------------
+// "Arrived" is a display label for the existing status = 'received' value (set
+// automatically by supplier_order_receive_item() once every line is fully received) -
+// there is no separate database value for it, so this never duplicates that logic.
+
+const SUPPLIER_ORDER_WORKFLOW = ['draft', 'ordered', 'received', 'completed'];
+
+function supplier_order_status_label(string $status): string
+{
+    $labels = [
+        'draft' => 'Draft',
+        'ordered' => 'Ordered',
+        'received' => 'Arrived',
+        'completed' => 'Completed',
+        'waiting_payment' => 'Waiting Payment',
+        'shipping' => 'Shipping',
+    ];
+
+    return $labels[$status] ?? ucfirst($status);
+}
+
+function supplier_order_status_badge(string $status): string
+{
+    $colors = [
+        'draft' => 'secondary',
+        'ordered' => 'info text-dark',
+        'received' => 'warning text-dark',
+        'completed' => 'success',
+        'waiting_payment' => 'secondary',
+        'shipping' => 'info text-dark',
+    ];
+    $color = $colors[$status] ?? 'secondary';
+
+    return '<span class="badge bg-' . $color . '">' . htmlspecialchars(supplier_order_status_label($status), ENT_QUOTES, 'UTF-8') . '</span>';
+}
+
+/**
+ * Next step in the linear Draft->Ordered->Arrived->Completed workflow, or null if there
+ * is none (already Completed, or an older waiting_payment/shipping status that predates
+ * this simplified workflow and isn't part of it - those are left as-is, displayed with no
+ * action button, rather than guessed into the new flow).
+ */
+function supplier_order_status_next(string $status): ?string
+{
+    $index = array_search($status, SUPPLIER_ORDER_WORKFLOW, true);
+    if ($index === false || !isset(SUPPLIER_ORDER_WORKFLOW[$index + 1])) {
+        return null;
+    }
+
+    return SUPPLIER_ORDER_WORKFLOW[$index + 1];
+}
+
+function supplier_order_status_next_action_label(string $status): ?string
+{
+    $labels = [
+        'draft' => 'Submit Order',
+        'ordered' => 'Mark Arrived',
+        'received' => 'Complete Order',
+    ];
+
+    return $labels[$status] ?? null;
+}
+
+/**
+ * Whether any inventory has ever actually been received against this order - the one
+ * fact that gates both editing (11.7: "remain available until inventory has been
+ * received") and deletion (11.8: blocked once receiving history exists). Derived from the
+ * ledger itself (inventory_transactions), never a status flag, so it can't drift out of
+ * sync with what actually happened.
+ */
+function supplier_order_has_receiving_history(PDO $pdo, int $orderId): bool
+{
+    $stmt = $pdo->prepare("
+        SELECT COUNT(*)
+        FROM inventory_transactions it
+        INNER JOIN supplier_order_items soi ON soi.id = it.reference_id AND it.reference_type = 'supplier_order_item'
+        WHERE soi.supplier_order_id = ? AND it.transaction_type = 'supplier_receive'
+    ");
+    $stmt->execute([$orderId]);
+
+    return (int) $stmt->fetchColumn() > 0;
+}
+
 /**
  * Units received so far for one supplier order line item, derived from the
  * inventory_transactions ledger rather than a dedicated column (schema has none),
@@ -150,4 +233,169 @@ function supplier_order_receive_item(PDO $pdo, int $itemId, int $quantity): void
                 ->execute([$orderId]);
         }
     }
+}
+
+/**
+ * Receives every remaining unit on every line of an order in one action ("Mark Arrived") -
+ * the default, fast path for a shipment that arrived complete, instead of entering each
+ * line's quantity by hand. Reuses supplier_order_receive_item() per line unchanged, so it
+ * carries the exact same ready_stock/preorder handling and auto-completion check; lines
+ * that are already fully received are simply skipped. "Partial Receive" (entering a
+ * smaller quantity for one line) remains available separately via
+ * supplier_order_receive_item() directly - this is purely a bulk convenience wrapper.
+ */
+function supplier_order_receive_all_remaining(PDO $pdo, int $orderId): void
+{
+    $itemsStmt = $pdo->prepare('SELECT id, total_quantity FROM supplier_order_items WHERE supplier_order_id = ?');
+    $itemsStmt->execute([$orderId]);
+
+    foreach ($itemsStmt->fetchAll(PDO::FETCH_ASSOC) as $item) {
+        $itemId = (int) $item['id'];
+        $remaining = (int) $item['total_quantity'] - supplier_order_item_received_quantity($pdo, $itemId);
+        if ($remaining > 0) {
+            supplier_order_receive_item($pdo, $itemId, $remaining);
+        }
+    }
+}
+
+/**
+ * Reverses one line item's still-outstanding incoming contribution (the flip side of
+ * supplier_order_mark_incoming()) - used only when editing or deleting an order that has
+ * never actually received anything (see supplier_order_has_receiving_history()), so this
+ * only ever touches incoming_quantity, never available/reserved/arrived. Logged as its own
+ * transaction type so it's never confused with a real receiving event in the ledger.
+ */
+function supplier_order_reverse_incoming(PDO $pdo, int $productId, ?int $variationId, int $itemId, int $quantity): void
+{
+    if ($quantity < 1) {
+        return;
+    }
+
+    $pdo->prepare('
+        UPDATE mewmii_inventory
+        SET incoming_quantity = GREATEST(incoming_quantity - ?, 0)
+        WHERE product_id = ? AND variation_id <=> ?
+    ')->execute([$quantity, $productId, $variationId]);
+
+    inventory_log_transaction($pdo, $productId, 'supplier_order_cancelled', -$quantity, 'supplier_order_item', $itemId, $variationId);
+}
+
+/**
+ * Deletes a supplier order entirely, but only if nothing has ever actually been received
+ * against it (see supplier_order_has_receiving_history()) - otherwise throws with the
+ * admin-facing message so the caller can show it instead of a raw SQL/FK error. Every
+ * line's still-outstanding incoming contribution is reversed first (see
+ * supplier_order_reverse_incoming()) so no phantom "incoming" stock is left behind;
+ * deleting the order row then cascades to its line items.
+ */
+function supplier_order_delete_if_unreceived(PDO $pdo, int $orderId): void
+{
+    if (supplier_order_has_receiving_history($pdo, $orderId)) {
+        throw new RuntimeException('This supplier order has receiving history and cannot be deleted.');
+    }
+
+    $itemsStmt = $pdo->prepare('SELECT id, product_id, variation_id, total_quantity FROM supplier_order_items WHERE supplier_order_id = ?');
+    $itemsStmt->execute([$orderId]);
+
+    foreach ($itemsStmt->fetchAll(PDO::FETCH_ASSOC) as $item) {
+        supplier_order_reverse_incoming(
+            $pdo,
+            (int) $item['product_id'],
+            $item['variation_id'] !== null ? (int) $item['variation_id'] : null,
+            (int) $item['id'],
+            (int) $item['total_quantity']
+        );
+    }
+
+    $pdo->prepare('DELETE FROM supplier_orders WHERE id = ?')->execute([$orderId]);
+}
+
+/**
+ * Every product for the "+ Add Product" picker (11.2), grouped exactly like
+ * modules/inventory/index.php groups its listing: a simple product is one selectable
+ * unit, a variable product is a container whose active (non-archived) variations are
+ * each their own selectable unit - a variable product's parent is never itself orderable
+ * from a supplier, same rule as catalog_sellable_units(). Includes supplier/category so
+ * the picker's filters don't need a separate query. Capped at 500 products, consistent
+ * with this app's other admin-scale listings.
+ */
+function supplier_order_picker_products(PDO $pdo): array
+{
+    $productsStmt = $pdo->query("
+        SELECT p.id, p.sku, p.name, p.catalog_type, p.product_type,
+               p.supplier_id, s.name AS supplier_name,
+               (SELECT cat.id FROM product_category_relationships pcr
+                   INNER JOIN categories cat ON cat.id = pcr.category_id
+                   WHERE pcr.product_id = p.id ORDER BY pcr.category_id ASC LIMIT 1) AS category_id,
+               (SELECT cat.name FROM product_category_relationships pcr
+                   INNER JOIN categories cat ON cat.id = pcr.category_id
+                   WHERE pcr.product_id = p.id ORDER BY pcr.category_id ASC LIMIT 1) AS category_name
+        FROM products p
+        LEFT JOIN suppliers s ON s.id = p.supplier_id
+        WHERE p.status <> 'archived'
+        ORDER BY p.name ASC
+        LIMIT 500
+    ");
+    $products = $productsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $variableIds = [];
+    foreach ($products as $product) {
+        if ($product['catalog_type'] === 'variable') {
+            $variableIds[] = (int) $product['id'];
+        }
+    }
+
+    $variationsByProduct = [];
+    if ($variableIds !== []) {
+        $placeholders = implode(',', array_fill(0, count($variableIds), '?'));
+        $stmt = $pdo->prepare("
+            SELECT id, product_id, sku
+            FROM product_variations
+            WHERE product_id IN ({$placeholders}) AND status <> 'archived'
+            ORDER BY id ASC
+        ");
+        $stmt->execute($variableIds);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $variationsByProduct[(int) $row['product_id']][] = $row;
+        }
+    }
+
+    $result = [];
+    foreach ($products as $product) {
+        $productId = (int) $product['id'];
+        $isVariable = $product['catalog_type'] === 'variable';
+
+        $units = [];
+        if ($isVariable) {
+            foreach ($variationsByProduct[$productId] ?? [] as $variation) {
+                $variationId = (int) $variation['id'];
+                $units[] = [
+                    'key' => $productId . ':' . $variationId,
+                    'sku' => $variation['sku'],
+                    'label' => variation_build_label($pdo, $variationId),
+                ];
+            }
+        } else {
+            $units[] = ['key' => $productId . ':0', 'sku' => $product['sku'], 'label' => null];
+        }
+
+        if ($units === []) {
+            continue;
+        }
+
+        $result[] = [
+            'product_id' => $productId,
+            'name' => $product['name'],
+            'sku' => $product['sku'],
+            'catalog_type' => $product['catalog_type'],
+            'product_type' => $product['product_type'],
+            'supplier_id' => $product['supplier_id'] !== null ? (int) $product['supplier_id'] : null,
+            'supplier_name' => $product['supplier_name'],
+            'category_id' => $product['category_id'] !== null ? (int) $product['category_id'] : null,
+            'category_name' => $product['category_name'],
+            'units' => $units,
+        ];
+    }
+
+    return $result;
 }

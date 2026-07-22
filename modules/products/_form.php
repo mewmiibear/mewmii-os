@@ -483,4 +483,8 @@
         'getVariationImages' => '/modules/products/ajax/get_variation_images.php',
     ],
 ]); ?></script>
-<script src="/assets/js/product-form.js"></script>
+<?php
+$productFormJsPath = __DIR__ . '/../../assets/js/product-form.js';
+$productFormJsVersion = is_file($productFormJsPath) ? filemtime($productFormJsPath) : time();
+?>
+<script src="/assets/js/product-form.js?v=<?php echo (int) $productFormJsVersion; ?>"></script>

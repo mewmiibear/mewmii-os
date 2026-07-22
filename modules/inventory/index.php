@@ -409,7 +409,7 @@ require_once __DIR__ . '/../../includes/header.php';
 
 <div class="card p-4">
     <div class="table-responsive">
-    <table class="table table-hover align-middle responsive-stack-table">
+    <table class="table table-hover align-middle responsive-stack-table" id="inventory-table">
         <thead>
             <tr>
                 <th></th>
@@ -486,9 +486,16 @@ require_once __DIR__ . '/../../includes/header.php';
                 </tr>
                 <?php if ($isVariable): ?>
                     <?php foreach ($product['variations'] as $variation): ?>
-                        <?php $unitKey = (int) $product['id'] . ':' . (int) $variation['variation_id']; ?>
+                        <?php
+                        $unitKey = (int) $product['id'] . ':' . (int) $variation['variation_id'];
+                        $variationThumb = variation_effective_image($pdo, (int) $product['id'], (int) $variation['variation_id']);
+                        ?>
                         <tr class="inventory-variation-row<?php echo $autoExpand ? '' : ' d-none'; ?>" data-group="<?php echo app_escape($groupKey); ?>">
-                            <td data-label=""></td>
+                            <td data-label="">
+                                <?php if ($variationThumb !== null): ?>
+                                    <img src="/<?php echo app_escape($variationThumb); ?>" alt="" style="width:32px;height:32px;object-fit:cover;border-radius:6px;">
+                                <?php endif; ?>
+                            </td>
                             <td data-label="Product"></td>
                             <td data-label="Variation" style="padding-left: 2rem;">
                                 &#8627; <?php echo $variation['variation_label'] !== '' ? app_escape($variation['variation_label']) : '<span class="text-muted">&mdash;</span>'; ?>
@@ -631,5 +638,9 @@ require_once __DIR__ . '/../../includes/header.php';
     </div>
 </div>
 
-<script src="/assets/js/inventory.js"></script>
+<?php
+$inventoryJsPath = __DIR__ . '/../../assets/js/inventory.js';
+$inventoryJsVersion = is_file($inventoryJsPath) ? filemtime($inventoryJsPath) : time();
+?>
+<script src="/assets/js/inventory.js?v=<?php echo (int) $inventoryJsVersion; ?>"></script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
