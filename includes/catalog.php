@@ -109,22 +109,6 @@ function catalog_lifecycle_badge(array $product): string
         . $style['emoji'] . ' ' . $style['label'] . '</span>';
 }
 
-/**
- * A variation's effective Minimum Order Quantity for the Supplier Order product picker
- * (see supplier_order_picker_products()): the variation's own moq if it has one set,
- * otherwise the parent product's moq, otherwise null (no MOQ at all - not expected in
- * practice today since products.moq is NOT NULL DEFAULT 1, but product_variations.moq is
- * nullable by design so most variations simply inherit the parent's value).
- */
-function catalog_variation_effective_moq(?int $variationMoq, ?int $parentMoq): ?int
-{
-    if ($variationMoq !== null) {
-        return $variationMoq;
-    }
-
-    return $parentMoq;
-}
-
 function catalog_slugify(string $value): string
 {
     $slug = strtolower(trim($value));

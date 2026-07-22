@@ -475,7 +475,7 @@ function catalog_sellable_units(PDO $pdo): array
         SELECT p.id AS product_id, p.name AS product_name, p.selling_price AS parent_price, p.moq AS parent_moq,
                p.product_type, p.status, p.preorder_closing_date, p.preorder_reopened_at, p.availability_override,
                p.sale_enabled, p.sale_price, p.sale_start_date,
-               pv.id AS variation_id, pv.sku, pv.price_mode, pv.custom_price, pv.cost_price, pv.moq AS variation_moq
+               pv.id AS variation_id, pv.sku, pv.price_mode, pv.custom_price, pv.cost_price
         FROM products p
         INNER JOIN product_variations pv ON pv.product_id = p.id
         WHERE p.catalog_type = 'variable' AND pv.status <> 'archived'
@@ -496,10 +496,6 @@ function catalog_sellable_units(PDO $pdo): array
             'preorder_closing_date' => $row['preorder_closing_date'],
         ]);
         $price = variation_effective_price($row, $effectiveParentPrice);
-        // Variation's own MOQ if set, otherwise the parent's - see
-        // catalog_variation_effective_moq() (same rule, applied inline here to avoid a
-        // cross-file dependency on includes/catalog.php from this file).
-        $moq = $row['variation_moq'] !== null ? (int) $row['variation_moq'] : ($row['parent_moq'] !== null ? (int) $row['parent_moq'] : null);
 
         $units[] = [
             'key' => $row['product_id'] . ':' . $variationId,
@@ -509,7 +505,9 @@ function catalog_sellable_units(PDO $pdo): array
             'label' => $row['product_name'] . ($label !== '' ? (' - ' . $label) : ''),
             'selling_price' => $price,
             'cost_price' => (float) $row['cost_price'],
-            'moq' => $moq,
+            // MOQ belongs only to the parent product - variations always inherit it, there
+            // is no separate variation-level MOQ (see supplier_order_picker_products()).
+            'moq' => $row['parent_moq'] !== null ? (int) $row['parent_moq'] : null,
             'product_type' => $row['product_type'],
             'status' => $row['status'],
             'availability_override' => $row['availability_override'],

@@ -337,13 +337,6 @@ if (!migrate_column_exists($pdo, 'supplier_orders', 'notes')) {
     migrate_run($pdo, 'supplier_orders.notes', 'ALTER TABLE supplier_orders ADD COLUMN notes TEXT NULL AFTER received_date', $applied);
 }
 
-// product_variations.moq: optional per-variation Minimum Order Quantity override, nullable
-// so most variations (no override set) fall back to the parent product's own moq column -
-// see supplier_order_picker_products()'s 3-tier priority (variation -> parent -> empty).
-if (!migrate_column_exists($pdo, 'product_variations', 'moq')) {
-    migrate_run($pdo, 'product_variations.moq', 'ALTER TABLE product_variations ADD COLUMN moq INT UNSIGNED NULL AFTER cost_price', $applied);
-}
-
 // supplier_order_events: audit trail for supplier order edits (who/when/what changed) -
 // mirrors mewmii_order_events exactly, just scoped to supplier_orders instead of
 // mewmii_orders.

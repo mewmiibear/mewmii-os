@@ -290,7 +290,6 @@ CREATE TABLE IF NOT EXISTS product_variations (
   price_mode VARCHAR(20) NOT NULL DEFAULT 'inherit',
   custom_price DECIMAL(12,2) NULL,
   cost_price DECIMAL(12,2) NOT NULL DEFAULT 0.00,
-  moq INT UNSIGNED NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'draft',
   is_system_generated TINYINT(1) NOT NULL DEFAULT 1,
   archived_at TIMESTAMP NULL,

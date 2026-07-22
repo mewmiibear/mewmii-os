@@ -40,7 +40,7 @@ $showSentWarning = !$isCompleted && $order['status'] !== 'draft';
 
 $itemsStmt = $pdo->prepare('
     SELECT soi.id, soi.product_id, soi.variation_id, soi.total_quantity, soi.supplier_price,
-           COALESCE(pv.sku, p.sku) AS sku, p.name AS product_name, p.moq AS parent_moq, pv.moq AS variation_moq
+           COALESCE(pv.sku, p.sku) AS sku, p.name AS product_name, p.moq AS parent_moq
     FROM supplier_order_items soi
     INNER JOIN products p ON p.id = soi.product_id
     LEFT JOIN product_variations pv ON pv.id = soi.variation_id
@@ -52,16 +52,13 @@ $existingDbItems = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $existingItems = array_map(static function (array $item) use ($pdo): array {
     $variationLabel = $item['variation_id'] !== null ? variation_build_label($pdo, (int) $item['variation_id']) : '';
-    $moq = catalog_variation_effective_moq(
-        $item['variation_moq'] !== null ? (int) $item['variation_moq'] : null,
-        $item['parent_moq'] !== null ? (int) $item['parent_moq'] : null
-    );
 
     return [
         'unit_key' => $item['product_id'] . ':' . (int) ($item['variation_id'] ?? 0),
         'label' => $item['product_name'] . ($variationLabel !== '' ? (' - ' . $variationLabel) : ''),
         'sku' => $item['sku'],
-        'moq' => $moq,
+        // MOQ belongs only to the parent product - variations always inherit it.
+        'moq' => $item['parent_moq'] !== null ? (int) $item['parent_moq'] : null,
         'quantity' => (string) (int) $item['total_quantity'],
         'supplier_price' => (string) $item['supplier_price'],
         'received_quantity' => supplier_order_item_received_quantity($pdo, (int) $item['id']),
