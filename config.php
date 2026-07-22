@@ -12,7 +12,7 @@ return [
         'host' => '127.0.0.1',
         'database' => 'u924285025_mewmii_os',
         'username' => 'u924285025_mewmii_admin',
-        'password' => 'MewmiiTassama27!',
+        'password' => 'Tassama27!',
         'charset' => 'utf8mb4',
     ],
 
