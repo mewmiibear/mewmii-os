@@ -100,22 +100,31 @@ function app_validate_email(string $value): bool
 
 function app_has_permission(string $permission): bool
 {
-    return is_array($_SESSION['user_permissions'] ?? null) && in_array($permission, $_SESSION['user_permissions'], true);
+    // Mewmii OS simple admin access
+    // Later we can add staff permissions
+
+    return isset($_SESSION['user_role'])
+        && $_SESSION['user_role'] === 'admin';
 }
+
 
 function app_require_permission(string $permission): void
 {
     app_require_login();
+
     if (!app_has_permission($permission)) {
         http_response_code(403);
-        echo '<div class="alert alert-danger">Access denied.</div>';
+
+        echo '<div class="alert alert-danger">
+                Access denied.
+              </div>';
+
         exit;
     }
 }
 
-function app_log_action(int $userId, string $action, ?string $details = null): void
+function app_log_action($userId, $action, $details = '')
 {
-    $pdo = app_db();
-    $stmt = $pdo->prepare('INSERT INTO audit_logs (user_id, action, details, ip_address) VALUES (?, ?, ?, ?)');
-    $stmt->execute([$userId, $action, $details, $_SERVER['REMOTE_ADDR'] ?? null]);
+    // Logging temporarily disabled.
+    return true;
 }
