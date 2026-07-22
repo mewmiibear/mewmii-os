@@ -193,14 +193,19 @@ CREATE TABLE IF NOT EXISTS products (
   product_type VARCHAR(50) NOT NULL DEFAULT 'ready_stock',
   catalog_type VARCHAR(20) NOT NULL DEFAULT 'simple',
   brand_id INT UNSIGNED NULL,
+  barcode VARCHAR(64) NULL,
   selling_price DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   product_cost DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  sale_enabled TINYINT(1) NOT NULL DEFAULT 0,
+  sale_price DECIMAL(12,2) NULL,
+  min_stock_threshold INT UNSIGNED NULL,
   supplier_id INT UNSIGNED NULL,
   moq INT UNSIGNED NOT NULL DEFAULT 1,
   sale_start_date DATE NULL,
   sale_end_date DATE NULL,
   official_release_date DATE NULL,
   estimated_arrival_date DATE NULL,
+  preorder_closing_date DATE NULL,
   expiry_date DATE NULL,
   status VARCHAR(50) NOT NULL DEFAULT 'coming_soon',
   published_to_woocommerce TINYINT(1) NOT NULL DEFAULT 0,
@@ -476,6 +481,7 @@ CREATE TABLE IF NOT EXISTS mewmii_orders (
   customer_id INT UNSIGNED NULL,
   payment_status VARCHAR(50) NOT NULL DEFAULT 'pending',
   payment_method VARCHAR(50) NULL,
+  receipt_url VARCHAR(500) NULL,
   order_status VARCHAR(50) NOT NULL DEFAULT 'pending',
   shipping_status VARCHAR(50) NOT NULL DEFAULT 'pending',
   subtotal DECIMAL(12,2) NOT NULL DEFAULT 0.00,
@@ -485,7 +491,8 @@ CREATE TABLE IF NOT EXISTS mewmii_orders (
   order_date DATE NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT fk_mewmii_orders_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL
+  CONSTRAINT fk_mewmii_orders_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL,
+  INDEX idx_mewmii_orders_payment_status (payment_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS mewmii_order_items (
@@ -584,6 +591,7 @@ CREATE TABLE IF NOT EXISTS customer_storage (
   customer_id INT UNSIGNED NOT NULL,
   product_id INT UNSIGNED NOT NULL,
   variation_id INT UNSIGNED NULL,
+  order_item_id INT UNSIGNED NULL,
   quantity INT UNSIGNED NOT NULL DEFAULT 1,
   status VARCHAR(20) NOT NULL DEFAULT 'stored',
   arrival_date DATE NULL,
@@ -591,6 +599,7 @@ CREATE TABLE IF NOT EXISTS customer_storage (
   CONSTRAINT fk_customer_storage_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
   CONSTRAINT fk_customer_storage_product FOREIGN KEY (product_id) REFERENCES products(id),
   CONSTRAINT fk_customer_storage_variation FOREIGN KEY (variation_id) REFERENCES product_variations(id),
+  CONSTRAINT fk_customer_storage_order_item FOREIGN KEY (order_item_id) REFERENCES mewmii_order_items(id) ON DELETE SET NULL,
   INDEX idx_customer_storage_customer (customer_id),
   INDEX idx_customer_storage_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

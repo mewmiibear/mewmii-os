@@ -54,6 +54,43 @@ if (!$order) {
     exit;
 }
 
+/**
+ * Shared by the generic per-field status dropdown AND the Approve/Reject Payment
+ * buttons, so both paths trigger the exact same inventory reserve/ship/release
+ * conditions - no duplicated business logic between the two entry points.
+ */
+function apply_order_status_change(PDO $pdo, int $orderId, array $order, string $statusField, string $newStatus, string $notes, array $statusFieldsConfig): void
+{
+    $oldStatus = (string) $order[$statusField];
+
+    $updateStmt = $pdo->prepare("UPDATE mewmii_orders SET {$statusField} = ? WHERE id = ?");
+    $updateStmt->execute([$newStatus, $orderId]);
+
+    $description = sprintf(
+        "%s changed from '%s' to '%s'.",
+        $statusFieldsConfig[$statusField]['label'],
+        $oldStatus,
+        $newStatus
+    );
+    if ($notes !== '') {
+        $description .= ' Notes: ' . $notes;
+    }
+
+    $eventStmt = $pdo->prepare('
+        INSERT INTO mewmii_order_events (order_id, event_type, description, created_by)
+        VALUES (?, ?, ?, ?)
+    ');
+    $eventStmt->execute([$orderId, $statusField . '_change', $description, $_SESSION['user_id'] ?? null]);
+
+    if ($statusField === 'order_status' && $oldStatus === 'pending' && $newStatus === 'processing') {
+        inventory_reserve_for_order($pdo, $orderId);
+    } elseif ($statusField === 'shipping_status' && $newStatus === 'shipped' && in_array($oldStatus, ['pending', 'packed'], true)) {
+        inventory_ship_for_order($pdo, $orderId);
+    } elseif ($statusField === 'order_status' && $newStatus === 'cancelled') {
+        inventory_release_for_order($pdo, $orderId);
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         app_require_csrf();
@@ -66,7 +103,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'You do not have permission to change order status.';
     }
 
-    if ($error === '') {
+    if ($error === '' && !empty($_POST['approve_payment'])) {
+        if ($order['payment_status'] !== 'pending') {
+            $error = 'This order is not awaiting payment approval.';
+        } else {
+            $pdo->beginTransaction();
+
+            try {
+                apply_order_status_change($pdo, $orderId, $order, 'payment_status', 'paid', 'Approved via receipt review.', $statusFields);
+
+                $refreshed = $order;
+                $refreshed['payment_status'] = 'paid';
+                if ($refreshed['order_status'] === 'pending') {
+                    apply_order_status_change($pdo, $orderId, $refreshed, 'order_status', 'processing', 'Auto-advanced after payment approval.', $statusFields);
+                }
+
+                $pdo->commit();
+
+                app_redirect('/modules/orders/view.php?id=' . $orderId . '&updated=1');
+            } catch (RuntimeException $exception) {
+                $pdo->rollBack();
+                $error = $exception->getMessage();
+            } catch (Exception $exception) {
+                $pdo->rollBack();
+                $error = 'Failed to approve payment.';
+            }
+        }
+    } elseif ($error === '' && !empty($_POST['reject_payment'])) {
+        if ($order['payment_status'] !== 'pending') {
+            $error = 'This order is not awaiting payment approval.';
+        } else {
+            $pdo->beginTransaction();
+
+            try {
+                $pdo->prepare("UPDATE mewmii_orders SET payment_status = 'pending', receipt_url = NULL WHERE id = ?")
+                    ->execute([$orderId]);
+
+                $eventStmt = $pdo->prepare('
+                    INSERT INTO mewmii_order_events (order_id, event_type, description, created_by)
+                    VALUES (?, ?, ?, ?)
+                ');
+                $eventStmt->execute([$orderId, 'payment_status_change', 'Payment receipt rejected - awaiting a new receipt.', $_SESSION['user_id'] ?? null]);
+
+                $pdo->commit();
+
+                app_redirect('/modules/orders/view.php?id=' . $orderId . '&updated=1');
+            } catch (Exception $exception) {
+                $pdo->rollBack();
+                $error = 'Failed to reject payment.';
+            }
+        }
+    } elseif ($error === '') {
         $statusField = (string) ($_POST['status_field'] ?? '');
         $newStatus = trim((string) ($_POST['new_status'] ?? ''));
         $notes = trim((string) ($_POST['notes'] ?? ''));
@@ -86,38 +173,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->beginTransaction();
 
                 try {
-                    $updateStmt = $pdo->prepare("UPDATE mewmii_orders SET {$statusField} = ? WHERE id = ?");
-                    $updateStmt->execute([$newStatus, $orderId]);
-
-                    $description = sprintf(
-                        "%s changed from '%s' to '%s'.",
-                        $statusFields[$statusField]['label'],
-                        $oldStatus,
-                        $newStatus
-                    );
-
-                    if ($notes !== '') {
-                        $description .= ' Notes: ' . $notes;
-                    }
-
-                    $eventStmt = $pdo->prepare('
-                        INSERT INTO mewmii_order_events (order_id, event_type, description, created_by)
-                        VALUES (?, ?, ?, ?)
-                    ');
-                    $eventStmt->execute([
-                        $orderId,
-                        $statusField . '_change',
-                        $description,
-                        $_SESSION['user_id'] ?? null,
-                    ]);
-
-                    if ($statusField === 'order_status' && $oldStatus === 'pending' && $newStatus === 'processing') {
-                        inventory_reserve_for_order($pdo, $orderId);
-                    } elseif ($statusField === 'shipping_status' && $newStatus === 'shipped' && in_array($oldStatus, ['pending', 'packed'], true)) {
-                        inventory_ship_for_order($pdo, $orderId);
-                    } elseif ($statusField === 'order_status' && $newStatus === 'cancelled') {
-                        inventory_release_for_order($pdo, $orderId);
-                    }
+                    apply_order_status_change($pdo, $orderId, $order, $statusField, $newStatus, $notes, $statusFields);
 
                     $pdo->commit();
 
@@ -203,10 +259,10 @@ require_once __DIR__ . '/../../includes/header.php';
                 <tr><th>Payment Status</th><td><?php echo app_escape($order['payment_status']); ?></td></tr>
                 <tr><th>Order Status</th><td><?php echo app_escape($order['order_status']); ?></td></tr>
                 <tr><th>Shipping Status</th><td><?php echo app_escape($order['shipping_status']); ?></td></tr>
-                <tr><th>Subtotal</th><td><?php echo app_escape((string) $order['subtotal']); ?></td></tr>
-                <tr><th>Discount</th><td><?php echo app_escape((string) $order['discount']); ?></td></tr>
-                <tr><th>Shipping Fee</th><td><?php echo app_escape((string) $order['shipping_fee']); ?></td></tr>
-                <tr><th>Total</th><td><?php echo app_escape((string) $order['total_amount']); ?></td></tr>
+                <tr><th>Subtotal</th><td>RM <?php echo app_escape(number_format((float) $order['subtotal'], 2)); ?></td></tr>
+                <tr><th>Discount</th><td>RM <?php echo app_escape(number_format((float) $order['discount'], 2)); ?></td></tr>
+                <tr><th>Shipping Fee</th><td>RM <?php echo app_escape(number_format((float) $order['shipping_fee'], 2)); ?></td></tr>
+                <tr><th>Total</th><td>RM <?php echo app_escape(number_format((float) $order['total_amount'], 2)); ?></td></tr>
                 <tr><th>Order Date</th><td><?php echo app_escape($order['order_date'] ?? '-'); ?></td></tr>
             </table>
         </div>
@@ -233,7 +289,7 @@ require_once __DIR__ . '/../../includes/header.php';
                                 <?php endif; ?>
                             </td>
                             <td><?php echo app_escape((string) $item['quantity']); ?></td>
-                            <td><?php echo app_escape((string) $item['selling_price']); ?></td>
+                            <td>RM <?php echo app_escape(number_format((float) $item['selling_price'], 2)); ?></td>
                         </tr>
                     <?php endforeach; ?>
                     <?php if ($items === []): ?>
@@ -245,6 +301,29 @@ require_once __DIR__ . '/../../includes/header.php';
     </div>
 
     <div class="col-lg-5">
+        <div class="card p-4 mb-4">
+            <h5 class="mb-3">Receipt</h5>
+            <?php if (!empty($order['receipt_url'])): ?>
+                <img src="<?php echo app_escape($order['receipt_url']); ?>" alt="Payment receipt" class="img-fluid rounded border mb-3" style="max-height: 320px;">
+            <?php else: ?>
+                <p class="text-muted mb-3">No receipt uploaded.</p>
+            <?php endif; ?>
+            <?php if ($canManage && $order['payment_status'] === 'pending'): ?>
+                <div class="d-flex gap-2">
+                    <form method="post" onsubmit="return confirm('Approve this payment? Order status will advance to Processing.');">
+                        <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                        <input type="hidden" name="approve_payment" value="1">
+                        <button type="submit" class="btn btn-success btn-sm">Approve Payment</button>
+                    </form>
+                    <form method="post" onsubmit="return confirm('Reject this payment receipt? The order will remain pending.');">
+                        <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                        <input type="hidden" name="reject_payment" value="1">
+                        <button type="submit" class="btn btn-outline-danger btn-sm">Reject Payment</button>
+                    </form>
+                </div>
+            <?php endif; ?>
+        </div>
+
         <?php if ($canManage): ?>
             <div class="card p-4 mb-4">
                 <h5 class="mb-3">Change Status</h5>

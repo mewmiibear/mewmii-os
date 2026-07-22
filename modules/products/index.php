@@ -48,6 +48,9 @@ $canManage = app_has_permission('products.manage');
 <?php if (isset($_GET['created'])): ?>
     <div class="alert alert-success">Product created.</div>
 <?php endif; ?>
+<?php if (isset($_GET['duplicate_error'])): ?>
+    <div class="alert alert-danger">Failed to duplicate product.</div>
+<?php endif; ?>
 
 <div class="card p-4">
     <table class="table table-hover align-middle">
@@ -71,13 +74,15 @@ $canManage = app_has_permission('products.manage');
                     <td><?php echo app_escape($product['product_type']); ?></td>
                     <td><span class="badge bg-<?php echo $isVariable ? 'info text-dark' : 'light text-dark'; ?>"><?php echo $isVariable ? 'Variable' : 'Simple'; ?></span></td>
                     <td><?php echo app_escape($product['status']); ?></td>
-                    <td><?php echo app_escape((string) $product['selling_price']); ?><?php if ($isVariable): ?> <span class="text-muted small">(default)</span><?php endif; ?></td>
+                    <td>RM <?php echo app_escape(number_format((float) $product['selling_price'], 2)); ?><?php if ($isVariable): ?> <span class="text-muted small">(default)</span><?php endif; ?></td>
                     <?php if ($canManage): ?>
                         <td class="text-end">
-                            <?php if ($isVariable): ?>
-                                <a class="btn btn-sm btn-outline-secondary" href="/modules/products/variations.php?product_id=<?php echo (int) $product['id']; ?>">Variations</a>
-                            <?php endif; ?>
                             <a class="btn btn-sm btn-outline-primary" href="/modules/products/edit.php?id=<?php echo (int) $product['id']; ?>">Edit</a>
+                            <form method="post" action="/modules/products/duplicate.php" class="d-inline">
+                                <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                                <input type="hidden" name="product_id" value="<?php echo (int) $product['id']; ?>">
+                                <button type="submit" class="btn btn-sm btn-outline-secondary">Duplicate</button>
+                            </form>
                         </td>
                     <?php endif; ?>
                 </tr>

@@ -159,6 +159,37 @@ function image_upload_process(array $file, string $subDir): string
 }
 
 /**
+ * Physically copies an already-processed image file to a fresh generated filename under
+ * uploads/$subDir, returning the new relative path. Used whenever a second database row
+ * needs to reference "the same picture" (bulk-assigning one image to several variations,
+ * duplicating a product) - rows must never share one file path, since
+ * image_upload_delete() unconditionally removes the file when any single row referencing
+ * it is deleted, which would silently break every other row still pointing at it.
+ */
+function image_upload_duplicate(string $sourceRelativePath, string $subDir): string
+{
+    $sourceFullPath = dirname(__DIR__) . '/' . ltrim($sourceRelativePath, '/');
+    if (!is_file($sourceFullPath)) {
+        throw new RuntimeException('Source image file not found.');
+    }
+
+    $baseDir = image_upload_base_dir();
+    $subDir = trim($subDir, '/');
+    $targetDir = $baseDir . '/' . $subDir;
+    image_upload_ensure_dir($targetDir);
+
+    $extension = strtolower((string) pathinfo($sourceFullPath, PATHINFO_EXTENSION));
+    $filename = bin2hex(random_bytes(12)) . ($extension !== '' ? ('.' . $extension) : '');
+    $fullPath = $targetDir . '/' . $filename;
+
+    if (!copy($sourceFullPath, $fullPath)) {
+        throw new RuntimeException('Failed to duplicate the image file.');
+    }
+
+    return 'uploads/' . $subDir . '/' . $filename;
+}
+
+/**
  * Deletes a previously stored image file from disk, given its stored relative path.
  * Silently no-ops if the file is already gone - callers should still remove the
  * corresponding product_images row regardless of whether the file existed.

@@ -217,6 +217,50 @@ if (!migrate_index_exists($pdo, 'product_images', 'idx_product_images_lookup')) 
     migrate_run($pdo, 'product_images.idx_lookup', 'ALTER TABLE product_images ADD INDEX idx_product_images_lookup (product_id, variation_id, image_type)', $applied);
 }
 
+// products: single-page product form additions (barcode, sale scheduling, low-stock
+// threshold, preorder closing date). All nullable/defaulted - no existing row changes
+// behavior.
+
+if (!migrate_column_exists($pdo, 'products', 'barcode')) {
+    migrate_run($pdo, 'products.barcode', 'ALTER TABLE products ADD COLUMN barcode VARCHAR(64) NULL AFTER brand_id', $applied);
+}
+
+if (!migrate_column_exists($pdo, 'products', 'sale_enabled')) {
+    migrate_run($pdo, 'products.sale_enabled', "ALTER TABLE products ADD COLUMN sale_enabled TINYINT(1) NOT NULL DEFAULT 0 AFTER product_cost", $applied);
+}
+
+if (!migrate_column_exists($pdo, 'products', 'sale_price')) {
+    migrate_run($pdo, 'products.sale_price', 'ALTER TABLE products ADD COLUMN sale_price DECIMAL(12,2) NULL AFTER sale_enabled', $applied);
+}
+
+if (!migrate_column_exists($pdo, 'products', 'min_stock_threshold')) {
+    migrate_run($pdo, 'products.min_stock_threshold', 'ALTER TABLE products ADD COLUMN min_stock_threshold INT UNSIGNED NULL AFTER sale_price', $applied);
+}
+
+if (!migrate_column_exists($pdo, 'products', 'preorder_closing_date')) {
+    migrate_run($pdo, 'products.preorder_closing_date', 'ALTER TABLE products ADD COLUMN preorder_closing_date DATE NULL AFTER estimated_arrival_date', $applied);
+}
+
+// mewmii_orders: placeholder for a future WooCommerce receipt sync, plus an index so a
+// future "pending payments" dashboard widget doesn't need its own schema change later.
+
+if (!migrate_column_exists($pdo, 'mewmii_orders', 'receipt_url')) {
+    migrate_run($pdo, 'mewmii_orders.receipt_url', 'ALTER TABLE mewmii_orders ADD COLUMN receipt_url VARCHAR(500) NULL AFTER payment_method', $applied);
+}
+
+if (!migrate_index_exists($pdo, 'mewmii_orders', 'idx_mewmii_orders_payment_status')) {
+    migrate_run($pdo, 'mewmii_orders.idx_payment_status', 'ALTER TABLE mewmii_orders ADD INDEX idx_mewmii_orders_payment_status (payment_status)', $applied);
+}
+
+// customer_storage: traces which order a stored lot fulfilled, so preorder/early-bird
+// receiving can auto-allocate stock to outstanding orders without ever double-fulfilling
+// the same order across separate receiving events.
+
+if (!migrate_column_exists($pdo, 'customer_storage', 'order_item_id')) {
+    migrate_run($pdo, 'customer_storage.order_item_id', 'ALTER TABLE customer_storage ADD COLUMN order_item_id INT UNSIGNED NULL AFTER variation_id', $applied);
+    migrate_run($pdo, 'customer_storage.fk_order_item', 'ALTER TABLE customer_storage ADD CONSTRAINT fk_customer_storage_order_item FOREIGN KEY (order_item_id) REFERENCES mewmii_order_items(id) ON DELETE SET NULL', $applied);
+}
+
 echo count($applied) . ' migration statement(s) applied:' . PHP_EOL;
 foreach ($applied as $item) {
     echo '  - ' . $item . PHP_EOL;

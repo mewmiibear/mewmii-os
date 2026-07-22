@@ -148,6 +148,7 @@ function variation_generate_combinations(PDO $pdo, int $productId): array
 
     $created = 0;
     $skipped = 0;
+    $createdVariations = [];
 
     foreach ($combinations as $combo) {
         $parts = [];
@@ -169,16 +170,111 @@ function variation_generate_combinations(PDO $pdo, int $productId): array
         $insertVariationStmt->execute([$productId, $sku]);
         $variationId = (int) $pdo->lastInsertId();
 
+        $combination = [];
         foreach ($combo as $part) {
             $insertAttrValueStmt->execute([$variationId, $part['attribute_id'], $part['value_id']]);
+            $combination[(int) $part['attribute_id']] = (int) $part['value_id'];
         }
 
         $insertInventoryStmt->execute([$productId, $variationId]);
 
+        $createdVariations[] = [
+            'id' => $variationId,
+            'sku' => $sku,
+            'combination' => $combination,
+        ];
+
         $created++;
     }
 
-    return ['created' => $created, 'skipped' => $skipped];
+    return ['created' => $created, 'skipped' => $skipped, 'variations' => $createdVariations];
+}
+
+/**
+ * Applies the create-page's client-side preview-table edits (SKU/barcode/weight/price
+ * mode/custom price/stock/status/image, posted as variation_sku[SIGNATURE] etc.) onto the
+ * variations variation_generate_combinations() just created, matching each by its
+ * attribute-value combination signature - the same format the JS preview computes
+ * client-side (sorted "attributeId:valueId" pairs joined by "|"), so both sides agree on
+ * which posted values belong to which new row even though the create page has no
+ * variation ids to key on until this exact moment. If a user-typed SKU collides with an
+ * existing product/variation, that one field is silently left at its auto-generated
+ * value (which is always guaranteed unique) rather than aborting the whole product save.
+ */
+function variation_apply_preview_edits(PDO $pdo, int $productId, array $createdVariations, string $productType): void
+{
+    $skus = $_POST['variation_sku'] ?? [];
+    $barcodes = $_POST['variation_barcode'] ?? [];
+    $weights = $_POST['variation_weight'] ?? [];
+    $priceModes = $_POST['variation_price_mode'] ?? [];
+    $customPrices = $_POST['variation_custom_price'] ?? [];
+    $stocks = $_POST['variation_stock'] ?? [];
+    $statuses = $_POST['variation_status'] ?? [];
+    $imageFiles = image_upload_normalize_multi($_FILES['variation_image'] ?? []);
+
+    foreach ($createdVariations as $variation) {
+        $parts = [];
+        foreach ($variation['combination'] as $attributeId => $valueId) {
+            $parts[] = $attributeId . ':' . $valueId;
+        }
+        sort($parts);
+        $signature = implode('|', $parts);
+        $variationId = (int) $variation['id'];
+
+        if (isset($skus[$signature])) {
+            $sku = trim((string) $skus[$signature]);
+            if ($sku !== '' && $sku !== $variation['sku']) {
+                $dupVariation = $pdo->prepare('SELECT COUNT(*) FROM product_variations WHERE sku = ? AND id != ?');
+                $dupVariation->execute([$sku, $variationId]);
+                $dupProduct = $pdo->prepare('SELECT COUNT(*) FROM products WHERE sku = ?');
+                $dupProduct->execute([$sku]);
+
+                if ((int) $dupVariation->fetchColumn() === 0 && (int) $dupProduct->fetchColumn() === 0) {
+                    $pdo->prepare('UPDATE product_variations SET sku = ? WHERE id = ?')->execute([$sku, $variationId]);
+                }
+            }
+        }
+
+        $barcode = trim((string) ($barcodes[$signature] ?? ''));
+        $weight = trim((string) ($weights[$signature] ?? ''));
+        $priceMode = (string) ($priceModes[$signature] ?? 'inherit');
+        if (!in_array($priceMode, ['inherit', 'custom'], true)) {
+            $priceMode = 'inherit';
+        }
+        $customPrice = trim((string) ($customPrices[$signature] ?? ''));
+        $status = (string) ($statuses[$signature] ?? 'draft');
+        if (!in_array($status, ['draft', 'active', 'inactive'], true)) {
+            $status = 'draft';
+        }
+
+        $pdo->prepare('
+            UPDATE product_variations
+            SET barcode = ?, weight = ?, price_mode = ?, custom_price = ?, status = ?, is_system_generated = 0
+            WHERE id = ?
+        ')->execute([
+            $barcode !== '' ? $barcode : null,
+            ($weight !== '' && is_numeric($weight)) ? round((float) $weight, 3) : null,
+            $priceMode,
+            ($priceMode === 'custom' && is_numeric($customPrice)) ? round((float) $customPrice, 2) : null,
+            $status,
+            $variationId,
+        ]);
+
+        // Stock is only settable for ready_stock - preorder/early_bird never request
+        // available stock, even from the create-page preview table.
+        if ($productType === 'ready_stock' && isset($stocks[$signature]) && $stocks[$signature] !== '' && is_numeric($stocks[$signature])) {
+            $stockValue = max(0, (int) $stocks[$signature]);
+            if ($stockValue > 0) {
+                $pdo->prepare('UPDATE mewmii_inventory SET available_quantity = ? WHERE product_id = ? AND variation_id = ?')
+                    ->execute([$stockValue, $productId, $variationId]);
+                inventory_log_transaction($pdo, $productId, 'manual_adjustment', $stockValue, 'variation_edit', $variationId, $variationId);
+            }
+        }
+
+        if (isset($imageFiles[$signature])) {
+            variation_image_set($pdo, $productId, $variationId, $imageFiles[$signature]);
+        }
+    }
 }
 
 // --- Reading variations back out ---------------------------------------------------------
@@ -267,6 +363,20 @@ function variation_bulk_apply(PDO $pdo, array $variationIds, array $changes): vo
     if (isset($changes['status']) && in_array($changes['status'], ['draft', 'active', 'inactive'], true)) {
         $pdo->prepare("UPDATE product_variations SET status = ? WHERE id IN ({$placeholders})")
             ->execute(array_merge([$changes['status']], $variationIds));
+    }
+
+    if (isset($changes['weight']) && $changes['weight'] !== '' && is_numeric($changes['weight'])) {
+        $pdo->prepare("UPDATE product_variations SET weight = ? WHERE id IN ({$placeholders})")
+            ->execute(array_merge([round((float) $changes['weight'], 3)], $variationIds));
+    }
+
+    // Bulk barcode is a CLEAR-only action, deliberately - a real barcode identifies one
+    // physical item, so assigning the same value to every selected variation would create
+    // invalid duplicate barcodes. This just wipes stale/duplicated ones in bulk (e.g.
+    // after generating combinations or duplicating a product).
+    if (!empty($changes['clear_barcode'])) {
+        $pdo->prepare("UPDATE product_variations SET barcode = NULL WHERE id IN ({$placeholders})")
+            ->execute($variationIds);
     }
 
     if (isset($changes['stock']) && $changes['stock'] !== '') {

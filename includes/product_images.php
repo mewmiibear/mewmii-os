@@ -172,6 +172,37 @@ function variation_image_set(PDO $pdo, int $productId, int $variationId, array $
 }
 
 /**
+ * Assigns one uploaded image to every selected variation at once (e.g. "give all the
+ * Pink variations the pink product photo"). The file is processed exactly once; each
+ * additional variation gets its own physically-copied file (image_upload_duplicate()),
+ * never a shared path, for the same reason variation images are never shared by
+ * reference elsewhere - one row's later removal must not delete another's picture out
+ * from under it.
+ */
+function variation_bulk_set_image(PDO $pdo, int $productId, array $variationIds, array $uploadedFile): void
+{
+    $variationIds = array_values(array_unique(array_map('intval', $variationIds)));
+    if ($variationIds === []) {
+        return;
+    }
+
+    $firstPath = image_upload_process($uploadedFile, 'variations');
+
+    foreach ($variationIds as $index => $variationId) {
+        $imagePath = $index === 0 ? $firstPath : image_upload_duplicate($firstPath, 'variations');
+        $old = product_image_get_variation($pdo, $variationId);
+
+        $pdo->prepare("INSERT INTO product_images (product_id, variation_id, image_type, image_path, sort_order) VALUES (?, ?, 'variation', ?, 0)")
+            ->execute([$productId, $variationId, $imagePath]);
+
+        if ($old !== null) {
+            $pdo->prepare('DELETE FROM product_images WHERE id = ?')->execute([$old['id']]);
+            image_upload_delete($old['image_path']);
+        }
+    }
+}
+
+/**
  * Removes a variation's own image (it then falls back to the parent's main image).
  */
 function variation_image_remove(PDO $pdo, int $variationId): void

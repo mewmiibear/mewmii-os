@@ -55,7 +55,7 @@ function catalog_get_or_create_brand(PDO $pdo, string $name): ?int
     return (int) $pdo->lastInsertId();
 }
 
-function catalog_get_or_create_category(PDO $pdo, string $name): ?int
+function catalog_get_or_create_category(PDO $pdo, string $name, ?int $parentId = null): ?int
 {
     $name = trim($name);
     if ($name === '') {
@@ -70,9 +70,41 @@ function catalog_get_or_create_category(PDO $pdo, string $name): ?int
     }
 
     $slug = catalog_unique_slug($pdo, 'categories', catalog_slugify($name));
-    $pdo->prepare('INSERT INTO categories (name, slug) VALUES (?, ?)')->execute([$name, $slug]);
+    $pdo->prepare('INSERT INTO categories (name, slug, parent_id) VALUES (?, ?, ?)')->execute([$name, $slug, $parentId]);
 
     return (int) $pdo->lastInsertId();
+}
+
+/**
+ * Every category as a flat list ordered depth-first (parents immediately followed by
+ * their children), each with a `depth` (0 = top-level) so a <select> can render indented
+ * options reflecting the existing categories.parent_id hierarchy.
+ */
+function catalog_list_categories_tree(PDO $pdo): array
+{
+    $rows = $pdo->query('SELECT id, name, parent_id FROM categories ORDER BY name ASC')->fetchAll(PDO::FETCH_ASSOC);
+
+    $byParent = [];
+    foreach ($rows as $row) {
+        $parentKey = $row['parent_id'] !== null ? (int) $row['parent_id'] : 0;
+        $byParent[$parentKey][] = $row;
+    }
+
+    $ordered = [];
+    $walk = static function (int $parentKey, int $depth) use (&$walk, &$byParent, &$ordered): void {
+        foreach ($byParent[$parentKey] ?? [] as $row) {
+            $ordered[] = [
+                'id' => (int) $row['id'],
+                'name' => $row['name'],
+                'parent_id' => $row['parent_id'] !== null ? (int) $row['parent_id'] : null,
+                'depth' => $depth,
+            ];
+            $walk((int) $row['id'], $depth + 1);
+        }
+    };
+    $walk(0, 0);
+
+    return $ordered;
 }
 
 function catalog_get_or_create_collection(PDO $pdo, string $name): ?int
@@ -124,6 +156,24 @@ function catalog_sync_product_collection(PDO $pdo, int $productId, ?int $collect
         $pdo->prepare('INSERT INTO product_collection_relationships (product_id, collection_id) VALUES (?, ?)')
             ->execute([$productId, $collectionId]);
     }
+}
+
+function catalog_get_product_category_id(PDO $pdo, int $productId): ?int
+{
+    $stmt = $pdo->prepare('SELECT category_id FROM product_category_relationships WHERE product_id = ? LIMIT 1');
+    $stmt->execute([$productId]);
+    $id = $stmt->fetchColumn();
+
+    return $id !== false ? (int) $id : null;
+}
+
+function catalog_get_product_collection_id(PDO $pdo, int $productId): ?int
+{
+    $stmt = $pdo->prepare('SELECT collection_id FROM product_collection_relationships WHERE product_id = ? LIMIT 1');
+    $stmt->execute([$productId]);
+    $id = $stmt->fetchColumn();
+
+    return $id !== false ? (int) $id : null;
 }
 
 function catalog_product_category_name(PDO $pdo, int $productId): ?string
