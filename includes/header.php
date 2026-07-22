@@ -74,6 +74,7 @@ $appTitle = 'Mewmii OS';
                         <a class="btn btn-light text-start" href="/modules/inventory/index.php">Inventory</a>
                         <a class="btn btn-light text-start" href="/modules/customers/index.php">Customers</a>
                         <a class="btn btn-light text-start" href="/modules/customer-storage/index.php">Customer Storage</a>
+                        <a class="btn btn-light text-start" href="/modules/ship-my-box/index.php">Ship My Box</a>
                     </div>
                 </aside>
                 <main class="col-lg-10 p-4">
