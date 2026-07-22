@@ -26,6 +26,17 @@ function migrate_column_exists(PDO $pdo, string $table, string $column): bool
     return (int) $stmt->fetchColumn() > 0;
 }
 
+function migrate_column_is_nullable(PDO $pdo, string $table, string $column): bool
+{
+    $stmt = $pdo->prepare('
+        SELECT IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?
+    ');
+    $stmt->execute([$table, $column]);
+
+    return $stmt->fetchColumn() === 'YES';
+}
+
 function migrate_index_exists(PDO $pdo, string $table, string $indexName): bool
 {
     $stmt = $pdo->prepare('
@@ -390,6 +401,21 @@ if (!migrate_column_exists($pdo, 'mewmii_order_items', 'subtotal')) {
 // shipment") - never customer-facing, purely an internal record.
 if (!migrate_column_exists($pdo, 'mewmii_orders', 'notes')) {
     migrate_run($pdo, 'mewmii_orders.notes', 'ALTER TABLE mewmii_orders ADD COLUMN notes TEXT NULL AFTER shipped_at', $applied);
+}
+
+// product_variations.cost_price was NOT NULL DEFAULT 0.00, but no admin form ever wrote
+// to it - every variation ever created sat at the forced 0.00 default, which is the real
+// reason Supplier Order Unit Cost auto-fill always came up blank/zero for variations
+// (supplier_order_picker_products()/catalog_sellable_units() read the literal 0.00 and had
+// no NULL to detect, so the "fall back to parent product_cost" branch could never fire).
+// Making the column nullable lets a variation genuinely mean "no cost of its own yet" and
+// inherit the parent's cost until an admin explicitly sets one (see the new Cost Price
+// field on the variation row in product-form.js). Every existing row backfills to NULL
+// here since none of them were ever an intentional "cost is exactly RM0" - that value only
+// ever came from the unreachable default, never from a save.
+if (!migrate_column_is_nullable($pdo, 'product_variations', 'cost_price')) {
+    migrate_run($pdo, 'product_variations.cost_price_nullable', 'ALTER TABLE product_variations MODIFY COLUMN cost_price DECIMAL(12,2) NULL DEFAULT NULL', $applied);
+    migrate_run($pdo, 'product_variations.cost_price_backfill_null', 'UPDATE product_variations SET cost_price = NULL WHERE cost_price = 0.00', $applied);
 }
 
 echo count($applied) . ' migration statement(s) applied:' . PHP_EOL;

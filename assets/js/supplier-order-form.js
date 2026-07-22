@@ -196,8 +196,11 @@
                 html += '<div class="ms-3 mt-1">';
                 matchingUnits.forEach(function (unit) {
                     var checked = added.indexOf(unit.key) !== -1;
+                    var keyParts = unit.key.split(':');
                     html += '<label class="d-block checkbox-item">' +
                         '<input type="checkbox" class="picker-unit-checkbox" value="' + escapeHtml(unit.key) +
+                        '" data-product-id="' + escapeHtml(keyParts[0]) +
+                        '" data-variation-id="' + escapeHtml(keyParts[1] || '0') +
                         '" data-label="' + escapeHtml(product.name + ' - ' + (unit.label || '')) +
                         '" data-sku="' + escapeHtml(unit.sku) +
                         '" data-cost="' + escapeHtml(formatMoney(unit.cost_price || 0)) +
@@ -210,8 +213,11 @@
             } else {
                 var unit = matchingUnits[0];
                 var isAdded = added.indexOf(unit.key) !== -1;
+                var keyParts = unit.key.split(':');
                 html += '<label class="d-block checkbox-item">' +
                     '<input type="checkbox" class="picker-unit-checkbox" value="' + escapeHtml(unit.key) +
+                    '" data-product-id="' + escapeHtml(keyParts[0]) +
+                    '" data-variation-id="' + escapeHtml(keyParts[1] || '0') +
                     '" data-label="' + escapeHtml(product.name) +
                     '" data-sku="' + escapeHtml(unit.sku) +
                     '" data-cost="' + escapeHtml(formatMoney(unit.cost_price || 0)) +

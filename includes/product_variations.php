@@ -235,6 +235,7 @@ function variation_apply_preview_edits(PDO $pdo, int $productId, array $createdV
     $weights = $_POST['variation_weight'] ?? [];
     $priceModes = $_POST['variation_price_mode'] ?? [];
     $customPrices = $_POST['variation_custom_price'] ?? [];
+    $costPrices = $_POST['variation_cost_price'] ?? [];
     $statuses = $_POST['variation_status'] ?? [];
     $imageFiles = image_upload_normalize_multi($_FILES['variation_image'] ?? []);
 
@@ -268,6 +269,7 @@ function variation_apply_preview_edits(PDO $pdo, int $productId, array $createdV
             $priceMode = 'inherit';
         }
         $customPrice = trim((string) ($customPrices[$signature] ?? ''));
+        $costPrice = trim((string) ($costPrices[$signature] ?? ''));
         $status = (string) ($statuses[$signature] ?? 'draft');
         if (!in_array($status, ['draft', 'active', 'inactive'], true)) {
             $status = 'draft';
@@ -275,13 +277,14 @@ function variation_apply_preview_edits(PDO $pdo, int $productId, array $createdV
 
         $pdo->prepare('
             UPDATE product_variations
-            SET barcode = ?, weight = ?, price_mode = ?, custom_price = ?, status = ?, is_system_generated = 0
+            SET barcode = ?, weight = ?, price_mode = ?, custom_price = ?, cost_price = ?, status = ?, is_system_generated = 0
             WHERE id = ?
         ')->execute([
             $barcode !== '' ? $barcode : null,
             ($weight !== '' && is_numeric($weight)) ? round((float) $weight, 3) : null,
             $priceMode,
             ($priceMode === 'custom' && is_numeric($customPrice)) ? round((float) $customPrice, 2) : null,
+            ($costPrice !== '' && is_numeric($costPrice)) ? round((float) $costPrice, 2) : null,
             $status,
             $variationId,
         ]);
@@ -473,6 +476,7 @@ function catalog_sellable_units(PDO $pdo): array
 
     $variableStmt = $pdo->query("
         SELECT p.id AS product_id, p.name AS product_name, p.selling_price AS parent_price, p.moq AS parent_moq,
+               p.product_cost AS parent_cost,
                p.product_type, p.status, p.preorder_closing_date, p.preorder_reopened_at, p.availability_override,
                p.sale_enabled, p.sale_price, p.sale_start_date,
                pv.id AS variation_id, pv.sku, pv.price_mode, pv.custom_price, pv.cost_price
@@ -504,7 +508,10 @@ function catalog_sellable_units(PDO $pdo): array
             'sku' => $row['sku'],
             'label' => $row['product_name'] . ($label !== '' ? (' - ' . $label) : ''),
             'selling_price' => $price,
-            'cost_price' => (float) $row['cost_price'],
+            // The variation's own cost overrides the parent when set; a variation that has
+            // never had a cost entered (NULL - see the cost_price_nullable migration)
+            // inherits the parent's product_cost instead of silently pricing at RM0.
+            'cost_price' => $row['cost_price'] !== null ? (float) $row['cost_price'] : (float) $row['parent_cost'],
             // MOQ belongs only to the parent product - variations always inherit it, there
             // is no separate variation-level MOQ (see supplier_order_picker_products()).
             'moq' => $row['parent_moq'] !== null ? (int) $row['parent_moq'] : null,

@@ -540,15 +540,19 @@ function supplier_order_picker_products(PDO $pdo): array
         if ($isVariable) {
             foreach ($variationsByProduct[$productId] ?? [] as $variation) {
                 $variationId = (int) $variation['id'];
-                // A variation's own cost_price is what Unit Cost auto-fills from - never
-                // the parent's, since a variation can genuinely cost more/less to source
-                // than its siblings (e.g. a limited-edition colorway). MOQ, however, belongs
-                // only to the parent product - there is no separate variation-level MOQ.
+                // A variation's own cost_price is what Unit Cost auto-fills from when it's
+                // been explicitly set - it overrides the parent since a variation can
+                // genuinely cost more/less to source than its siblings (e.g. a
+                // limited-edition colorway). A variation that has never had a cost entered
+                // stores NULL (see the cost_price_nullable migration) and falls back to the
+                // parent's product_cost instead of silently showing RM0. MOQ, however,
+                // belongs only to the parent product - there is no separate variation-level
+                // MOQ.
                 $units[] = [
                     'key' => $productId . ':' . $variationId,
                     'sku' => $variation['sku'],
                     'label' => variation_build_label($pdo, $variationId),
-                    'cost_price' => (float) $variation['cost_price'],
+                    'cost_price' => $variation['cost_price'] !== null ? (float) $variation['cost_price'] : (float) $product['product_cost'],
                     'moq' => $product['moq'] !== null ? (int) $product['moq'] : null,
                 ];
             }

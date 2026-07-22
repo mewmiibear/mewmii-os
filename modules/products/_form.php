@@ -436,6 +436,7 @@
                         <th>Barcode</th>
                         <th>Weight</th>
                         <th>Price Mode / Price</th>
+                        <th>Cost Price</th>
                         <th>Main Image</th>
                         <th>Stock Status</th>
                         <th>Status</th>

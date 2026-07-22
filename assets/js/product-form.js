@@ -793,6 +793,10 @@
             '</select>' +
             '<input type="number" step="0.01" min="0" class="form-control form-control-sm variation-custom-price mt-1' + (options.priceMode === 'custom' ? '' : ' d-none') + '"' + fieldName('variation_custom_price') + ' value="' + (options.customPrice || '') + '"' + readonlyAttr + '>' +
             '</td>' +
+            '<td>' +
+            '<input type="number" step="0.01" min="0" class="form-control form-control-sm variation-cost-price" placeholder="Parent cost"' + fieldName('variation_cost_price') + ' style="width:100px;" value="' + (options.costPrice !== null && options.costPrice !== undefined ? options.costPrice : '') + '"' + readonlyAttr + '>' +
+            '<div class="text-muted small">Blank = use parent cost</div>' +
+            '</td>' +
             '<td class="variation-image-cell">' + imagePreview +
             (options.canManage ? '<input type="file" class="form-control form-control-sm variation-image-input image-file-input"' + fieldName('variation_image') + ' accept="image/*">' +
                 (options.hasOwnImage ? '<label class="small d-block mt-1"><input type="checkbox" class="variation-image-remove"' + fieldName('variation_remove_image') + ' value="1"> Use parent image</label>' : '') : '') +
@@ -908,6 +912,7 @@
             weight: variation.weight,
             priceMode: variation.price_mode,
             customPrice: variation.custom_price,
+            costPrice: variation.cost_price,
             imagePath: variation.image_path,
             hasOwnImage: !!variation.image_path,
             // Server-computed (see modules/products/edit.php) - never derived from
@@ -956,6 +961,7 @@
                 formData.append('weight', row.querySelector('.variation-weight').value);
                 formData.append('price_mode', row.querySelector('.variation-price-mode').value);
                 formData.append('custom_price', row.querySelector('.variation-custom-price').value);
+                formData.append('cost_price', row.querySelector('.variation-cost-price').value);
                 formData.append('status', row.querySelector('.variation-status').value);
                 var imageInput = row.querySelector('.variation-image-input');
                 if (imageInput && imageInput.files && imageInput.files[0]) {
