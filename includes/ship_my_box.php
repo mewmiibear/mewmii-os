@@ -5,9 +5,9 @@ require_once __DIR__ . '/inventory.php';
 /**
  * Ship every item on a ship request: consumes the underlying customer_storage lots
  * (marking a lot 'shipped' once its quantity reaches zero), decrements
- * mewmii_inventory.customer_storage_quantity, and logs inventory_transactions.
- * Unlike the generic customer-storage "Remove" action, stock does not return to
- * available_quantity here — it has left the warehouse for good.
+ * mewmii_inventory.customer_storage_quantity for the correct product/variation, and logs
+ * inventory_transactions. Unlike the generic customer-storage "Remove" action, stock does
+ * not return to available_quantity here - it has left the warehouse for good.
  */
 function ship_request_process(PDO $pdo, int $shipRequestId): void
 {
@@ -36,20 +36,21 @@ function ship_request_process(PDO $pdo, int $shipRequestId): void
         }
 
         $productId = (int) $storageRow['product_id'];
+        $variationId = isset($storageRow['variation_id']) && $storageRow['variation_id'] !== null ? (int) $storageRow['variation_id'] : null;
         $remaining = (int) $storageRow['quantity'] - $requestedQty;
         $newStatus = $remaining > 0 ? 'stored' : 'shipped';
 
         $pdo->prepare('UPDATE customer_storage SET quantity = ?, status = ? WHERE id = ?')
             ->execute([$remaining, $newStatus, $storageId]);
 
-        inventory_get_or_create_row($pdo, $productId);
+        inventory_get_or_create_row($pdo, $productId, $variationId);
 
         $pdo->prepare('
             UPDATE mewmii_inventory
             SET customer_storage_quantity = GREATEST(customer_storage_quantity - ?, 0)
-            WHERE product_id = ?
-        ')->execute([$requestedQty, $productId]);
+            WHERE product_id = ? AND variation_id <=> ?
+        ')->execute([$requestedQty, $productId, $variationId]);
 
-        inventory_log_transaction($pdo, $productId, 'ship_my_box', $requestedQty, 'ship_request_item', (int) $item['id']);
+        inventory_log_transaction($pdo, $productId, 'ship_my_box', $requestedQty, 'ship_request_item', (int) $item['id'], $variationId);
     }
 }

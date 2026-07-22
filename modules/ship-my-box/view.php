@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/ship_my_box.php';
+require_once __DIR__ . '/../../includes/product_variations.php';
 app_require_permission('ship-my-box.view');
 
 $appTitle = 'Ship Request Detail';
@@ -92,15 +93,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $itemsStmt = $pdo->prepare('
-    SELECT sri.id, sri.quantity, cs.id AS storage_id, cs.quantity AS storage_remaining_quantity, cs.status AS storage_status, cs.arrival_date, p.sku, p.name AS product_name
+    SELECT sri.id, sri.quantity, cs.id AS storage_id, cs.quantity AS storage_remaining_quantity, cs.status AS storage_status, cs.arrival_date, cs.variation_id,
+           COALESCE(pv.sku, p.sku) AS sku, p.name AS product_name
     FROM ship_request_items sri
     INNER JOIN customer_storage cs ON cs.id = sri.customer_storage_id
     INNER JOIN products p ON p.id = cs.product_id
+    LEFT JOIN product_variations pv ON pv.id = cs.variation_id
     WHERE sri.ship_request_id = ?
     ORDER BY sri.id ASC
 ');
 $itemsStmt->execute([$shipRequestId]);
 $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
+foreach ($items as &$item) {
+    $item['variation_label'] = $item['variation_id'] !== null ? variation_build_label($pdo, (int) $item['variation_id']) : '';
+}
+unset($item);
 
 $activityStmt = $pdo->prepare("
     SELECT it.quantity, it.created_at, p.sku, p.name AS product_name
@@ -164,7 +171,12 @@ require_once __DIR__ . '/../../includes/header.php';
                     <?php foreach ($items as $item): ?>
                         <tr>
                             <td><?php echo app_escape($item['sku']); ?></td>
-                            <td><?php echo app_escape($item['product_name']); ?></td>
+                            <td>
+                                <?php echo app_escape($item['product_name']); ?>
+                                <?php if (!empty($item['variation_label'])): ?>
+                                    <div class="text-muted small"><?php echo app_escape($item['variation_label']); ?></div>
+                                <?php endif; ?>
+                            </td>
                             <td><?php echo app_escape((string) $item['quantity']); ?></td>
                             <td>
                                 Lot #<?php echo (int) $item['storage_id']; ?>

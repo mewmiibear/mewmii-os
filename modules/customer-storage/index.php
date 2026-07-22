@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/customer_storage.php';
+require_once __DIR__ . '/../../includes/product_variations.php';
 app_require_permission('customer-storage.view');
 
 $appTitle = 'Customer Storage';
@@ -21,13 +22,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($error === '') {
         $customerId = (int) ($_POST['customer_id'] ?? 0);
-        $productId = (int) ($_POST['product_id'] ?? 0);
+        $unitKey = trim((string) ($_POST['unit_key'] ?? ''));
         $quantity = (int) ($_POST['quantity'] ?? 0);
         $arrivalDate = trim((string) ($_POST['arrival_date'] ?? ''));
+        $unit = $unitKey !== '' ? catalog_parse_sellable_key($unitKey) : null;
 
         if ($customerId < 1) {
             $error = 'Select a customer.';
-        } elseif ($productId < 1) {
+        } elseif ($unit === null || $unit['product_id'] < 1) {
             $error = 'Select a product.';
         } elseif ($quantity < 1) {
             $error = 'Enter a quantity of at least 1.';
@@ -35,7 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->beginTransaction();
 
             try {
-                customer_storage_add($pdo, $customerId, $productId, $quantity, $arrivalDate !== '' ? $arrivalDate : null);
+                customer_storage_add($pdo, $customerId, $unit['product_id'], $quantity, $arrivalDate !== '' ? $arrivalDate : null, $unit['variation_id']);
                 $pdo->commit();
 
                 app_redirect('/modules/customer-storage/index.php?added=1');
@@ -67,8 +69,7 @@ $customerStorage = $storageStmt->fetchAll(PDO::FETCH_ASSOC);
 $customersStmt = $pdo->query('SELECT id, name, email FROM customers ORDER BY name ASC LIMIT 200');
 $allCustomers = $customersStmt->fetchAll(PDO::FETCH_ASSOC);
 
-$productsStmt = $pdo->query('SELECT id, sku, name FROM products ORDER BY name ASC LIMIT 200');
-$allProducts = $productsStmt->fetchAll(PDO::FETCH_ASSOC);
+$sellableUnits = catalog_sellable_units($pdo);
 
 $canManage = app_has_permission('customer-storage.manage');
 
@@ -109,11 +110,11 @@ require_once __DIR__ . '/../../includes/header.php';
 
             <div class="col-md-4">
                 <label class="form-label">Product</label>
-                <select class="form-select" name="product_id" required>
+                <select class="form-select" name="unit_key" required>
                     <option value="">Select a product&hellip;</option>
-                    <?php foreach ($allProducts as $product): ?>
-                        <option value="<?php echo (int) $product['id']; ?>">
-                            <?php echo app_escape($product['sku']); ?> &mdash; <?php echo app_escape($product['name']); ?>
+                    <?php foreach ($sellableUnits as $unit): ?>
+                        <option value="<?php echo app_escape($unit['key']); ?>">
+                            <?php echo app_escape($unit['sku']); ?> &mdash; <?php echo app_escape($unit['label']); ?>
                         </option>
                     <?php endforeach; ?>
                 </select>

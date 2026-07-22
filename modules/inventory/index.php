@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/inventory.php';
+require_once __DIR__ . '/../../includes/product_variations.php';
 app_require_permission('inventory.view');
 
 $appTitle = 'Inventory';
@@ -20,18 +21,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($error === '') {
-        $productId = (int) ($_POST['product_id'] ?? 0);
+        $unitKey = trim((string) ($_POST['unit_key'] ?? ''));
         $delta = (int) ($_POST['delta'] ?? 0);
+        $unit = $unitKey !== '' ? catalog_parse_sellable_key($unitKey) : null;
 
-        if ($productId < 1) {
+        if ($unit === null || $unit['product_id'] < 1) {
             $error = 'Select a product.';
         } elseif ($delta === 0) {
             $error = 'Enter a non-zero adjustment quantity.';
         } else {
+            $productId = $unit['product_id'];
+            $variationId = $unit['variation_id'];
+
             $pdo->beginTransaction();
 
             try {
-                $row = inventory_get_or_create_row($pdo, $productId);
+                $row = inventory_get_or_create_row($pdo, $productId, $variationId);
 
                 if ($delta < 0 && (int) $row['available_quantity'] + $delta < 0) {
                     throw new RuntimeException('Adjustment would result in negative available stock.');
@@ -40,10 +45,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare('
                     UPDATE mewmii_inventory
                     SET available_quantity = available_quantity + ?
-                    WHERE product_id = ?
-                ')->execute([$delta, $productId]);
+                    WHERE product_id = ? AND variation_id <=> ?
+                ')->execute([$delta, $productId, $variationId]);
 
-                inventory_log_transaction($pdo, $productId, 'adjustment', $delta, 'manual_adjustment', (int) ($_SESSION['user_id'] ?? 0));
+                inventory_log_transaction($pdo, $productId, 'adjustment', $delta, 'manual_adjustment', (int) ($_SESSION['user_id'] ?? 0), $variationId);
 
                 $pdo->commit();
 
@@ -59,31 +64,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$stmt = $pdo->query('
-    SELECT
-        p.id,
-        p.sku,
-        p.name,
-        COALESCE(i.available_quantity, 0) AS stock_quantity,
-        COALESCE(i.reserved_quantity, 0) AS reserved_stock
-    FROM products p
-    LEFT JOIN mewmii_inventory i ON i.product_id = p.id
-    ORDER BY p.id DESC
+$stmt = $pdo->query("
+    (SELECT p.id AS product_id, NULL AS variation_id, p.sku, p.name AS product_name,
+            COALESCE(i.available_quantity, 0) AS stock_quantity,
+            COALESCE(i.reserved_quantity, 0) AS reserved_stock,
+            p.id AS sort_key
+     FROM products p
+     LEFT JOIN mewmii_inventory i ON i.product_id = p.id AND i.variation_id IS NULL
+     WHERE p.catalog_type = 'simple')
+    UNION ALL
+    (SELECT p.id AS product_id, pv.id AS variation_id, pv.sku, p.name AS product_name,
+            COALESCE(iv.available_quantity, 0) AS stock_quantity,
+            COALESCE(iv.reserved_quantity, 0) AS reserved_stock,
+            pv.id AS sort_key
+     FROM product_variations pv
+     INNER JOIN products p ON p.id = pv.product_id
+     LEFT JOIN mewmii_inventory iv ON iv.variation_id = pv.id
+     WHERE pv.status <> 'archived')
+    ORDER BY sort_key DESC
     LIMIT 20
-');
+");
 $inventory = $stmt->fetchAll(PDO::FETCH_ASSOC);
+foreach ($inventory as &$invRow) {
+    $invRow['variation_label'] = $invRow['variation_id'] !== null ? variation_build_label($pdo, (int) $invRow['variation_id']) : '';
+}
+unset($invRow);
 
-$productsStmt = $pdo->query('SELECT id, sku, name FROM products ORDER BY name ASC LIMIT 200');
-$allProducts = $productsStmt->fetchAll(PDO::FETCH_ASSOC);
+$sellableUnits = catalog_sellable_units($pdo);
 
 $txStmt = $pdo->query("
-    SELECT it.id, it.transaction_type, it.quantity, it.reference_type, it.reference_id, it.created_at, p.sku, p.name AS product_name
+    SELECT it.id, it.transaction_type, it.quantity, it.reference_type, it.reference_id, it.created_at, it.variation_id,
+           COALESCE(pv.sku, p.sku) AS sku, p.name AS product_name
     FROM inventory_transactions it
     INNER JOIN products p ON p.id = it.product_id
+    LEFT JOIN product_variations pv ON pv.id = it.variation_id
     ORDER BY it.created_at DESC, it.id DESC
     LIMIT 50
 ");
 $transactions = $txStmt->fetchAll(PDO::FETCH_ASSOC);
+foreach ($transactions as &$txRow) {
+    $txRow['variation_label'] = $txRow['variation_id'] !== null ? variation_build_label($pdo, (int) $txRow['variation_id']) : '';
+}
+unset($txRow);
 
 $canManage = app_has_permission('inventory.manage');
 
@@ -112,14 +134,15 @@ require_once __DIR__ . '/../../includes/header.php';
 
             <div class="col-md-6">
                 <label class="form-label">Product</label>
-                <select class="form-select" name="product_id" required>
+                <select class="form-select" name="unit_key" required>
                     <option value="">Select a product&hellip;</option>
-                    <?php foreach ($allProducts as $product): ?>
-                        <option value="<?php echo (int) $product['id']; ?>">
-                            <?php echo app_escape($product['sku']); ?> &mdash; <?php echo app_escape($product['name']); ?>
+                    <?php foreach ($sellableUnits as $unit): ?>
+                        <option value="<?php echo app_escape($unit['key']); ?>">
+                            <?php echo app_escape($unit['sku']); ?> &mdash; <?php echo app_escape($unit['label']); ?>
                         </option>
                     <?php endforeach; ?>
                 </select>
+                <div class="form-text">Variable products don't hold stock themselves - pick the specific variation to adjust.</div>
             </div>
 
             <div class="col-md-3">
@@ -148,7 +171,12 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php foreach ($inventory as $item): ?>
                 <tr>
                     <td><?php echo app_escape($item['sku']); ?></td>
-                    <td><?php echo app_escape($item['name']); ?></td>
+                    <td>
+                        <?php echo app_escape($item['product_name']); ?>
+                        <?php if (!empty($item['variation_label'])): ?>
+                            <div class="text-muted small"><?php echo app_escape($item['variation_label']); ?></div>
+                        <?php endif; ?>
+                    </td>
                     <td><?php echo app_escape((string) $item['stock_quantity']); ?></td>
                     <td><?php echo app_escape((string) $item['reserved_stock']); ?></td>
                 </tr>
@@ -172,7 +200,12 @@ require_once __DIR__ . '/../../includes/header.php';
         <tbody>
             <?php foreach ($transactions as $tx): ?>
                 <tr>
-                    <td><?php echo app_escape($tx['sku']); ?> &mdash; <?php echo app_escape($tx['product_name']); ?></td>
+                    <td>
+                        <?php echo app_escape($tx['sku']); ?> &mdash; <?php echo app_escape($tx['product_name']); ?>
+                        <?php if (!empty($tx['variation_label'])): ?>
+                            <div class="text-muted small"><?php echo app_escape($tx['variation_label']); ?></div>
+                        <?php endif; ?>
+                    </td>
                     <td><?php echo app_escape($tx['transaction_type']); ?></td>
                     <td><?php echo app_escape((string) $tx['quantity']); ?></td>
                     <td>

@@ -1,9 +1,17 @@
 <?php
 
 /**
- * Minimal WooCommerce REST API client. Auth-only plumbing for phase 1 -
- * no product/customer/order sync logic lives here.
+ * WooCommerce REST API client.
+ *
+ * Mewmii catalog_type maps to WooCommerce product type:
+ *   simple   -> WooCommerce simple product
+ *   variable -> WooCommerce variable product, with each product_variations row synced
+ *               to a WooCommerce product variation.
  */
+
+require_once __DIR__ . '/inventory.php';
+require_once __DIR__ . '/catalog.php';
+require_once __DIR__ . '/product_variations.php';
 
 function wc_client_config(): array
 {
@@ -104,22 +112,6 @@ function wc_client_put(string $endpoint, array $data = []): array
     return wc_client_request('PUT', $endpoint, $data);
 }
 
-function wc_client_build_product_payload(array $product): array
-{
-    $name = trim((string) ($product['name'] ?? ''));
-    $description = trim((string) ($product['description'] ?? ''));
-    $price = number_format((float) ($product['selling_price'] ?? 0), 2, '.', '');
-
-    return [
-        'name' => $name,
-        'type' => 'simple',
-        'description' => $description,
-        'regular_price' => $price,
-        'price' => $price,
-        'status' => 'publish',
-    ];
-}
-
 function wc_client_find_product_by_sku(string $sku): ?array
 {
     $products = wc_client_get('products', ['sku' => $sku, 'per_page' => 10]);
@@ -137,6 +129,134 @@ function wc_client_find_product_by_sku(string $sku): ?array
     return null;
 }
 
+function wc_client_find_variation_by_sku(int $parentWcId, string $sku): ?array
+{
+    $variations = wc_client_get('products/' . $parentWcId . '/variations', ['sku' => $sku, 'per_page' => 10]);
+
+    foreach ($variations as $variation) {
+        if (!is_array($variation)) {
+            continue;
+        }
+
+        if (trim((string) ($variation['sku'] ?? '')) === $sku) {
+            return $variation;
+        }
+    }
+
+    return null;
+}
+
+function wc_client_build_gallery_images(PDO $pdo, int $productId): array
+{
+    $stmt = $pdo->prepare('SELECT image_url FROM product_images WHERE product_id = ? AND variation_id IS NULL ORDER BY sort_order ASC, id ASC');
+    $stmt->execute([$productId]);
+
+    $images = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $url) {
+        if ($url !== '') {
+            $images[] = ['src' => $url];
+        }
+    }
+
+    return $images;
+}
+
+function wc_client_build_variation_image(PDO $pdo, int $variationId): ?array
+{
+    $stmt = $pdo->prepare('SELECT image_url FROM product_images WHERE variation_id = ? LIMIT 1');
+    $stmt->execute([$variationId]);
+    $url = $stmt->fetchColumn();
+
+    return ($url !== false && $url !== '') ? ['src' => (string) $url] : null;
+}
+
+/**
+ * Attributes for a WooCommerce VARIABLE product's own payload: one entry per
+ * variation-defining attribute, listing every value in play as an "option".
+ */
+function wc_client_build_variable_attributes_payload(PDO $pdo, int $productId): array
+{
+    $assignments = catalog_get_product_attribute_assignments($pdo, $productId);
+    $attributes = [];
+
+    foreach ($assignments as $assignment) {
+        if (!$assignment['is_variation_attribute']) {
+            continue;
+        }
+
+        $valueIds = catalog_get_assignment_value_ids($pdo, (int) $assignment['assignment_id']);
+        if ($valueIds === []) {
+            continue;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($valueIds), '?'));
+        $stmt = $pdo->prepare("SELECT value FROM product_attribute_values WHERE id IN ({$placeholders}) ORDER BY sort_order ASC, value ASC");
+        $stmt->execute($valueIds);
+
+        $attributes[] = [
+            'name' => $assignment['attribute_name'],
+            'variation' => true,
+            'visible' => true,
+            'options' => $stmt->fetchAll(PDO::FETCH_COLUMN),
+        ];
+    }
+
+    return $attributes;
+}
+
+/**
+ * Attributes for one WooCommerce variation's own payload: the specific value this
+ * variation was generated with for each attribute (e.g. Character=Hello Kitty, Color=Pink).
+ */
+function wc_client_build_variation_attributes_payload(PDO $pdo, int $variationId): array
+{
+    $stmt = $pdo->prepare('
+        SELECT pa.name AS attribute_name, pav.value
+        FROM product_variation_attribute_values pvav
+        INNER JOIN product_attributes pa ON pa.id = pvav.attribute_id
+        INNER JOIN product_attribute_values pav ON pav.id = pvav.attribute_value_id
+        WHERE pvav.variation_id = ?
+    ');
+    $stmt->execute([$variationId]);
+
+    $attributes = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $attributes[] = [
+            'name' => $row['attribute_name'],
+            'option' => $row['value'],
+        ];
+    }
+
+    return $attributes;
+}
+
+function wc_client_build_product_payload(array $product, PDO $pdo): array
+{
+    $productId = (int) ($product['id'] ?? 0);
+    $name = trim((string) ($product['name'] ?? ''));
+    $description = trim((string) ($product['description'] ?? ''));
+    $price = number_format((float) ($product['selling_price'] ?? 0), 2, '.', '');
+    $stock = product_effective_stock($pdo, $productId);
+
+    $payload = [
+        'name' => $name,
+        'type' => 'simple',
+        'description' => $description,
+        'regular_price' => $price,
+        'price' => $price,
+        'status' => 'publish',
+        'manage_stock' => true,
+        'stock_quantity' => (int) $stock['available_quantity'],
+    ];
+
+    $images = wc_client_build_gallery_images($pdo, $productId);
+    if ($images !== []) {
+        $payload['images'] = $images;
+    }
+
+    return $payload;
+}
+
 function wc_client_sync_product_from_mewmii(PDO $pdo, array $product): array
 {
     $productId = (int) ($product['id'] ?? 0);
@@ -150,7 +270,7 @@ function wc_client_sync_product_from_mewmii(PDO $pdo, array $product): array
         throw new RuntimeException('Product SKU is missing.');
     }
 
-    $payload = wc_client_build_product_payload($product);
+    $payload = wc_client_build_product_payload($product, $pdo);
     $payload['sku'] = $sku;
 
     $existingProduct = wc_client_find_product_by_sku($sku);
@@ -171,4 +291,117 @@ function wc_client_sync_product_from_mewmii(PDO $pdo, array $product): array
     $stmt->execute([$remoteProductId, $productId]);
 
     return ['id' => $remoteProductId];
+}
+
+/**
+ * Syncs a variable product: the parent as a WooCommerce variable product (with its
+ * variation-defining attributes), then every non-archived variation as a WooCommerce
+ * product variation underneath it (attributes, price, image, stock, SKU).
+ *
+ * WooCommerce has no "inherit parent price" concept - every variation must carry its own
+ * price to be purchasable, so a price_mode = 'inherit' variation resolves the parent's
+ * current selling_price at sync time and pushes that as its regular_price. If the parent
+ * price changes later, inheriting variations must be re-synced to pick it up.
+ */
+function wc_client_sync_variable_product_from_mewmii(PDO $pdo, array $product): array
+{
+    $productId = (int) ($product['id'] ?? 0);
+    $sku = trim((string) ($product['sku'] ?? ''));
+
+    if ($productId < 1) {
+        throw new RuntimeException('Product ID is missing.');
+    }
+
+    if ($sku === '') {
+        throw new RuntimeException('Product SKU is missing.');
+    }
+
+    $payload = [
+        'name' => trim((string) ($product['name'] ?? '')),
+        'type' => 'variable',
+        'description' => trim((string) ($product['description'] ?? '')),
+        'sku' => $sku,
+        'status' => 'publish',
+        'attributes' => wc_client_build_variable_attributes_payload($pdo, $productId),
+    ];
+
+    $images = wc_client_build_gallery_images($pdo, $productId);
+    if ($images !== []) {
+        $payload['images'] = $images;
+    }
+
+    $existingProduct = wc_client_find_product_by_sku($sku);
+    $response = $existingProduct !== null
+        ? wc_client_put('products/' . (int) ($existingProduct['id'] ?? 0), $payload)
+        : wc_client_post('products', $payload);
+
+    $remoteProductId = (int) ($response['id'] ?? 0);
+    if ($remoteProductId < 1) {
+        throw new RuntimeException('WooCommerce did not return a product identifier.');
+    }
+
+    $pdo->prepare('
+        UPDATE products
+        SET woocommerce_product_id = ?, published_to_woocommerce = 1, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    ')->execute([$remoteProductId, $productId]);
+
+    $syncedVariations = 0;
+
+    foreach (variation_list_for_product($pdo, $productId) as $variation) {
+        if ($variation['status'] === 'archived') {
+            continue;
+        }
+
+        $variationId = (int) $variation['id'];
+        $variationSku = trim((string) $variation['sku']);
+        if ($variationSku === '') {
+            continue;
+        }
+
+        $price = variation_effective_price($variation, $product['selling_price'] ?? 0);
+
+        $variationPayload = [
+            'sku' => $variationSku,
+            'regular_price' => number_format($price, 2, '.', ''),
+            'manage_stock' => true,
+            'stock_quantity' => (int) $variation['available_quantity'],
+            'attributes' => wc_client_build_variation_attributes_payload($pdo, $variationId),
+        ];
+
+        if (!empty($variation['weight'])) {
+            $variationPayload['weight'] = (string) $variation['weight'];
+        }
+
+        $image = wc_client_build_variation_image($pdo, $variationId);
+        if ($image !== null) {
+            $variationPayload['image'] = $image;
+        }
+
+        $existingVariation = wc_client_find_variation_by_sku($remoteProductId, $variationSku);
+        $variationResponse = $existingVariation !== null
+            ? wc_client_put('products/' . $remoteProductId . '/variations/' . (int) ($existingVariation['id'] ?? 0), $variationPayload)
+            : wc_client_post('products/' . $remoteProductId . '/variations', $variationPayload);
+
+        $remoteVariationId = (int) ($variationResponse['id'] ?? 0);
+        if ($remoteVariationId > 0) {
+            $pdo->prepare('UPDATE product_variations SET woocommerce_variation_id = ? WHERE id = ?')
+                ->execute([$remoteVariationId, $variationId]);
+            $syncedVariations++;
+        }
+    }
+
+    return ['id' => $remoteProductId, 'variations_synced' => $syncedVariations];
+}
+
+/**
+ * Routes a product to the correct sync path based on catalog_type.
+ */
+function wc_client_sync_any_product_from_mewmii(PDO $pdo, array $product): array
+{
+    if (($product['catalog_type'] ?? 'simple') === 'variable') {
+        return wc_client_sync_variable_product_from_mewmii($pdo, $product);
+    }
+
+    return wc_client_sync_product_from_mewmii($pdo, $product);
 }

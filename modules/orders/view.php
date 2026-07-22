@@ -140,9 +140,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $itemsStmt = $pdo->prepare('
-    SELECT oi.id, oi.quantity, oi.selling_price, oi.cost_snapshot, p.sku, p.name AS product_name
+    SELECT oi.id, oi.quantity, oi.selling_price, oi.cost_snapshot, oi.variation_label,
+           COALESCE(pv.sku, p.sku) AS sku, p.name AS product_name
     FROM mewmii_order_items oi
     INNER JOIN products p ON p.id = oi.product_id
+    LEFT JOIN product_variations pv ON pv.id = oi.variation_id
     WHERE oi.order_id = ?
     ORDER BY oi.id ASC
 ');
@@ -224,7 +226,12 @@ require_once __DIR__ . '/../../includes/header.php';
                     <?php foreach ($items as $item): ?>
                         <tr>
                             <td><?php echo app_escape($item['sku']); ?></td>
-                            <td><?php echo app_escape($item['product_name']); ?></td>
+                            <td>
+                                <?php echo app_escape($item['product_name']); ?>
+                                <?php if (!empty($item['variation_label'])): ?>
+                                    <div class="text-muted small"><?php echo app_escape($item['variation_label']); ?></div>
+                                <?php endif; ?>
+                            </td>
                             <td><?php echo app_escape((string) $item['quantity']); ?></td>
                             <td><?php echo app_escape((string) $item['selling_price']); ?></td>
                         </tr>

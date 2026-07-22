@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/supplier_orders.php';
+require_once __DIR__ . '/../../includes/product_variations.php';
 app_require_permission('supplier-orders.manage');
 
 $appTitle = 'New Supplier Order';
@@ -13,7 +14,7 @@ $form = [
     'supplier_id' => '',
     'purchase_number' => 'PO-' . date('Ymd') . '-' . strtoupper(substr(bin2hex(random_bytes(2)), 0, 4)),
 ];
-$itemRows = array_fill(0, SUPPLIER_ORDER_ITEM_ROWS, ['product_id' => '', 'quantity' => '', 'supplier_price' => '']);
+$itemRows = array_fill(0, SUPPLIER_ORDER_ITEM_ROWS, ['unit_key' => '', 'quantity' => '', 'supplier_price' => '']);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
@@ -25,34 +26,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form['supplier_id'] = trim((string) ($_POST['supplier_id'] ?? ''));
     $form['purchase_number'] = trim((string) ($_POST['purchase_number'] ?? ''));
 
-    $postedProductIds = $_POST['product_id'] ?? [];
+    $postedUnitKeys = $_POST['unit_key'] ?? [];
     $postedQuantities = $_POST['quantity'] ?? [];
     $postedPrices = $_POST['supplier_price'] ?? [];
+
+    $sellableUnits = catalog_sellable_units($pdo);
+    $unitsByKey = array_column($sellableUnits, null, 'key');
 
     $itemRows = [];
     $validItems = [];
 
     for ($i = 0; $i < SUPPLIER_ORDER_ITEM_ROWS; $i++) {
-        $rowProductId = trim((string) ($postedProductIds[$i] ?? ''));
+        $rowUnitKey = trim((string) ($postedUnitKeys[$i] ?? ''));
         $rowQuantity = trim((string) ($postedQuantities[$i] ?? ''));
         $rowPrice = trim((string) ($postedPrices[$i] ?? ''));
 
-        $itemRows[] = ['product_id' => $rowProductId, 'quantity' => $rowQuantity, 'supplier_price' => $rowPrice];
+        $itemRows[] = ['unit_key' => $rowUnitKey, 'quantity' => $rowQuantity, 'supplier_price' => $rowPrice];
 
-        if ($rowProductId === '' && $rowQuantity === '') {
+        if ($rowUnitKey === '' && $rowQuantity === '') {
             continue;
         }
 
         if ($error === '') {
-            if ($rowProductId === '' || (int) $rowProductId < 1) {
+            if ($rowUnitKey === '') {
                 $error = 'Row ' . ($i + 1) . ': select a product.';
             } elseif (!ctype_digit($rowQuantity) || (int) $rowQuantity < 1) {
                 $error = 'Row ' . ($i + 1) . ': quantity must be a whole number of at least 1.';
             } elseif ($rowPrice !== '' && (!is_numeric($rowPrice) || (float) $rowPrice < 0)) {
                 $error = 'Row ' . ($i + 1) . ': price must be a valid non-negative number.';
+            } elseif (!isset($unitsByKey[$rowUnitKey])) {
+                $error = 'Row ' . ($i + 1) . ': selected product does not exist.';
             } else {
+                $unit = $unitsByKey[$rowUnitKey];
                 $validItems[] = [
-                    'product_id' => (int) $rowProductId,
+                    'product_id' => $unit['product_id'],
+                    'variation_id' => $unit['variation_id'],
                     'quantity' => (int) $rowQuantity,
                     'supplier_price' => $rowPrice !== '' ? round((float) $rowPrice, 2) : 0.00,
                 ];
@@ -108,16 +116,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $orderId = (int) $pdo->lastInsertId();
 
             $itemStmt = $pdo->prepare('
-                INSERT INTO supplier_order_items (supplier_order_id, product_id, total_quantity, supplier_price, subtotal)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO supplier_order_items (supplier_order_id, product_id, variation_id, total_quantity, supplier_price, subtotal)
+                VALUES (?, ?, ?, ?, ?, ?)
             ');
 
             foreach ($validItems as $line) {
                 $subtotal = round($line['quantity'] * $line['supplier_price'], 2);
-                $itemStmt->execute([$orderId, $line['product_id'], $line['quantity'], $line['supplier_price'], $subtotal]);
+                $itemStmt->execute([$orderId, $line['product_id'], $line['variation_id'], $line['quantity'], $line['supplier_price'], $subtotal]);
                 $itemId = (int) $pdo->lastInsertId();
 
-                supplier_order_mark_incoming($pdo, $line['product_id'], $itemId, $line['quantity']);
+                supplier_order_mark_incoming($pdo, $line['product_id'], $itemId, $line['quantity'], $line['variation_id']);
             }
 
             $pdo->commit();
@@ -133,8 +141,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $suppliersStmt = $pdo->query('SELECT id, name FROM suppliers ORDER BY name ASC LIMIT 200');
 $suppliers = $suppliersStmt->fetchAll(PDO::FETCH_ASSOC);
 
-$productsStmt = $pdo->query('SELECT id, sku, name FROM products ORDER BY name ASC LIMIT 200');
-$allProducts = $productsStmt->fetchAll(PDO::FETCH_ASSOC);
+$sellableUnits = catalog_sellable_units($pdo);
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
@@ -186,11 +193,11 @@ require_once __DIR__ . '/../../includes/header.php';
                 <?php foreach ($itemRows as $row): ?>
                     <tr>
                         <td>
-                            <select class="form-select" name="product_id[]">
+                            <select class="form-select" name="unit_key[]">
                                 <option value="">Select a product&hellip;</option>
-                                <?php foreach ($allProducts as $product): ?>
-                                    <option value="<?php echo (int) $product['id']; ?>" <?php echo $row['product_id'] === (string) $product['id'] ? 'selected' : ''; ?>>
-                                        <?php echo app_escape($product['sku']); ?> &mdash; <?php echo app_escape($product['name']); ?>
+                                <?php foreach ($sellableUnits as $unit): ?>
+                                    <option value="<?php echo app_escape($unit['key']); ?>" <?php echo $row['unit_key'] === $unit['key'] ? 'selected' : ''; ?>>
+                                        <?php echo app_escape($unit['sku']); ?> &mdash; <?php echo app_escape($unit['label']); ?>
                                     </option>
                                 <?php endforeach; ?>
                             </select>

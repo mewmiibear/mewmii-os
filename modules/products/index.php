@@ -6,7 +6,7 @@ app_require_permission('products.view');
 $appTitle = 'Products';
 require_once __DIR__ . '/../../includes/header.php';
 
-$stmt = app_db()->query('SELECT id, sku, name, product_type, status, selling_price FROM products ORDER BY id DESC LIMIT 20');
+$stmt = app_db()->query('SELECT id, sku, name, product_type, catalog_type, status, selling_price FROM products ORDER BY id DESC LIMIT 20');
 $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
 $canManage = app_has_permission('products.manage');
 ?>
@@ -56,6 +56,7 @@ $canManage = app_has_permission('products.manage');
                 <th>SKU</th>
                 <th>Name</th>
                 <th>Type</th>
+                <th>Structure</th>
                 <th>Status</th>
                 <th>Price</th>
                 <?php if ($canManage): ?><th></th><?php endif; ?>
@@ -63,14 +64,19 @@ $canManage = app_has_permission('products.manage');
         </thead>
         <tbody>
             <?php foreach ($products as $product): ?>
+                <?php $isVariable = ($product['catalog_type'] ?? 'simple') === 'variable'; ?>
                 <tr>
                     <td><?php echo app_escape($product['sku']); ?></td>
                     <td><?php echo app_escape($product['name']); ?></td>
                     <td><?php echo app_escape($product['product_type']); ?></td>
+                    <td><span class="badge bg-<?php echo $isVariable ? 'info text-dark' : 'light text-dark'; ?>"><?php echo $isVariable ? 'Variable' : 'Simple'; ?></span></td>
                     <td><?php echo app_escape($product['status']); ?></td>
-                    <td><?php echo app_escape((string) $product['selling_price']); ?></td>
+                    <td><?php echo app_escape((string) $product['selling_price']); ?><?php if ($isVariable): ?> <span class="text-muted small">(default)</span><?php endif; ?></td>
                     <?php if ($canManage): ?>
                         <td class="text-end">
+                            <?php if ($isVariable): ?>
+                                <a class="btn btn-sm btn-outline-secondary" href="/modules/products/variations.php?product_id=<?php echo (int) $product['id']; ?>">Variations</a>
+                            <?php endif; ?>
                             <a class="btn btn-sm btn-outline-primary" href="/modules/products/edit.php?id=<?php echo (int) $product['id']; ?>">Edit</a>
                         </td>
                     <?php endif; ?>

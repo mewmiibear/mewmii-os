@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/supplier_orders.php';
+require_once __DIR__ . '/../../includes/product_variations.php';
 app_require_permission('supplier-orders.view');
 
 $appTitle = 'Supplier Order Detail';
@@ -115,9 +116,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $itemsStmt = $pdo->prepare('
-    SELECT soi.id, soi.total_quantity, soi.supplier_price, soi.subtotal, p.sku, p.name AS product_name
+    SELECT soi.id, soi.total_quantity, soi.supplier_price, soi.subtotal, soi.variation_id,
+           COALESCE(pv.sku, p.sku) AS sku, p.name AS product_name
     FROM supplier_order_items soi
     INNER JOIN products p ON p.id = soi.product_id
+    LEFT JOIN product_variations pv ON pv.id = soi.variation_id
     WHERE soi.supplier_order_id = ?
     ORDER BY soi.id ASC
 ');
@@ -127,6 +130,7 @@ $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
 foreach ($items as &$item) {
     $item['received_quantity'] = supplier_order_item_received_quantity($pdo, (int) $item['id']);
     $item['remaining_quantity'] = (int) $item['total_quantity'] - $item['received_quantity'];
+    $item['variation_label'] = $item['variation_id'] !== null ? variation_build_label($pdo, (int) $item['variation_id']) : '';
 }
 unset($item);
 
@@ -197,7 +201,12 @@ require_once __DIR__ . '/../../includes/header.php';
                     <?php foreach ($items as $item): ?>
                         <tr>
                             <td><?php echo app_escape($item['sku']); ?></td>
-                            <td><?php echo app_escape($item['product_name']); ?></td>
+                            <td>
+                                <?php echo app_escape($item['product_name']); ?>
+                                <?php if (!empty($item['variation_label'])): ?>
+                                    <div class="text-muted small"><?php echo app_escape($item['variation_label']); ?></div>
+                                <?php endif; ?>
+                            </td>
                             <td><?php echo app_escape((string) $item['total_quantity']); ?></td>
                             <td><?php echo app_escape((string) $item['received_quantity']); ?></td>
                             <td><?php echo app_escape((string) $item['remaining_quantity']); ?></td>

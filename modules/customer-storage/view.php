@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/customer_storage.php';
+require_once __DIR__ . '/../../includes/product_variations.php';
 app_require_permission('customer-storage.view');
 
 $appTitle = 'Customer Storage Detail';
@@ -46,11 +47,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $action = (string) ($_POST['action'] ?? '');
 
         if ($action === 'add') {
-            $productId = (int) ($_POST['product_id'] ?? 0);
+            $unitKey = trim((string) ($_POST['unit_key'] ?? ''));
             $quantity = (int) ($_POST['quantity'] ?? 0);
             $arrivalDate = trim((string) ($_POST['arrival_date'] ?? ''));
+            $unit = $unitKey !== '' ? catalog_parse_sellable_key($unitKey) : null;
 
-            if ($productId < 1) {
+            if ($unit === null || $unit['product_id'] < 1) {
                 $error = 'Select a product.';
             } elseif ($quantity < 1) {
                 $error = 'Enter a quantity of at least 1.';
@@ -58,7 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->beginTransaction();
 
                 try {
-                    customer_storage_add($pdo, $customerId, $productId, $quantity, $arrivalDate !== '' ? $arrivalDate : null);
+                    customer_storage_add($pdo, $customerId, $unit['product_id'], $quantity, $arrivalDate !== '' ? $arrivalDate : null, $unit['variation_id']);
                     $pdo->commit();
 
                     app_redirect('/modules/customer-storage/view.php?customer_id=' . $customerId . '&updated=1');
@@ -101,24 +103,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $storedStmt = $pdo->prepare("
-    SELECT cs.id, cs.quantity, cs.arrival_date, cs.created_at, p.sku, p.name AS product_name
+    SELECT cs.id, cs.quantity, cs.arrival_date, cs.created_at, cs.variation_id,
+           COALESCE(pv.sku, p.sku) AS sku, p.name AS product_name
     FROM customer_storage cs
     INNER JOIN products p ON p.id = cs.product_id
+    LEFT JOIN product_variations pv ON pv.id = cs.variation_id
     WHERE cs.customer_id = ? AND cs.status = 'stored' AND cs.quantity > 0
     ORDER BY cs.created_at DESC
 ");
 $storedStmt->execute([$customerId]);
 $storedItems = $storedStmt->fetchAll(PDO::FETCH_ASSOC);
+foreach ($storedItems as &$storedItem) {
+    $storedItem['variation_label'] = $storedItem['variation_id'] !== null ? variation_build_label($pdo, (int) $storedItem['variation_id']) : '';
+}
+unset($storedItem);
 
 $historyStmt = $pdo->prepare('
-    SELECT cs.id, cs.quantity, cs.status, cs.arrival_date, cs.created_at, p.sku, p.name AS product_name
+    SELECT cs.id, cs.quantity, cs.status, cs.arrival_date, cs.created_at, cs.variation_id,
+           COALESCE(pv.sku, p.sku) AS sku, p.name AS product_name
     FROM customer_storage cs
     INNER JOIN products p ON p.id = cs.product_id
+    LEFT JOIN product_variations pv ON pv.id = cs.variation_id
     WHERE cs.customer_id = ?
     ORDER BY cs.created_at DESC
 ');
 $historyStmt->execute([$customerId]);
 $history = $historyStmt->fetchAll(PDO::FETCH_ASSOC);
+foreach ($history as &$historyItem) {
+    $historyItem['variation_label'] = $historyItem['variation_id'] !== null ? variation_build_label($pdo, (int) $historyItem['variation_id']) : '';
+}
+unset($historyItem);
 
 $activityStmt = $pdo->prepare("
     SELECT it.transaction_type, it.quantity, it.created_at, p.sku, p.name AS product_name
@@ -131,8 +145,7 @@ $activityStmt = $pdo->prepare("
 $activityStmt->execute([$customerId]);
 $activity = $activityStmt->fetchAll(PDO::FETCH_ASSOC);
 
-$productsStmt = $pdo->query('SELECT id, sku, name FROM products ORDER BY name ASC LIMIT 200');
-$allProducts = $productsStmt->fetchAll(PDO::FETCH_ASSOC);
+$sellableUnits = catalog_sellable_units($pdo);
 
 $canManage = app_has_permission('customer-storage.manage');
 
@@ -172,7 +185,12 @@ require_once __DIR__ . '/../../includes/header.php';
                     <?php foreach ($storedItems as $item): ?>
                         <tr>
                             <td><?php echo app_escape($item['sku']); ?></td>
-                            <td><?php echo app_escape($item['product_name']); ?></td>
+                            <td>
+                                <?php echo app_escape($item['product_name']); ?>
+                                <?php if (!empty($item['variation_label'])): ?>
+                                    <div class="text-muted small"><?php echo app_escape($item['variation_label']); ?></div>
+                                <?php endif; ?>
+                            </td>
                             <td><?php echo app_escape((string) $item['quantity']); ?></td>
                             <td><?php echo app_escape($item['arrival_date'] ?? '-'); ?></td>
                             <?php if ($canManage): ?>
@@ -204,11 +222,11 @@ require_once __DIR__ . '/../../includes/header.php';
 
                     <div class="col-md-5">
                         <label class="form-label">Product</label>
-                        <select class="form-select" name="product_id" required>
+                        <select class="form-select" name="unit_key" required>
                             <option value="">Select a product&hellip;</option>
-                            <?php foreach ($allProducts as $product): ?>
-                                <option value="<?php echo (int) $product['id']; ?>">
-                                    <?php echo app_escape($product['sku']); ?> &mdash; <?php echo app_escape($product['name']); ?>
+                            <?php foreach ($sellableUnits as $unit): ?>
+                                <option value="<?php echo app_escape($unit['key']); ?>">
+                                    <?php echo app_escape($unit['sku']); ?> &mdash; <?php echo app_escape($unit['label']); ?>
                                 </option>
                             <?php endforeach; ?>
                         </select>
@@ -240,6 +258,9 @@ require_once __DIR__ . '/../../includes/header.php';
                     <li class="mb-3">
                         <div class="fw-semibold">
                             <?php echo app_escape($entry['sku']); ?> &mdash; <?php echo app_escape($entry['product_name']); ?>
+                            <?php if (!empty($entry['variation_label'])): ?>
+                                <span class="text-muted">(<?php echo app_escape($entry['variation_label']); ?>)</span>
+                            <?php endif; ?>
                         </div>
                         <div>Qty: <?php echo app_escape((string) $entry['quantity']); ?> &middot; Status: <?php echo app_escape($entry['status']); ?></div>
                         <div class="text-muted small">Added <?php echo app_escape($entry['created_at']); ?></div>

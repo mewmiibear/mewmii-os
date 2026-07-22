@@ -20,29 +20,31 @@ function supplier_order_item_received_quantity(PDO $pdo, int $itemId): int
 }
 
 /**
- * Mark stock as incoming for a freshly created supplier order line item.
+ * Mark stock as incoming for a freshly created supplier order line item. $variationId is
+ * null for a simple product's line item, or the specific variation SKU being ordered.
  */
-function supplier_order_mark_incoming(PDO $pdo, int $productId, int $itemId, int $quantity): void
+function supplier_order_mark_incoming(PDO $pdo, int $productId, int $itemId, int $quantity, ?int $variationId = null): void
 {
     if ($quantity < 1) {
         return;
     }
 
-    inventory_get_or_create_row($pdo, $productId);
+    inventory_get_or_create_row($pdo, $productId, $variationId);
 
     $pdo->prepare('
         UPDATE mewmii_inventory
         SET incoming_quantity = incoming_quantity + ?
-        WHERE product_id = ?
-    ')->execute([$quantity, $productId]);
+        WHERE product_id = ? AND variation_id <=> ?
+    ')->execute([$quantity, $productId, $variationId]);
 
-    inventory_log_transaction($pdo, $productId, 'supplier_order_placed', $quantity, 'supplier_order_item', $itemId);
+    inventory_log_transaction($pdo, $productId, 'supplier_order_placed', $quantity, 'supplier_order_item', $itemId, $variationId);
 }
 
 /**
  * Receive units for one supplier order line item: moves stock from incoming into
  * available and logs the transaction. Once every item on the parent order has been
- * fully received, the order is auto-advanced to status 'received'.
+ * fully received, the order is auto-advanced to status 'received'. The line item's own
+ * variation_id (set at PO creation time) determines which inventory row moves.
  */
 function supplier_order_receive_item(PDO $pdo, int $itemId, int $quantity): void
 {
@@ -59,6 +61,7 @@ function supplier_order_receive_item(PDO $pdo, int $itemId, int $quantity): void
     }
 
     $productId = (int) $item['product_id'];
+    $variationId = isset($item['variation_id']) && $item['variation_id'] !== null ? (int) $item['variation_id'] : null;
     $orderId = (int) $item['supplier_order_id'];
     $totalQuantity = (int) $item['total_quantity'];
     $alreadyReceived = supplier_order_item_received_quantity($pdo, $itemId);
@@ -68,16 +71,16 @@ function supplier_order_receive_item(PDO $pdo, int $itemId, int $quantity): void
         throw new RuntimeException('Cannot receive more than the remaining ordered quantity.');
     }
 
-    inventory_get_or_create_row($pdo, $productId);
+    inventory_get_or_create_row($pdo, $productId, $variationId);
 
     $pdo->prepare('
         UPDATE mewmii_inventory
         SET incoming_quantity = GREATEST(incoming_quantity - ?, 0),
             available_quantity = available_quantity + ?
-        WHERE product_id = ?
-    ')->execute([$quantity, $quantity, $productId]);
+        WHERE product_id = ? AND variation_id <=> ?
+    ')->execute([$quantity, $quantity, $productId, $variationId]);
 
-    inventory_log_transaction($pdo, $productId, 'supplier_receive', $quantity, 'supplier_order_item', $itemId);
+    inventory_log_transaction($pdo, $productId, 'supplier_receive', $quantity, 'supplier_order_item', $itemId, $variationId);
 
     $itemsStmt = $pdo->prepare('SELECT id, total_quantity FROM supplier_order_items WHERE supplier_order_id = ?');
     $itemsStmt->execute([$orderId]);

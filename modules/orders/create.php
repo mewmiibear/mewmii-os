@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/product_variations.php';
 app_require_permission('orders.manage');
 
 $appTitle = 'New Order';
@@ -12,7 +13,7 @@ $form = [
     'customer_id' => '',
     'order_number' => 'ORD-' . date('Ymd') . '-' . strtoupper(substr(bin2hex(random_bytes(2)), 0, 4)),
 ];
-$itemRows = array_fill(0, ORDER_ITEM_ROWS, ['product_id' => '', 'quantity' => '']);
+$itemRows = array_fill(0, ORDER_ITEM_ROWS, ['unit_key' => '', 'quantity' => '']);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
@@ -24,45 +25,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form['customer_id'] = trim((string) ($_POST['customer_id'] ?? ''));
     $form['order_number'] = trim((string) ($_POST['order_number'] ?? ''));
 
-    $postedProductIds = $_POST['product_id'] ?? [];
+    $postedUnitKeys = $_POST['unit_key'] ?? [];
     $postedQuantities = $_POST['quantity'] ?? [];
+
+    $sellableUnits = catalog_sellable_units($pdo);
+    $unitsByKey = array_column($sellableUnits, null, 'key');
 
     $itemRows = [];
     $validItems = [];
-    $productCache = [];
 
     for ($i = 0; $i < ORDER_ITEM_ROWS; $i++) {
-        $rowProductId = trim((string) ($postedProductIds[$i] ?? ''));
+        $rowUnitKey = trim((string) ($postedUnitKeys[$i] ?? ''));
         $rowQuantity = trim((string) ($postedQuantities[$i] ?? ''));
 
-        $itemRows[] = ['product_id' => $rowProductId, 'quantity' => $rowQuantity];
+        $itemRows[] = ['unit_key' => $rowUnitKey, 'quantity' => $rowQuantity];
 
-        if ($rowProductId === '' && $rowQuantity === '') {
+        if ($rowUnitKey === '' && $rowQuantity === '') {
             continue;
         }
 
         if ($error === '') {
-            if ($rowProductId === '' || (int) $rowProductId < 1) {
+            if ($rowUnitKey === '') {
                 $error = 'Row ' . ($i + 1) . ': select a product.';
             } elseif (!ctype_digit($rowQuantity) || (int) $rowQuantity < 1) {
                 $error = 'Row ' . ($i + 1) . ': quantity must be a whole number of at least 1.';
+            } elseif (!isset($unitsByKey[$rowUnitKey])) {
+                $error = 'Row ' . ($i + 1) . ': selected product does not exist.';
             } else {
-                $productId = (int) $rowProductId;
-
-                if (!isset($productCache[$productId])) {
-                    $productStmt = $pdo->prepare('SELECT id, sku, name, selling_price, product_cost FROM products WHERE id = ?');
-                    $productStmt->execute([$productId]);
-                    $productCache[$productId] = $productStmt->fetch(PDO::FETCH_ASSOC);
-                }
-
-                if (!$productCache[$productId]) {
-                    $error = 'Row ' . ($i + 1) . ': selected product does not exist.';
-                } else {
-                    $validItems[] = [
-                        'product' => $productCache[$productId],
-                        'quantity' => (int) $rowQuantity,
-                    ];
-                }
+                $validItems[] = [
+                    'unit' => $unitsByKey[$rowUnitKey],
+                    'quantity' => (int) $rowQuantity,
+                ];
             }
         }
     }
@@ -98,22 +91,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Add at least one product line with a quantity.';
     }
 
-    // Check stock availability per product (aggregated across rows) before committing.
+    // Check stock availability per sellable unit (aggregated across rows) before committing.
     if ($error === '') {
         $demand = [];
         foreach ($validItems as $line) {
-            $productId = (int) $line['product']['id'];
-            $demand[$productId] = ($demand[$productId] ?? 0) + $line['quantity'];
+            $key = $line['unit']['key'];
+            $demand[$key] = ($demand[$key] ?? 0) + $line['quantity'];
         }
 
-        foreach ($demand as $productId => $neededQty) {
-            $invStmt = $pdo->prepare('SELECT available_quantity FROM mewmii_inventory WHERE product_id = ?');
-            $invStmt->execute([$productId]);
+        foreach ($demand as $key => $neededQty) {
+            $unit = $unitsByKey[$key];
+            $invStmt = $pdo->prepare('SELECT available_quantity FROM mewmii_inventory WHERE product_id = ? AND variation_id <=> ?');
+            $invStmt->execute([$unit['product_id'], $unit['variation_id']]);
             $available = (int) $invStmt->fetchColumn();
 
             if ($available < $neededQty) {
-                $productName = $productCache[$productId]['name'] ?? ('#' . $productId);
-                $error = 'Insufficient available stock for ' . $productName . ' (available: ' . $available . ', requested: ' . $neededQty . ').';
+                $error = 'Insufficient available stock for ' . $unit['label'] . ' (available: ' . $available . ', requested: ' . $neededQty . ').';
                 break;
             }
         }
@@ -122,7 +115,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($error === '') {
         $subtotal = 0.00;
         foreach ($validItems as $line) {
-            $subtotal += $line['quantity'] * (float) $line['product']['selling_price'];
+            $subtotal += $line['quantity'] * $line['unit']['selling_price'];
         }
         $subtotal = round($subtotal, 2);
 
@@ -137,17 +130,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $orderId = (int) $pdo->lastInsertId();
 
             $itemStmt = $pdo->prepare('
-                INSERT INTO mewmii_order_items (order_id, product_id, quantity, selling_price, cost_snapshot)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO mewmii_order_items (order_id, product_id, variation_id, variation_label, quantity, selling_price, cost_snapshot)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             ');
 
             foreach ($validItems as $line) {
+                $unit = $line['unit'];
+                $variationLabel = $unit['variation_id'] !== null ? variation_build_label($pdo, $unit['variation_id']) : null;
+
                 $itemStmt->execute([
                     $orderId,
-                    (int) $line['product']['id'],
+                    $unit['product_id'],
+                    $unit['variation_id'],
+                    $variationLabel,
                     $line['quantity'],
-                    $line['product']['selling_price'],
-                    $line['product']['product_cost'],
+                    $unit['selling_price'],
+                    $unit['cost_price'],
                 ]);
             }
 
@@ -164,8 +162,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $customersStmt = $pdo->query('SELECT id, name, email FROM customers ORDER BY name ASC LIMIT 200');
 $allCustomers = $customersStmt->fetchAll(PDO::FETCH_ASSOC);
 
-$productsStmt = $pdo->query('SELECT id, sku, name, selling_price FROM products ORDER BY name ASC LIMIT 200');
-$allProducts = $productsStmt->fetchAll(PDO::FETCH_ASSOC);
+$sellableUnits = catalog_sellable_units($pdo);
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
@@ -216,11 +213,11 @@ require_once __DIR__ . '/../../includes/header.php';
                 <?php foreach ($itemRows as $row): ?>
                     <tr>
                         <td>
-                            <select class="form-select" name="product_id[]">
+                            <select class="form-select" name="unit_key[]">
                                 <option value="">Select a product&hellip;</option>
-                                <?php foreach ($allProducts as $product): ?>
-                                    <option value="<?php echo (int) $product['id']; ?>" <?php echo $row['product_id'] === (string) $product['id'] ? 'selected' : ''; ?>>
-                                        <?php echo app_escape($product['sku']); ?> &mdash; <?php echo app_escape($product['name']); ?> (<?php echo app_escape((string) $product['selling_price']); ?>)
+                                <?php foreach ($sellableUnits as $unit): ?>
+                                    <option value="<?php echo app_escape($unit['key']); ?>" <?php echo $row['unit_key'] === $unit['key'] ? 'selected' : ''; ?>>
+                                        <?php echo app_escape($unit['sku']); ?> &mdash; <?php echo app_escape($unit['label']); ?> (<?php echo app_escape((string) $unit['selling_price']); ?>)
                                     </option>
                                 <?php endforeach; ?>
                             </select>

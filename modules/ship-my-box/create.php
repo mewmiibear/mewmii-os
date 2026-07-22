@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/product_variations.php';
 app_require_permission('ship-my-box.manage');
 
 $appTitle = 'New Ship Request';
@@ -103,14 +104,20 @@ if ($customerId > 0) {
 
     if ($selectedCustomer) {
         $storedStmt = $pdo->prepare("
-            SELECT cs.id, cs.quantity, cs.arrival_date, p.sku, p.name AS product_name
+            SELECT cs.id, cs.quantity, cs.arrival_date, cs.variation_id,
+                   COALESCE(pv.sku, p.sku) AS sku, p.name AS product_name
             FROM customer_storage cs
             INNER JOIN products p ON p.id = cs.product_id
+            LEFT JOIN product_variations pv ON pv.id = cs.variation_id
             WHERE cs.customer_id = ? AND cs.status = 'stored' AND cs.quantity > 0
             ORDER BY cs.created_at DESC
         ");
         $storedStmt->execute([$customerId]);
         $storedItems = $storedStmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($storedItems as &$storedItem) {
+            $storedItem['variation_label'] = $storedItem['variation_id'] !== null ? variation_build_label($pdo, (int) $storedItem['variation_id']) : '';
+        }
+        unset($storedItem);
     }
 }
 
@@ -168,7 +175,12 @@ require_once __DIR__ . '/../../includes/header.php';
                         <?php foreach ($storedItems as $item): ?>
                             <tr>
                                 <td><?php echo app_escape($item['sku']); ?></td>
-                                <td><?php echo app_escape($item['product_name']); ?></td>
+                                <td>
+                                    <?php echo app_escape($item['product_name']); ?>
+                                    <?php if (!empty($item['variation_label'])): ?>
+                                        <div class="text-muted small"><?php echo app_escape($item['variation_label']); ?></div>
+                                    <?php endif; ?>
+                                </td>
                                 <td><?php echo app_escape($item['arrival_date'] ?? '-'); ?></td>
                                 <td><?php echo app_escape((string) $item['quantity']); ?></td>
                                 <td>

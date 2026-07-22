@@ -12,13 +12,13 @@ $failedCount = 0;
 $errors = [];
 
 try {
-    $stmt = app_db()->prepare('SELECT id, sku, name, description, selling_price FROM products WHERE sku IS NOT NULL AND TRIM(sku) <> "" ORDER BY id ASC');
+    $stmt = app_db()->prepare("SELECT id, sku, name, description, catalog_type, selling_price FROM products WHERE sku IS NOT NULL AND TRIM(sku) <> '' ORDER BY id ASC");
     $stmt->execute();
     $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     foreach ($products as $product) {
         try {
-            wc_client_sync_product_from_mewmii(app_db(), $product);
+            wc_client_sync_any_product_from_mewmii(app_db(), $product);
             sync_log_success(app_db(), 'woocommerce_product_sync', (int) ($product['id'] ?? 0));
             $successCount++;
         } catch (Throwable $e) {

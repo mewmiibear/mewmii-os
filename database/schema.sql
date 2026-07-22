@@ -93,6 +93,64 @@ CREATE TABLE IF NOT EXISTS suppliers (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Catalog taxonomies. Defined before `products` because products.brand_id references brands.
+CREATE TABLE IF NOT EXISTS brands (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(120) NOT NULL UNIQUE,
+  slug VARCHAR(140) NOT NULL UNIQUE,
+  woocommerce_term_id BIGINT UNSIGNED NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS categories (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(120) NOT NULL UNIQUE,
+  slug VARCHAR(140) NOT NULL UNIQUE,
+  parent_id INT UNSIGNED NULL,
+  woocommerce_term_id BIGINT UNSIGNED NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_categories_parent FOREIGN KEY (parent_id) REFERENCES categories(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS collections (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(120) NOT NULL UNIQUE,
+  slug VARCHAR(140) NOT NULL UNIQUE,
+  start_date DATE NULL,
+  end_date DATE NULL,
+  woocommerce_term_id BIGINT UNSIGNED NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Attributes (Character, Color, Size, ...). Character is an attribute like any other -
+-- there is no separate "characters" table. Defined before `products`/`product_variations`
+-- so later FKs can reference them.
+CREATE TABLE IF NOT EXISTS product_attributes (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(100) NOT NULL UNIQUE,
+  slug VARCHAR(120) NOT NULL UNIQUE,
+  woocommerce_attribute_id BIGINT UNSIGNED NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS product_attribute_values (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  attribute_id INT UNSIGNED NOT NULL,
+  value VARCHAR(150) NOT NULL,
+  slug VARCHAR(170) NOT NULL,
+  brand_id INT UNSIGNED NULL,
+  sort_order INT UNSIGNED NOT NULL DEFAULT 0,
+  woocommerce_term_id BIGINT UNSIGNED NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_attribute_values_attribute FOREIGN KEY (attribute_id) REFERENCES product_attributes(id) ON DELETE CASCADE,
+  CONSTRAINT fk_attribute_values_brand FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE SET NULL,
+  UNIQUE KEY uq_attribute_value (attribute_id, value)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS products (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   woocommerce_product_id BIGINT UNSIGNED NULL,
@@ -100,6 +158,8 @@ CREATE TABLE IF NOT EXISTS products (
   name VARCHAR(255) NOT NULL,
   description TEXT NULL,
   product_type VARCHAR(50) NOT NULL DEFAULT 'ready_stock',
+  catalog_type VARCHAR(20) NOT NULL DEFAULT 'simple',
+  brand_id INT UNSIGNED NULL,
   selling_price DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   product_cost DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   supplier_id INT UNSIGNED NULL,
@@ -113,16 +173,9 @@ CREATE TABLE IF NOT EXISTS products (
   published_to_woocommerce TINYINT(1) NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT fk_products_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE TABLE IF NOT EXISTS product_images (
-  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  product_id INT UNSIGNED NOT NULL,
-  image_url VARCHAR(500) NOT NULL,
-  sort_order INT UNSIGNED NOT NULL DEFAULT 0,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT fk_product_images_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+  CONSTRAINT fk_products_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE SET NULL,
+  CONSTRAINT fk_products_brand FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE SET NULL,
+  INDEX idx_products_catalog_type (catalog_type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS product_tags (
@@ -137,6 +190,127 @@ CREATE TABLE IF NOT EXISTS product_tag_relationships (
   CONSTRAINT fk_product_tag_relationships_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
   CONSTRAINT fk_product_tag_relationships_tag FOREIGN KEY (tag_id) REFERENCES product_tags(id) ON DELETE CASCADE,
   UNIQUE KEY uq_product_tag (product_id, tag_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS product_category_relationships (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  product_id INT UNSIGNED NOT NULL,
+  category_id INT UNSIGNED NOT NULL,
+  CONSTRAINT fk_product_category_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+  CONSTRAINT fk_product_category_category FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_product_category (product_id, category_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS product_collection_relationships (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  product_id INT UNSIGNED NOT NULL,
+  collection_id INT UNSIGNED NOT NULL,
+  CONSTRAINT fk_product_collection_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+  CONSTRAINT fk_product_collection_collection FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_product_collection (product_id, collection_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Which attributes (and which of their global values) apply to a given product.
+-- is_variation_attribute = 1 means the attribute participates in variation generation;
+-- = 0 means it's descriptive/filter-only and does not drive SKUs.
+CREATE TABLE IF NOT EXISTS product_attribute_assignments (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  product_id INT UNSIGNED NOT NULL,
+  attribute_id INT UNSIGNED NOT NULL,
+  is_variation_attribute TINYINT(1) NOT NULL DEFAULT 1,
+  sort_order INT UNSIGNED NOT NULL DEFAULT 0,
+  source_template_id INT UNSIGNED NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_attr_assignments_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+  CONSTRAINT fk_attr_assignments_attribute FOREIGN KEY (attribute_id) REFERENCES product_attributes(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_product_attribute (product_id, attribute_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS product_attribute_assignment_values (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  assignment_id INT UNSIGNED NOT NULL,
+  attribute_value_id INT UNSIGNED NOT NULL,
+  CONSTRAINT fk_assignment_values_assignment FOREIGN KEY (assignment_id) REFERENCES product_attribute_assignments(id) ON DELETE CASCADE,
+  CONSTRAINT fk_assignment_values_value FOREIGN KEY (attribute_value_id) REFERENCES product_attribute_values(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_assignment_value (assignment_id, attribute_value_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Sellable variation of a variable product. The parent `products` row holds shared
+-- catalog info only; each variation is its own sellable SKU with its own price/inventory.
+CREATE TABLE IF NOT EXISTS product_variations (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  product_id INT UNSIGNED NOT NULL,
+  sku VARCHAR(100) NOT NULL UNIQUE,
+  barcode VARCHAR(64) NULL,
+  weight DECIMAL(10,3) NULL,
+  price_mode VARCHAR(20) NOT NULL DEFAULT 'inherit',
+  custom_price DECIMAL(12,2) NULL,
+  cost_price DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  status VARCHAR(20) NOT NULL DEFAULT 'draft',
+  is_system_generated TINYINT(1) NOT NULL DEFAULT 1,
+  archived_at TIMESTAMP NULL,
+  woocommerce_variation_id BIGINT UNSIGNED NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_product_variations_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+  INDEX idx_product_variations_product (product_id),
+  INDEX idx_product_variations_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- The generated attribute combination for one variation, e.g. Character=Hello Kitty + Color=Pink.
+CREATE TABLE IF NOT EXISTS product_variation_attribute_values (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  variation_id INT UNSIGNED NOT NULL,
+  attribute_id INT UNSIGNED NOT NULL,
+  attribute_value_id INT UNSIGNED NOT NULL,
+  CONSTRAINT fk_variation_attr_values_variation FOREIGN KEY (variation_id) REFERENCES product_variations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_variation_attr_values_attribute FOREIGN KEY (attribute_id) REFERENCES product_attributes(id) ON DELETE CASCADE,
+  CONSTRAINT fk_variation_attr_values_value FOREIGN KEY (attribute_value_id) REFERENCES product_attribute_values(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_variation_attribute (variation_id, attribute_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS product_images (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  product_id INT UNSIGNED NOT NULL,
+  variation_id INT UNSIGNED NULL,
+  image_url VARCHAR(500) NOT NULL,
+  sort_order INT UNSIGNED NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_product_images_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+  CONSTRAINT fk_product_images_variation FOREIGN KEY (variation_id) REFERENCES product_variations(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Reusable attribute/value presets (e.g. "Sanrio Character Collection" = Character:
+-- Hello Kitty, My Melody, Kuromi). Applying a template COPIES its selections into the
+-- product's own product_attribute_assignments/product_attribute_assignment_values rows -
+-- it is never a live link, so editing a template later never reshuffles products that
+-- already used it.
+CREATE TABLE IF NOT EXISTS variation_templates (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(150) NOT NULL UNIQUE,
+  description VARCHAR(255) NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS variation_template_attributes (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  template_id INT UNSIGNED NOT NULL,
+  attribute_id INT UNSIGNED NOT NULL,
+  is_variation_attribute TINYINT(1) NOT NULL DEFAULT 1,
+  sort_order INT UNSIGNED NOT NULL DEFAULT 0,
+  CONSTRAINT fk_template_attributes_template FOREIGN KEY (template_id) REFERENCES variation_templates(id) ON DELETE CASCADE,
+  CONSTRAINT fk_template_attributes_attribute FOREIGN KEY (attribute_id) REFERENCES product_attributes(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_template_attribute (template_id, attribute_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS variation_template_attribute_values (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  template_attribute_id INT UNSIGNED NOT NULL,
+  attribute_value_id INT UNSIGNED NOT NULL,
+  CONSTRAINT fk_template_attr_values_template_attribute FOREIGN KEY (template_attribute_id) REFERENCES variation_template_attributes(id) ON DELETE CASCADE,
+  CONSTRAINT fk_template_attr_values_value FOREIGN KEY (attribute_value_id) REFERENCES product_attribute_values(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_template_attribute_value (template_attribute_id, attribute_value_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS customer_memberships (
@@ -279,11 +453,14 @@ CREATE TABLE IF NOT EXISTS mewmii_order_items (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   order_id INT UNSIGNED NOT NULL,
   product_id INT UNSIGNED NOT NULL,
+  variation_id INT UNSIGNED NULL,
+  variation_label VARCHAR(255) NULL,
   quantity INT UNSIGNED NOT NULL DEFAULT 1,
   selling_price DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   cost_snapshot DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   CONSTRAINT fk_mewmii_order_items_order FOREIGN KEY (order_id) REFERENCES mewmii_orders(id) ON DELETE CASCADE,
-  CONSTRAINT fk_mewmii_order_items_product FOREIGN KEY (product_id) REFERENCES products(id)
+  CONSTRAINT fk_mewmii_order_items_product FOREIGN KEY (product_id) REFERENCES products(id),
+  CONSTRAINT fk_mewmii_order_items_variation FOREIGN KEY (variation_id) REFERENCES product_variations(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS mewmii_order_events (
@@ -316,6 +493,7 @@ CREATE TABLE IF NOT EXISTS supplier_order_items (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   supplier_order_id INT UNSIGNED NOT NULL,
   product_id INT UNSIGNED NOT NULL,
+  variation_id INT UNSIGNED NULL,
   customer_quantity INT UNSIGNED NOT NULL DEFAULT 0,
   moq_quantity INT UNSIGNED NOT NULL DEFAULT 0,
   top_up_quantity INT UNSIGNED NOT NULL DEFAULT 0,
@@ -323,42 +501,57 @@ CREATE TABLE IF NOT EXISTS supplier_order_items (
   supplier_price DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   subtotal DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   CONSTRAINT fk_supplier_order_items_order FOREIGN KEY (supplier_order_id) REFERENCES supplier_orders(id) ON DELETE CASCADE,
-  CONSTRAINT fk_supplier_order_items_product FOREIGN KEY (product_id) REFERENCES products(id)
+  CONSTRAINT fk_supplier_order_items_product FOREIGN KEY (product_id) REFERENCES products(id),
+  CONSTRAINT fk_supplier_order_items_variation FOREIGN KEY (variation_id) REFERENCES product_variations(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Simple product: inventory row has variation_id = NULL (one row per product).
+-- Variable product: inventory lives on each variation's own row (variation_id set);
+-- the parent product never gets its own directly-stored row - its "stock" is always
+-- computed as a SUM across its variations (see product_effective_stock() in
+-- includes/inventory.php). variation_key collapses NULL to 0 so the unique key still
+-- enforces "at most one row per simple product" the same way the old product-only
+-- unique key did.
 CREATE TABLE IF NOT EXISTS mewmii_inventory (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   product_id INT UNSIGNED NOT NULL,
+  variation_id INT UNSIGNED NULL,
+  variation_key INT UNSIGNED GENERATED ALWAYS AS (COALESCE(variation_id, 0)) STORED,
   available_quantity INT NOT NULL DEFAULT 0,
   reserved_quantity INT NOT NULL DEFAULT 0,
   incoming_quantity INT NOT NULL DEFAULT 0,
   customer_storage_quantity INT NOT NULL DEFAULT 0,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_mewmii_inventory_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
-  UNIQUE KEY uq_inventory_product (product_id)
+  CONSTRAINT fk_mewmii_inventory_variation FOREIGN KEY (variation_id) REFERENCES product_variations(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_inventory_product_variation (product_id, variation_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS inventory_transactions (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   product_id INT UNSIGNED NOT NULL,
+  variation_id INT UNSIGNED NULL,
   transaction_type VARCHAR(50) NOT NULL,
   quantity INT NOT NULL DEFAULT 0,
   reference_type VARCHAR(50) NULL,
   reference_id INT UNSIGNED NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT fk_inventory_transactions_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+  CONSTRAINT fk_inventory_transactions_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+  CONSTRAINT fk_inventory_transactions_variation FOREIGN KEY (variation_id) REFERENCES product_variations(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS customer_storage (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   customer_id INT UNSIGNED NOT NULL,
   product_id INT UNSIGNED NOT NULL,
+  variation_id INT UNSIGNED NULL,
   quantity INT UNSIGNED NOT NULL DEFAULT 1,
   status VARCHAR(20) NOT NULL DEFAULT 'stored',
   arrival_date DATE NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_customer_storage_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
   CONSTRAINT fk_customer_storage_product FOREIGN KEY (product_id) REFERENCES products(id),
+  CONSTRAINT fk_customer_storage_variation FOREIGN KEY (variation_id) REFERENCES product_variations(id),
   INDEX idx_customer_storage_customer (customer_id),
   INDEX idx_customer_storage_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
