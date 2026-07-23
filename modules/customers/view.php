@@ -40,9 +40,28 @@ if (!$customer) {
 }
 
 // This page only requires customers.view - the order links below go to
-// modules/orders/view.php, which requires orders.view. The destination controls
-// permission, so each link is gated on that, not this page's own gate.
+// modules/orders/view.php, which requires orders.view; the shipment links go to
+// modules/shipments/view.php, which requires shipments.view; and the storage history link
+// goes to modules/customer-storage/view.php, which requires customer-storage.view. The
+// destination controls permission, so each link is gated on that, not this page's own gate.
 $canViewOrders = app_has_permission('orders.view');
+$canViewShipments = app_has_permission('shipments.view');
+$canViewCustomerStorage = app_has_permission('customer-storage.view');
+
+// Summary card metrics - one dedicated aggregate query, separate from the Orders list query
+// below so the summary stays correct even if that list's own query later changes (e.g. gains
+// a LIMIT/filter). Average Order Value is computed here in PHP, not SQL, only when
+// total_orders > 0 (undefined/meaningless otherwise).
+$summaryStmt = $pdo->prepare('
+    SELECT COUNT(*) AS total_orders, COALESCE(SUM(total_amount), 0) AS lifetime_spend, MAX(order_date) AS last_order_date
+    FROM mewmii_orders
+    WHERE customer_id = ?
+');
+$summaryStmt->execute([$customerId]);
+$customerSummary = $summaryStmt->fetch(PDO::FETCH_ASSOC);
+$customerSummary['average_order_value'] = ((int) $customerSummary['total_orders'] > 0)
+    ? ((float) $customerSummary['lifetime_spend'] / (int) $customerSummary['total_orders'])
+    : null;
 
 // Section 1: Orders
 $ordersStmt = $pdo->prepare('
@@ -87,6 +106,34 @@ require_once __DIR__ . '/../../includes/header.php';
         </p>
     </div>
     <a class="btn btn-outline-secondary btn-sm" href="/modules/customers/index.php">Back to Customers</a>
+</div>
+
+<div class="card p-4 mb-4">
+    <h5 class="mb-3">Customer Summary</h5>
+    <div class="row g-3">
+        <div class="col-6 col-md-3">
+            <div class="text-muted small">Total Orders</div>
+            <div class="fs-4"><?php echo (int) $customerSummary['total_orders']; ?></div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="text-muted small">Lifetime Spend</div>
+            <div class="fs-4">RM <?php echo app_escape(number_format((float) $customerSummary['lifetime_spend'], 2)); ?></div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="text-muted small">Last Order</div>
+            <div class="fs-4"><?php echo $customerSummary['last_order_date'] !== null ? app_escape($customerSummary['last_order_date']) : 'Never'; ?></div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="text-muted small">Average Order Value</div>
+            <div class="fs-4">
+                <?php if ($customerSummary['average_order_value'] !== null): ?>
+                    RM <?php echo app_escape(number_format($customerSummary['average_order_value'], 2)); ?>
+                <?php else: ?>
+                    &mdash;
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div class="card p-4 mb-4">
@@ -166,7 +213,9 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php endif; ?>
         </tbody>
     </table>
-    <a class="small" href="/modules/customer-storage/view.php?customer_id=<?php echo (int) $customerId; ?>">Full storage history &rarr;</a>
+    <?php if ($canViewCustomerStorage): ?>
+        <a class="small" href="/modules/customer-storage/view.php?customer_id=<?php echo (int) $customerId; ?>">Full storage history &rarr;</a>
+    <?php endif; ?>
 </div>
 
 <div class="card p-4">
@@ -186,7 +235,13 @@ require_once __DIR__ . '/../../includes/header.php';
         <tbody>
             <?php foreach ($shipments as $shipment): ?>
                 <tr>
-                    <td><a href="/modules/shipments/view.php?id=<?php echo (int) $shipment['id']; ?>"><?php echo app_escape($shipment['shipment_number']); ?></a></td>
+                    <td>
+                        <?php if ($canViewShipments): ?>
+                            <a href="/modules/shipments/view.php?id=<?php echo (int) $shipment['id']; ?>"><?php echo app_escape($shipment['shipment_number']); ?></a>
+                        <?php else: ?>
+                            <?php echo app_escape($shipment['shipment_number']); ?>
+                        <?php endif; ?>
+                    </td>
                     <td>
                         <?php foreach ($shipment['orders'] as $shipmentOrder): ?>
                             <div>

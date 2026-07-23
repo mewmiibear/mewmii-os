@@ -15,8 +15,13 @@ $filterProductId = isset($_GET['product_id']) && ctype_digit((string) $_GET['pro
     : null;
 $filterProductLabel = null;
 
+// Optional ?filter=overdue - same read-only, additive pattern as ?product_id= above. The
+// overdue condition is copied verbatim from index.php's (dashboard) Overdue card - never
+// re-derived, so this filter can never disagree with that count.
+$filterOverdue = ($_GET['filter'] ?? '') === 'overdue';
+
 $sql = '
-    SELECT DISTINCT so.id, so.purchase_number, so.status, so.payment_status, so.is_historical, so.estimated_cost, so.actual_cost, so.shipping_fee, so.order_date, s.name AS supplier_name
+    SELECT DISTINCT so.id, so.purchase_number, so.status, so.payment_status, so.is_historical, so.estimated_cost, so.actual_cost, so.shipping_fee, so.order_date, so.expected_delivery_date, s.name AS supplier_name
     FROM supplier_orders so
     INNER JOIN suppliers s ON s.id = so.supplier_id
 ';
@@ -30,10 +35,26 @@ if ($filterProductId !== null) {
     $productLookupRow = $productLookupStmt->fetch(PDO::FETCH_ASSOC);
     $filterProductLabel = $productLookupRow !== false ? ($productLookupRow['sku'] . ' - ' . $productLookupRow['name']) : null;
 }
+if ($filterOverdue) {
+    $sql .= " WHERE so.expected_delivery_date IS NOT NULL AND so.expected_delivery_date < CURDATE() AND so.status NOT IN ('received', 'completed', 'cancelled')";
+}
 $sql .= ' ORDER BY so.id DESC LIMIT 20';
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $supplierOrders = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Per-row overdue flag + days overdue for the badge below - same definition as the WHERE
+// clause above / the dashboard's Overdue card, just evaluated in PHP per row since a single
+// boolean column isn't enough here (the badge also needs the day count).
+foreach ($supplierOrders as &$supplierOrder) {
+    $supplierOrder['is_overdue'] = $supplierOrder['expected_delivery_date'] !== null
+        && strtotime($supplierOrder['expected_delivery_date']) < strtotime('today')
+        && !in_array($supplierOrder['status'], ['received', 'completed', 'cancelled'], true);
+    $supplierOrder['days_overdue'] = $supplierOrder['is_overdue']
+        ? (int) floor((strtotime('today') - strtotime($supplierOrder['expected_delivery_date'])) / 86400)
+        : 0;
+}
+unset($supplierOrder);
 
 $canManage = app_has_permission('supplier-orders.manage');
 
@@ -47,6 +68,12 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php if ($filterProductId !== null): ?>
                 &middot; Containing product: <strong><?php echo app_escape($filterProductLabel ?? ('#' . $filterProductId)); ?></strong>
                 <a href="/modules/supplier-orders/index.php" class="ms-1">(clear)</a>
+            <?php endif; ?>
+            <?php if ($filterOverdue): ?>
+                &middot; Filtered: <strong>Overdue</strong>
+                <a href="/modules/supplier-orders/index.php" class="ms-1">(clear)</a>
+            <?php else: ?>
+                &middot; <a href="/modules/supplier-orders/index.php?filter=overdue">Show overdue only</a>
             <?php endif; ?>
         </p>
     </div>
@@ -92,7 +119,12 @@ require_once __DIR__ . '/../../includes/header.php';
                         <?php endif; ?>
                     </td>
                     <td><?php echo app_escape($order['supplier_name']); ?></td>
-                    <td><?php echo supplier_order_status_badge($order['status']); ?></td>
+                    <td>
+                        <?php echo supplier_order_status_badge($order['status']); ?>
+                        <?php if ($order['is_overdue']): ?>
+                            <span class="badge bg-danger">Overdue by <?php echo (int) $order['days_overdue']; ?> day<?php echo $order['days_overdue'] === 1 ? '' : 's'; ?></span>
+                        <?php endif; ?>
+                    </td>
                     <td><?php echo supplier_order_payment_status_badge((string) $order['payment_status']); ?></td>
                     <td>RM <?php echo app_escape(number_format((float) $order['estimated_cost'] + (float) $order['shipping_fee'], 2)); ?></td>
                     <td><?php echo app_escape($order['order_date'] ?? '-'); ?></td>

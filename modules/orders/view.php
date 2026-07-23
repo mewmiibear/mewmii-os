@@ -261,6 +261,9 @@ unset($item);
 // Reservation Center, preorder/early-bird via the Allocation Center. Display-only; doesn't
 // change what order_item_get_fulfillment_status() computes.
 $canViewInventory = app_has_permission('inventory.view');
+// Same reasoning: the Purchase Planning link below goes to
+// modules/purchase-planning/generate.php, which requires supplier-orders.manage.
+$canManageSupplierOrders = app_has_permission('supplier-orders.manage');
 
 $shipmentsStmt = $pdo->prepare('
     SELECT DISTINCT s.id, s.shipment_number, s.carrier, s.tracking_number, s.shipping_status, s.shipped_at, s.created_at
@@ -439,6 +442,11 @@ require_once __DIR__ . '/../../includes/header.php';
                                         : '/modules/inventory/allocate.php?product_id=' . (int) $item['product_id'] . ($item['variation_id'] !== null ? '&variation_id=' . (int) $item['variation_id'] : '');
                                     ?>
                                     <a href="<?php echo app_escape($resolveUrl); ?>">Resolve Stock Issue &rarr;</a>
+                                    <?php if ($canManageSupplierOrders): ?>
+                                        <div class="small">
+                                            <a href="/modules/purchase-planning/generate.php?highlight_product_id=<?php echo (int) $item['product_id']; ?>">Check Purchase Planning &rarr;</a>
+                                        </div>
+                                    <?php endif; ?>
                                 <?php else: ?>
                                     <div><?php echo app_escape(order_item_fulfillment_label($fulfillment['state'])); ?></div>
                                 <?php endif; ?>
@@ -565,7 +573,9 @@ require_once __DIR__ . '/../../includes/header.php';
                     <li class="text-muted">No inventory activity for this order yet.</li>
                 <?php endif; ?>
             </ul>
-            <a class="small" href="/modules/inventory/index.php">View full inventory transaction history &rarr;</a>
+            <?php if ($canViewInventory): ?>
+                <a class="small" href="/modules/inventory/index.php">View full inventory transaction history &rarr;</a>
+            <?php endif; ?>
         </div>
 
         <div class="card p-4 mb-4">

@@ -180,6 +180,10 @@ $availableQuantity = (int) $inventoryRow['available_quantity'];
 // redirect above (the ids were already computed by the POST handler - this just surfaces
 // them, no new write/logic). Gated on orders.view since these link into a different module.
 $canViewOrders = app_has_permission('orders.view');
+// Purchase Planning link below (shown when there's demand but nothing available to reserve)
+// goes to modules/purchase-planning/generate.php, which requires supplier-orders.manage -
+// the destination permission, not this page's own inventory.view/manage gate.
+$canManageSupplierOrders = app_has_permission('supplier-orders.manage');
 $touchedOrders = [];
 if (isset($_GET['order_ids']) && $_GET['order_ids'] !== '') {
     $orderIds = array_values(array_unique(array_filter(array_map('intval', explode(',', (string) $_GET['order_ids'])))));
@@ -263,6 +267,13 @@ require_once __DIR__ . '/../../includes/header.php';
     <h5 class="mb-1">Available</h5>
     <p class="display-6 mb-0"><?php echo (int) $availableQuantity; ?></p>
 </div>
+
+<?php if ($availableQuantity <= 0 && $candidates !== [] && $canManageSupplierOrders): ?>
+    <div class="alert alert-warning">
+        No stock available to reserve, but orders are waiting on this product -
+        <a href="/modules/purchase-planning/generate.php?highlight_product_id=<?php echo (int) $productId; ?>">check Purchase Planning &rarr;</a>
+    </div>
+<?php endif; ?>
 
 <?php if ($canManage): ?>
     <?php if ($candidates !== []): ?>

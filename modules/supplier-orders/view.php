@@ -261,6 +261,11 @@ if (isset($_GET['received'])) {
     }
 }
 $canViewInventory = app_has_permission('inventory.view');
+// Same reasoning: the supplier name links to modules/suppliers/view.php (suppliers.view),
+// and each line item's product name links to modules/products/view.php (products.view) -
+// both destination permissions, not this page's own supplier-orders.view/manage gate.
+$canViewSuppliers = app_has_permission('suppliers.view');
+$canViewProducts = app_has_permission('products.view');
 
 $historyStmt = $pdo->prepare("
     SELECT it.quantity, it.created_at, p.sku, p.name AS product_name
@@ -294,6 +299,15 @@ $nextStatus = supplier_order_status_next((string) $order['status']);
 // can no longer be cancelled (see supplier_order_cancel()'s guard).
 $canCancel = $canManage && empty($order['is_historical']) && !in_array($order['status'], ['cancelled', 'completed'], true) && !supplier_order_has_receiving_history($pdo, $orderId);
 
+// Overdue flag - same definition as the dashboard's Overdue card and supplier-orders/index.php's
+// ?filter=overdue, never re-derived.
+$isOverdue = $order['expected_delivery_date'] !== null
+    && strtotime($order['expected_delivery_date']) < strtotime('today')
+    && !in_array($order['status'], ['received', 'completed', 'cancelled'], true);
+$daysOverdue = $isOverdue
+    ? (int) floor((strtotime('today') - strtotime($order['expected_delivery_date'])) / 86400)
+    : 0;
+
 require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -304,7 +318,13 @@ require_once __DIR__ . '/../../includes/header.php';
                 <span class="badge bg-secondary">Historical</span>
             <?php endif; ?>
         </h2>
-        <p class="text-muted mb-0"><?php echo app_escape($order['supplier_name']); ?></p>
+        <p class="text-muted mb-0">
+            <?php if ($canViewSuppliers): ?>
+                <a href="/modules/suppliers/view.php?id=<?php echo (int) $order['supplier_id']; ?>"><?php echo app_escape($order['supplier_name']); ?></a>
+            <?php else: ?>
+                <?php echo app_escape($order['supplier_name']); ?>
+            <?php endif; ?>
+        </p>
     </div>
     <div class="d-flex gap-2">
         <?php if ($canManage): ?>
@@ -366,9 +386,20 @@ require_once __DIR__ . '/../../includes/header.php';
             <table class="table table-borderless mb-0">
                 <tr><th>Status</th><td><?php echo supplier_order_status_badge($order['status']); ?></td></tr>
                 <tr><th>Payment Status</th><td><?php echo supplier_order_payment_status_badge((string) $order['payment_status']); ?></td></tr>
-                <tr><th>Supplier</th><td><?php echo app_escape($order['supplier_name']); ?></td></tr>
+                <tr><th>Supplier</th><td>
+                    <?php if ($canViewSuppliers): ?>
+                        <a href="/modules/suppliers/view.php?id=<?php echo (int) $order['supplier_id']; ?>"><?php echo app_escape($order['supplier_name']); ?></a>
+                    <?php else: ?>
+                        <?php echo app_escape($order['supplier_name']); ?>
+                    <?php endif; ?>
+                </td></tr>
                 <tr><th>Created Date</th><td><?php echo app_escape($order['order_date'] ?? '-'); ?></td></tr>
-                <tr><th>Expected Delivery</th><td><?php echo app_escape($order['expected_delivery_date'] ?? '-'); ?></td></tr>
+                <tr><th>Expected Delivery</th><td>
+                    <?php echo app_escape($order['expected_delivery_date'] ?? '-'); ?>
+                    <?php if ($isOverdue): ?>
+                        <span class="badge bg-danger">Overdue by <?php echo (int) $daysOverdue; ?> day<?php echo $daysOverdue === 1 ? '' : 's'; ?></span>
+                    <?php endif; ?>
+                </td></tr>
                 <tr><th>Product Subtotal</th><td>RM <?php echo app_escape(number_format($orderTotal, 2)); ?></td></tr>
                 <tr><th>Shipping Fee</th><td>RM <?php echo app_escape(number_format((float) $order['shipping_fee'], 2)); ?></td></tr>
                 <tr><th>Total Purchase Amount</th><td>RM <?php echo app_escape(number_format($totalPurchaseAmount, 2)); ?></td></tr>
@@ -400,7 +431,11 @@ require_once __DIR__ . '/../../includes/header.php';
                         <tr>
                             <td><?php echo app_escape($item['sku']); ?></td>
                             <td>
-                                <?php echo app_escape($item['product_name']); ?>
+                                <?php if ($canViewProducts): ?>
+                                    <a href="/modules/products/view.php?id=<?php echo (int) $item['product_id']; ?>"><?php echo app_escape($item['product_name']); ?></a>
+                                <?php else: ?>
+                                    <?php echo app_escape($item['product_name']); ?>
+                                <?php endif; ?>
                                 <?php if (!empty($item['variation_label'])): ?>
                                     <div class="text-muted small"><?php echo app_escape($item['variation_label']); ?></div>
                                 <?php endif; ?>
