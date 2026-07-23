@@ -87,6 +87,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $needs = purchase_planning_needs($pdo);
 
+// Separate, standalone warning - see purchase_planning_untargeted_demand()
+// (includes/purchase_planning.php). Never merged into $needs and never fed into generation;
+// purely an admin-facing signal for a gap the main shortage list can't see by design.
+$untargetedDemand = purchase_planning_untargeted_demand($pdo);
+$canManageProducts = app_has_permission('products.manage');
+
 $supplierIds = array_unique(array_filter(array_column($needs, 'supplier_id')));
 $suppliersById = [];
 if ($supplierIds !== []) {
@@ -160,6 +166,37 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="alert alert-danger"><?php echo app_escape($error); ?></div>
 <?php endif; ?>
 
+<?php if ($untargetedDemand !== []): ?>
+    <div class="card p-4 mb-4 border-warning">
+        <h5 class="mb-2">&#9888; Waiting Demand With No Reorder Target Set</h5>
+        <p class="text-muted small mb-3">These Ready Stock products have orders waiting on them but no Target Stock Level set, so they can never appear in the list below - that formula requires a target to calculate a shortage at all. Set a target on each product to bring it into Purchase Planning.</p>
+        <table class="table table-sm align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>SKU</th>
+                    <th>Product</th>
+                    <th>Waiting Demand</th>
+                    <?php if ($canManageProducts): ?><th></th><?php endif; ?>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($untargetedDemand as $warning): ?>
+                    <tr>
+                        <td><?php echo app_escape($warning['sku']); ?></td>
+                        <td><?php echo app_escape($warning['label'] !== null ? ($warning['sku'] . ' - ' . $warning['label']) : $warning['sku']); ?></td>
+                        <td><?php echo (int) $warning['demand']; ?></td>
+                        <?php if ($canManageProducts): ?>
+                            <td class="text-end">
+                                <a class="btn btn-sm btn-outline-warning" href="/modules/products/edit.php?id=<?php echo (int) $warning['product_id']; ?>">Set Target Stock Level</a>
+                            </td>
+                        <?php endif; ?>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+<?php endif; ?>
+
 <?php if ($needs === []): ?>
     <div class="card p-4">
         <p class="text-muted mb-0">Nothing currently needs ordering. Preorder/Early Bird products need paid customer orders exceeding incoming stock; Ready Stock products need a Target Stock Level set (Product Edit page) above available + incoming stock.</p>
@@ -212,7 +249,7 @@ require_once __DIR__ . '/../../includes/header.php';
                                 // live (same convention already used by the Total column below).
                                 $left = $need['moq_top_up'];
                                 ?>
-                                <tr>
+                                <tr id="need-<?php echo app_escape($safeRowKey); ?>">
                                     <td>
                                         <input type="checkbox" class="form-check-input row-select" name="selected[]" value="<?php echo app_escape($rowKey); ?>" <?php echo $disabled ? 'disabled' : 'checked'; ?>>
                                         <input type="hidden" name="product_id[<?php echo app_escape($rowKey); ?>]" value="<?php echo (int) $need['product_id']; ?>">

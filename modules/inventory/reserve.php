@@ -126,7 +126,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     $redirect = '/modules/inventory/reserve.php?product_id=' . $productId
                         . ($variationId !== null ? '&variation_id=' . $variationId : '')
-                        . '&reserved=1';
+                        . '&reserved=1'
+                        . '&order_ids=' . implode(',', array_keys($touchedOrderIds));
                     app_redirect($redirect);
                 } catch (RuntimeException $exception) {
                     $pdo->rollBack();
@@ -146,15 +147,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     throw new RuntimeException('Nothing to reserve - no available stock or no outstanding paid orders for this item.');
                 }
 
+                $touchedOrderIds = [];
                 foreach ($reservations as $reservation) {
                     order_recompute_status($pdo, $reservation['order_id']);
+                    $touchedOrderIds[$reservation['order_id']] = true;
                 }
 
                 $pdo->commit();
 
                 $redirect = '/modules/inventory/reserve.php?product_id=' . $productId
                     . ($variationId !== null ? '&variation_id=' . $variationId : '')
-                    . '&reserved=' . count($reservations);
+                    . '&reserved=' . count($reservations)
+                    . '&order_ids=' . implode(',', array_keys($touchedOrderIds));
                 app_redirect($redirect);
             } catch (RuntimeException $exception) {
                 $pdo->rollBack();
@@ -171,6 +175,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $inventoryRow = inventory_get_or_create_row($pdo, $productId, $variationId);
 $availableQuantity = (int) $inventoryRow['available_quantity'];
+
+// Success-message glue: which order(s) this action just touched, passed through via the
+// redirect above (the ids were already computed by the POST handler - this just surfaces
+// them, no new write/logic). Gated on orders.view since these link into a different module.
+$canViewOrders = app_has_permission('orders.view');
+$touchedOrders = [];
+if (isset($_GET['order_ids']) && $_GET['order_ids'] !== '') {
+    $orderIds = array_values(array_unique(array_filter(array_map('intval', explode(',', (string) $_GET['order_ids'])))));
+    if ($orderIds !== []) {
+        $orderPlaceholders = implode(',', array_fill(0, count($orderIds), '?'));
+        $touchedOrdersStmt = $pdo->prepare("SELECT id, order_number FROM mewmii_orders WHERE id IN ({$orderPlaceholders})");
+        $touchedOrdersStmt->execute($orderIds);
+        $touchedOrders = $touchedOrdersStmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+}
 
 $candidatesStmt = $pdo->prepare("
     SELECT oi.id AS order_item_id, oi.quantity, o.id AS order_id, o.order_number, o.order_date,
@@ -221,7 +240,20 @@ require_once __DIR__ . '/../../includes/header.php';
 </div>
 
 <?php if (isset($_GET['reserved'])): ?>
-    <div class="alert alert-success">Stock reserved for selected order(s).</div>
+    <div class="alert alert-success">
+        Stock reserved for selected order(s).
+        <?php if ($touchedOrders !== []): ?>
+            <div class="mt-2 d-flex gap-1 flex-wrap">
+                <?php foreach ($touchedOrders as $touchedOrder): ?>
+                    <?php if ($canViewOrders): ?>
+                        <a class="btn btn-sm btn-outline-success" href="/modules/orders/view.php?id=<?php echo (int) $touchedOrder['id']; ?>"><?php echo app_escape($touchedOrder['order_number']); ?></a>
+                    <?php else: ?>
+                        <span class="badge bg-success"><?php echo app_escape($touchedOrder['order_number']); ?></span>
+                    <?php endif; ?>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+    </div>
 <?php endif; ?>
 <?php if ($error !== ''): ?>
     <div class="alert alert-danger"><?php echo nl2br(app_escape($error)); ?></div>

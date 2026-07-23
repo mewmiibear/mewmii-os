@@ -8,6 +8,10 @@ app_require_permission('orders.manage');
 
 $appTitle = 'New Order';
 $error = '';
+// Set alongside $error only for the ready-stock insufficient-availability case below, so the
+// template can offer a Purchase Planning link for that exact product - display/navigation
+// only, the stock check itself is unchanged.
+$insufficientStockUnit = null;
 $pdo = app_db();
 
 $form = [
@@ -160,6 +164,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($available < $neededQty) {
                 $error = catalog_format_stock_error($pdo, 'Insufficient available stock.', $unit['product_id'], $unit['variation_id'], 'Available quantity', $available, $neededQty);
+                $insufficientStockUnit = $unit;
                 break;
             }
         }
@@ -231,6 +236,7 @@ $pickerCategories = catalog_list_categories_tree($pdo);
 $pickerBrands = $pdo->query('SELECT id, name FROM brands ORDER BY name ASC')->fetchAll(PDO::FETCH_ASSOC);
 $pickerSuppliers = $pdo->query('SELECT id, name FROM suppliers ORDER BY name ASC LIMIT 200')->fetchAll(PDO::FETCH_ASSOC);
 $pickerProducts = order_picker_products($pdo);
+$canViewPurchasePlanning = app_has_permission('supplier-orders.manage');
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
@@ -243,7 +249,16 @@ require_once __DIR__ . '/../../includes/header.php';
 </div>
 
 <?php if ($error !== ''): ?>
-    <div class="alert alert-danger"><?php echo nl2br(app_escape($error)); ?></div>
+    <div class="alert alert-danger">
+        <?php echo nl2br(app_escape($error)); ?>
+        <?php if ($insufficientStockUnit !== null && $canViewPurchasePlanning): ?>
+            <div class="mt-2">
+                <a class="btn btn-sm btn-outline-danger" href="/modules/purchase-planning/generate.php#need-<?php echo app_escape(str_replace(':', '-', $insufficientStockUnit['key'])); ?>">
+                    Check Purchase Planning for <?php echo app_escape($insufficientStockUnit['label']); ?>
+                </a>
+            </div>
+        <?php endif; ?>
+    </div>
 <?php endif; ?>
 
 <div class="card p-4">

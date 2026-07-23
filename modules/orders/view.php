@@ -241,8 +241,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $itemsStmt = $pdo->prepare('
-    SELECT oi.id, oi.quantity, oi.selling_price, oi.discount, oi.subtotal, oi.cost_snapshot, oi.variation_label,
-           COALESCE(pv.sku, p.sku) AS sku, p.name AS product_name
+    SELECT oi.id, oi.product_id, oi.variation_id, oi.quantity, oi.selling_price, oi.discount, oi.subtotal, oi.cost_snapshot, oi.variation_label,
+           COALESCE(pv.sku, p.sku) AS sku, p.name AS product_name, p.product_type
     FROM mewmii_order_items oi
     INNER JOIN products p ON p.id = oi.product_id
     LEFT JOIN product_variations pv ON pv.id = oi.variation_id
@@ -255,6 +255,12 @@ foreach ($items as &$item) {
     $item['fulfillment'] = order_item_get_fulfillment_status($pdo, (int) $item['id']);
 }
 unset($item);
+
+// "Resolve Stock Issue" link target for a waiting_stock item - same product-type split as
+// the receiving prompt on modules/supplier-orders/view.php: ready-stock resolves via the
+// Reservation Center, preorder/early-bird via the Allocation Center. Display-only; doesn't
+// change what order_item_get_fulfillment_status() computes.
+$canViewInventory = app_has_permission('inventory.view');
 
 $shipmentsStmt = $pdo->prepare('
     SELECT DISTINCT s.id, s.shipment_number, s.carrier, s.tracking_number, s.shipping_status, s.shipped_at, s.created_at
@@ -410,7 +416,16 @@ require_once __DIR__ . '/../../includes/header.php';
                             <td>RM <?php echo app_escape(number_format((float) ($item['discount'] ?? 0), 2)); ?></td>
                             <td>RM <?php echo app_escape(number_format((float) ($item['subtotal'] ?? ($item['quantity'] * $item['selling_price'])), 2)); ?></td>
                             <td>
-                                <div><?php echo app_escape(order_item_fulfillment_label($fulfillment['state'])); ?></div>
+                                <?php if ($fulfillment['state'] === 'waiting_stock' && $canViewInventory): ?>
+                                    <?php
+                                    $resolveUrl = $item['product_type'] === 'ready_stock'
+                                        ? '/modules/inventory/reserve.php?product_id=' . (int) $item['product_id'] . ($item['variation_id'] !== null ? '&variation_id=' . (int) $item['variation_id'] : '')
+                                        : '/modules/inventory/allocate.php?product_id=' . (int) $item['product_id'] . ($item['variation_id'] !== null ? '&variation_id=' . (int) $item['variation_id'] : '');
+                                    ?>
+                                    <a href="<?php echo app_escape($resolveUrl); ?>">Resolve Stock Issue &rarr;</a>
+                                <?php else: ?>
+                                    <div><?php echo app_escape(order_item_fulfillment_label($fulfillment['state'])); ?></div>
+                                <?php endif; ?>
                                 <?php foreach ($fulfillment['shipments'] as $itemShipment): ?>
                                     <div class="text-muted small">
                                         <a href="/modules/shipments/view.php?id=<?php echo (int) $itemShipment['id']; ?>"><?php echo app_escape($itemShipment['shipment_number']); ?></a>

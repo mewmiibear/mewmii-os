@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/supplier_orders.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
+require_once __DIR__ . '/../../includes/customer_storage.php';
 app_require_permission('supplier-orders.view');
 
 $appTitle = 'Supplier Order Detail';
@@ -74,7 +75,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     supplier_order_receive_item($pdo, $itemId, $quantity);
                     $pdo->commit();
 
-                    app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1');
+                    app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1&received=1');
                 } catch (RuntimeException $exception) {
                     $pdo->rollBack();
                     $error = $exception->getMessage();
@@ -93,7 +94,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     supplier_order_receive_all_remaining($pdo, $orderId);
                     $pdo->commit();
 
-                    app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1');
+                    app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1&received=1');
                 } catch (RuntimeException $exception) {
                     $pdo->rollBack();
                     $error = $exception->getMessage();
@@ -201,8 +202,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $itemsStmt = $pdo->prepare('
-    SELECT soi.id, soi.total_quantity, soi.supplier_price, soi.subtotal, soi.variation_id,
-           COALESCE(pv.sku, p.sku) AS sku, p.name AS product_name
+    SELECT soi.id, soi.product_id, soi.total_quantity, soi.supplier_price, soi.subtotal, soi.variation_id,
+           COALESCE(pv.sku, p.sku) AS sku, p.name AS product_name, p.product_type
     FROM supplier_order_items soi
     INNER JOIN products p ON p.id = soi.product_id
     LEFT JOIN product_variations pv ON pv.id = soi.variation_id
@@ -220,6 +221,46 @@ foreach ($items as &$item) {
     $orderTotal += (float) $item['subtotal'];
 }
 unset($item);
+
+// Receiving glue prompt (display-only): right after a receive/mark-arrived action, check the
+// SAME existing demand functions the Reservation/Allocation Centers already use
+// (inventory_unit_unreserved_demand()/inventory_unit_outstanding_demand(), both unchanged) for
+// every distinct product/variation on this order, and if either shows real waiting demand,
+// surface a direct link to the page that resolves it - instead of leaving that connection to
+// be found manually. Never runs outside the ?received=1 redirect from this page's own
+// receive/mark_arrived actions, and never touches the ledger itself.
+$receivingPrompts = ['reservation' => [], 'allocation' => []];
+if (isset($_GET['received'])) {
+    $seenUnits = [];
+    foreach ($items as $item) {
+        $unitKey = $item['product_id'] . ':' . ($item['variation_id'] ?? 0);
+        if (isset($seenUnits[$unitKey])) {
+            continue;
+        }
+        $seenUnits[$unitKey] = true;
+
+        $productId = (int) $item['product_id'];
+        $variationId = $item['variation_id'] !== null ? (int) $item['variation_id'] : null;
+        $label = $item['sku'] . ' - ' . $item['product_name'];
+
+        if ($item['product_type'] === 'ready_stock') {
+            if (inventory_unit_unreserved_demand($pdo, $productId, $variationId) > 0) {
+                $receivingPrompts['reservation'][] = [
+                    'label' => $label,
+                    'url' => '/modules/inventory/reserve.php?product_id=' . $productId . ($variationId !== null ? '&variation_id=' . $variationId : ''),
+                ];
+            }
+        } elseif (in_array($item['product_type'], ['preorder', 'early_bird'], true)) {
+            if (inventory_unit_outstanding_demand($pdo, $productId, $variationId) > 0) {
+                $receivingPrompts['allocation'][] = [
+                    'label' => $label,
+                    'url' => '/modules/inventory/allocate.php?product_id=' . $productId . ($variationId !== null ? '&variation_id=' . $variationId : ''),
+                ];
+            }
+        }
+    }
+}
+$canViewInventory = app_has_permission('inventory.view');
 
 $historyStmt = $pdo->prepare("
     SELECT it.quantity, it.created_at, p.sku, p.name AS product_name
@@ -298,6 +339,24 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php endif; ?>
 <?php if ($error !== ''): ?>
     <div class="alert alert-danger"><?php echo nl2br(app_escape($error)); ?></div>
+<?php endif; ?>
+
+<?php if ($canViewInventory && ($receivingPrompts['reservation'] !== [] || $receivingPrompts['allocation'] !== [])): ?>
+    <div class="alert alert-info">
+        <div class="fw-semibold mb-2">Stock just received - some of it can be matched to waiting orders now:</div>
+        <?php foreach ($receivingPrompts['reservation'] as $prompt): ?>
+            <div class="mb-1">
+                <?php echo app_escape($prompt['label']); ?> has orders waiting on it -
+                <a href="<?php echo app_escape($prompt['url']); ?>">reserve it in the Reservation Center &rarr;</a>
+            </div>
+        <?php endforeach; ?>
+        <?php foreach ($receivingPrompts['allocation'] as $prompt): ?>
+            <div class="mb-1">
+                <?php echo app_escape($prompt['label']); ?> has customers waiting on it -
+                <a href="<?php echo app_escape($prompt['url']); ?>">allocate it in the Allocation Center &rarr;</a>
+            </div>
+        <?php endforeach; ?>
+    </div>
 <?php endif; ?>
 
 <div class="row g-4">

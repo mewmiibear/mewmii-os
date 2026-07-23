@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/product_variations.php';
 require_once __DIR__ . '/supplier_orders.php';
+require_once __DIR__ . '/inventory.php';
 
 /**
  * Purchase Planning: turns Inventory from a tracking system into a "what do I need to buy"
@@ -251,4 +252,62 @@ function purchase_planning_generate(PDO $pdo, array $selectedLines): array
     }
 
     return $createdOrderIds;
+}
+
+/**
+ * Standalone admin warning, completely separate from purchase_planning_needs() and never
+ * called by it: ready-stock units with real outstanding (unreserved) demand
+ * (inventory_unit_unreserved_demand(), unchanged - the same function the Reservation Center
+ * itself uses) but no target_stock_level configured at all. purchase_planning_needs()'s
+ * ready-stock formula requires a target to compute a shortage in the first place ("not
+ * planned" is deliberately not the same as "target is 0"), so a unit in this state can NEVER
+ * appear in the main shortage list, no matter how many orders are waiting on it - this is the
+ * one blind spot that formula can't see by design. This function doesn't change that
+ * formula, doesn't feed into supplier order generation, and computes nothing
+ * purchase_planning_needs() doesn't already compute elsewhere for other units - it only
+ * surfaces units the main list structurally cannot.
+ */
+function purchase_planning_untargeted_demand(PDO $pdo): array
+{
+    $units = catalog_sellable_units($pdo);
+
+    $productIds = array_values(array_unique(array_column($units, 'product_id')));
+    if ($productIds === []) {
+        return [];
+    }
+    $placeholders = implode(',', array_fill(0, count($productIds), '?'));
+    $productsStmt = $pdo->prepare("SELECT id, target_stock_level FROM products WHERE id IN ({$placeholders})");
+    $productsStmt->execute($productIds);
+    $targetByProduct = [];
+    foreach ($productsStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $targetByProduct[(int) $row['id']] = $row['target_stock_level'];
+    }
+
+    $warnings = [];
+    foreach ($units as $unit) {
+        if ($unit['product_type'] !== 'ready_stock' || ($unit['status'] ?? 'draft') === 'archived') {
+            continue;
+        }
+
+        $productId = (int) $unit['product_id'];
+        if (!array_key_exists($productId, $targetByProduct) || $targetByProduct[$productId] !== null) {
+            continue;
+        }
+
+        $variationId = $unit['variation_id'];
+        $demand = inventory_unit_unreserved_demand($pdo, $productId, $variationId);
+        if ($demand < 1) {
+            continue;
+        }
+
+        $warnings[] = [
+            'key' => $unit['key'],
+            'product_id' => $productId,
+            'sku' => $unit['sku'],
+            'label' => $unit['label'],
+            'demand' => $demand,
+        ];
+    }
+
+    return $warnings;
 }
