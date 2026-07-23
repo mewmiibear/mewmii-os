@@ -554,7 +554,6 @@ require_once __DIR__ . '/../../includes/header.php';
                 $overrideValue = $product['availability_override'] ?? 'auto';
                 $isOrderable = catalog_product_is_orderable($product);
                 $availabilityPhrase = inventory_availability_phrase($product['product_type'], $overrideValue, $isOrderable);
-                $incomingPhrase = ($product['product_type'] !== 'ready_stock' && (int) $product['incoming_stock'] === 0) ? 'Waiting Supplier' : null;
                 ?>
                 <tr class="<?php echo $isVariable ? 'table-light js-inventory-parent' : ''; ?>"
                     <?php if ($isVariable): ?>
@@ -593,11 +592,7 @@ require_once __DIR__ . '/../../includes/header.php';
                     </td>
                     <td data-label="Reserved"<?php echo $isVariable ? ' class="text-muted"' : ''; ?>><?php echo app_escape((string) $product['reserved_stock']); ?></td>
                     <td data-label="Incoming"<?php echo $isVariable ? ' class="text-muted"' : ''; ?>>
-                        <?php if ($incomingPhrase !== null): ?>
-                            <span class="text-muted"><?php echo app_escape($incomingPhrase); ?></span>
-                        <?php else: ?>
-                            <?php echo app_escape((string) $product['incoming_stock']); ?>
-                        <?php endif; ?>
+                        <?php echo app_escape((string) $product['incoming_stock']); ?>
                     </td>
                     <td data-label="Arrived"<?php echo $isVariable ? ' class="text-muted"' : ''; ?>><?php echo app_escape((string) $product['arrived_stock']); ?></td>
                     <td data-label="Last Updated" class="text-muted small"><?php echo $product['updated_at'] !== null ? app_escape($product['updated_at']) : '&mdash;'; ?></td>
@@ -645,11 +640,7 @@ require_once __DIR__ . '/../../includes/header.php';
                             </td>
                             <td data-label="Reserved"><?php echo app_escape((string) $variation['reserved_stock']); ?></td>
                             <td data-label="Incoming">
-                                <?php if ($product['product_type'] !== 'ready_stock' && (int) $variation['incoming_stock'] === 0): ?>
-                                    <span class="text-muted">Waiting Supplier</span>
-                                <?php else: ?>
-                                    <?php echo app_escape((string) $variation['incoming_stock']); ?>
-                                <?php endif; ?>
+                                <?php echo app_escape((string) $variation['incoming_stock']); ?>
                             </td>
                             <td data-label="Arrived"><?php echo app_escape((string) $variation['arrived_stock']); ?></td>
                             <td data-label="Last Updated" class="text-muted small"><?php echo $variation['updated_at'] !== null ? app_escape($variation['updated_at']) : '&mdash;'; ?></td>
