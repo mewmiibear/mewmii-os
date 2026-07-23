@@ -200,7 +200,9 @@ require_once __DIR__ . '/../../includes/header.php';
         <p class="text-muted mb-0">Core product catalog for preorder, ready stock, and early bird items.</p>
     </div>
     <?php if ($canManage): ?>
-        <a class="btn btn-primary" href="/modules/products/create.php">Add Product</a>
+        <div class="action-bar">
+            <a class="btn btn-primary" href="/modules/products/create.php">Add Product</a>
+        </div>
     <?php endif; ?>
 </div>
 
@@ -222,10 +224,12 @@ require_once __DIR__ . '/../../includes/header.php';
         <?php endif; ?>
     </div>
     <?php if ($canManage): ?>
-        <form method="post" action="/modules/products/sync.php" class="d-inline">
-            <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
-            <button type="submit" class="btn btn-outline-secondary">Sync to WooCommerce</button>
-        </form>
+        <div class="action-bar">
+            <form method="post" action="/modules/products/sync.php" class="d-inline">
+                <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                <button type="submit" class="btn btn-outline-secondary">Sync to WooCommerce</button>
+            </form>
+        </div>
     <?php endif; ?>
 </div>
 
@@ -255,7 +259,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <?php endforeach; ?>
 </div>
 
-<div class="card p-3 mb-4">
+<div class="card filter-card p-3 mb-4">
     <form method="get" class="row g-2 align-items-end">
         <div class="col-md-3">
             <label class="form-label small mb-1">Search</label>
@@ -426,7 +430,13 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php endforeach; ?>
             <?php if ($products === []): ?>
                 <tr>
-                    <td colspan="14" class="text-muted">No products match these filters.</td>
+                    <td colspan="14">
+                        <div class="empty-state">
+                            <div class="empty-state-title">No Products Match These Filters</div>
+                            <p class="empty-state-text">Try adjusting or clearing your filters to see more results.</p>
+                            <a class="btn btn-outline-secondary btn-sm" href="/modules/products/index.php">Clear filters</a>
+                        </div>
+                    </td>
                 </tr>
             <?php endif; ?>
         </tbody>

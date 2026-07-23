@@ -166,7 +166,9 @@ require_once __DIR__ . '/../../includes/header.php';
         <h2 class="mb-1">Generate Supplier Order</h2>
         <p class="text-muted mb-0">Products where Need &gt; 0, grouped by supplier. Order Qty is pre-filled MOQ-rounded - review and adjust before generating. Expand a row for the calculation breakdown.</p>
     </div>
-    <a class="btn btn-outline-secondary btn-sm" href="/modules/inventory/index.php">Back to Inventory</a>
+    <div class="action-bar">
+        <a class="btn btn-outline-secondary btn-sm" href="/modules/inventory/index.php">Back to Inventory</a>
+    </div>
 </div>
 
 <?php if ($error !== ''): ?>
@@ -177,6 +179,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="card p-4 mb-4 border-warning">
         <h5 class="mb-2">&#9888; Waiting Demand With No Reorder Target Set</h5>
         <p class="text-muted small mb-3">These Ready Stock products have orders waiting on them but no Target Stock Level set, so they can never appear in the list below - that formula requires a target to calculate a shortage at all. Set a target on each product to bring it into Purchase Planning.</p>
+        <div class="table-responsive">
         <table class="table table-sm align-middle mb-0">
             <thead>
                 <tr>
@@ -201,12 +204,16 @@ require_once __DIR__ . '/../../includes/header.php';
                 <?php endforeach; ?>
             </tbody>
         </table>
+        </div>
     </div>
 <?php endif; ?>
 
 <?php if ($needs === []): ?>
     <div class="card p-4">
-        <p class="text-muted mb-0">Nothing currently needs ordering. Preorder/Early Bird products need paid customer orders exceeding incoming stock; Ready Stock products need a Target Stock Level set (Product Edit page) above available + incoming stock.</p>
+        <div class="empty-state">
+            <div class="empty-state-title">Nothing Needs Ordering</div>
+            <p class="empty-state-text">Preorder/Early Bird products need paid customer orders exceeding incoming stock; Ready Stock products need a Target Stock Level set (Product Edit page) above available + incoming stock.</p>
+        </div>
     </div>
 <?php else: ?>
     <form method="post">
@@ -225,7 +232,7 @@ require_once __DIR__ . '/../../includes/header.php';
                     &middot; Total Order Value: RM <?php echo app_escape(number_format($group['total_value'], 2)); ?>
                 </p>
                 <div class="table-responsive">
-                    <table class="table align-middle">
+                    <table class="table table-hover align-middle">
                         <thead>
                             <tr>
                                 <th></th>

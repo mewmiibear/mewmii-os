@@ -22,6 +22,7 @@ require_once __DIR__ . '/../../includes/header.php';
     </div>
 </div>
 <div class="card p-4">
+    <div class="table-responsive">
     <table class="table table-hover align-middle">
         <thead>
             <tr>
@@ -49,9 +50,17 @@ require_once __DIR__ . '/../../includes/header.php';
                 </tr>
             <?php endforeach; ?>
             <?php if ($syncLogs === []): ?>
-                <tr><td colspan="5" class="text-muted">No sync activity yet.</td></tr>
+                <tr>
+                    <td colspan="5">
+                        <div class="empty-state">
+                            <div class="empty-state-title">No Sync Activity Yet</div>
+                            <p class="empty-state-text">WooCommerce and other integration sync events will appear here.</p>
+                        </div>
+                    </td>
+                </tr>
             <?php endif; ?>
         </tbody>
     </table>
+    </div>
 </div>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

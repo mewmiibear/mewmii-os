@@ -17,11 +17,14 @@ require_once __DIR__ . '/../../includes/header.php';
         <p class="text-muted mb-0">Every physical package leaving the warehouse - from orders, Ship My Box requests, or manual (replacement/warranty).</p>
     </div>
     <?php if ($canManage): ?>
-        <a class="btn btn-primary" href="/modules/shipments/create.php">New Manual Shipment</a>
+        <div class="action-bar">
+            <a class="btn btn-primary" href="/modules/shipments/create.php">New Manual Shipment</a>
+        </div>
     <?php endif; ?>
 </div>
 
 <div class="card p-4">
+    <div class="table-responsive">
     <table class="table table-hover align-middle">
         <thead>
             <tr>
@@ -56,9 +59,20 @@ require_once __DIR__ . '/../../includes/header.php';
                 </tr>
             <?php endforeach; ?>
             <?php if ($shipments === []): ?>
-                <tr><td colspan="7" class="text-muted">No shipments yet.</td></tr>
+                <tr>
+                    <td colspan="7">
+                        <div class="empty-state">
+                            <div class="empty-state-title">No Shipments Yet</div>
+                            <p class="empty-state-text">Packages leaving the warehouse - from orders, Ship My Box, or manual - will appear here.</p>
+                            <?php if ($canManage): ?>
+                                <a class="btn btn-primary btn-sm" href="/modules/shipments/create.php">New Manual Shipment</a>
+                            <?php endif; ?>
+                        </div>
+                    </td>
+                </tr>
             <?php endif; ?>
         </tbody>
     </table>
+    </div>
 </div>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

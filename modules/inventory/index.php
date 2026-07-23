@@ -421,7 +421,7 @@ require_once __DIR__ . '/../../includes/header.php';
         <h2 class="mb-1">Inventory</h2>
         <p class="text-muted mb-0">Current stock at a glance - adjustments and history stay one click away.</p>
     </div>
-    <div class="d-flex gap-2">
+    <div class="action-bar">
         <a class="btn btn-outline-primary" href="/modules/inventory/allocation-center.php">Allocate Preorders</a>
         <a class="btn btn-outline-primary" href="/modules/inventory/reservation-center.php">Reservation Center</a>
         <?php if ($canManageSupplierOrders): ?>
@@ -443,7 +443,7 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php endif; ?>
 
 <div class="d-flex flex-wrap gap-2 mb-3">
-    <a class="btn btn-sm <?php echo $filterNeedsOrdering ? 'btn-primary' : 'btn-outline-primary'; ?>" href="/modules/inventory/index.php?needs_ordering=1">Need Ordering</a>
+    <a class="btn btn-sm <?php echo $filterNeedsOrdering ? 'btn-primary' : 'btn-outline-secondary'; ?>" href="/modules/inventory/index.php?needs_ordering=1">Need Ordering</a>
     <a class="btn btn-sm <?php echo $filterStage === 'incoming' ? 'btn-primary' : 'btn-outline-secondary'; ?>" href="/modules/inventory/index.php?stage=incoming">Waiting Supplier</a>
     <a class="btn btn-sm <?php echo $filterStockStatus === 'low_stock' ? 'btn-primary' : 'btn-outline-secondary'; ?>" href="/modules/inventory/index.php?stock_status=low_stock">Low Stock</a>
     <a class="btn btn-sm <?php echo $filterProductType === 'preorder' ? 'btn-primary' : 'btn-outline-secondary'; ?>" href="/modules/inventory/index.php?product_type=preorder">Preorder</a>
@@ -452,7 +452,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <?php endif; ?>
 </div>
 
-<div class="card p-3 mb-4">
+<div class="card filter-card p-3 mb-4">
     <form method="get" class="row g-2 align-items-end">
         <div class="col-md-3">
             <label class="form-label small mb-1">Search</label>
@@ -674,7 +674,15 @@ require_once __DIR__ . '/../../includes/header.php';
                 <?php endif; ?>
             <?php endforeach; ?>
             <?php if ($inventory === []): ?>
-                <tr><td colspan="12" class="text-muted">No products match these filters.</td></tr>
+                <tr>
+                    <td colspan="12">
+                        <div class="empty-state">
+                            <div class="empty-state-title">No Products Match These Filters</div>
+                            <p class="empty-state-text">Try adjusting or clearing your filters to see more results.</p>
+                            <a class="btn btn-outline-secondary btn-sm" href="/modules/inventory/index.php">Clear filters</a>
+                        </div>
+                    </td>
+                </tr>
             <?php endif; ?>
         </tbody>
     </table>

@@ -100,7 +100,9 @@ require_once __DIR__ . '/../../includes/header.php';
         <h2 class="mb-1">Collections</h2>
         <p class="text-muted mb-0">Collection management - edit, move products between collections, or delete unused ones.</p>
     </div>
-    <a class="btn btn-outline-secondary btn-sm" href="/modules/products/index.php">Back to Products</a>
+    <div class="action-bar">
+        <a class="btn btn-outline-secondary btn-sm" href="/modules/products/index.php">Back to Products</a>
+    </div>
 </div>
 
 <?php if (isset($_GET['created'])): ?>
@@ -137,6 +139,7 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php endif; ?>
 
 <div class="card p-4">
+    <div class="table-responsive">
     <table class="table table-hover align-middle">
         <thead>
             <tr>
@@ -172,10 +175,18 @@ require_once __DIR__ . '/../../includes/header.php';
                 </tr>
             <?php endforeach; ?>
             <?php if ($collections === []): ?>
-                <tr><td colspan="4" class="text-muted">No collections yet.</td></tr>
+                <tr>
+                    <td colspan="4">
+                        <div class="empty-state">
+                            <div class="empty-state-title">No Collections Yet</div>
+                            <p class="empty-state-text">Collections group related products together - add one to get started.</p>
+                        </div>
+                    </td>
+                </tr>
             <?php endif; ?>
         </tbody>
     </table>
+    </div>
 </div>
 
 <?php if ($canManage): ?>

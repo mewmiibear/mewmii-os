@@ -138,6 +138,7 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php endif; ?>
 
 <div class="card p-4">
+    <div class="table-responsive">
     <table class="table table-hover align-middle">
         <thead>
             <tr>
@@ -164,9 +165,17 @@ require_once __DIR__ . '/../../includes/header.php';
                 </tr>
             <?php endforeach; ?>
             <?php if ($customerStorage === []): ?>
-                <tr><td colspan="4" class="text-muted">No customers currently have items in storage.</td></tr>
+                <tr>
+                    <td colspan="4">
+                        <div class="empty-state">
+                            <div class="empty-state-title">No Items in Storage</div>
+                            <p class="empty-state-text">Customers with items currently stored in the warehouse will appear here.</p>
+                        </div>
+                    </td>
+                </tr>
             <?php endif; ?>
         </tbody>
     </table>
+    </div>
 </div>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

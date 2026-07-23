@@ -206,27 +206,27 @@ require_once __DIR__ . '/../../includes/header.php';
 
 <div class="row g-3 mb-4">
     <div class="col-6 col-md-3">
-        <div class="card p-4">
-            <div class="text-muted small">Total Orders</div>
-            <div class="fs-4"><?php echo (int) $summary['total_orders']; ?></div>
+        <div class="card stat-card p-4">
+            <div class="stat-label">Total Orders</div>
+            <div class="stat-value"><?php echo (int) $summary['total_orders']; ?></div>
         </div>
     </div>
     <div class="col-6 col-md-3">
-        <div class="card p-4">
-            <div class="text-muted small">Units Sold</div>
-            <div class="fs-4"><?php echo (int) $summary['units_sold']; ?></div>
+        <div class="card stat-card p-4">
+            <div class="stat-label">Units Sold</div>
+            <div class="stat-value"><?php echo (int) $summary['units_sold']; ?></div>
         </div>
     </div>
     <div class="col-6 col-md-3">
-        <div class="card p-4">
-            <div class="text-muted small">Revenue</div>
-            <div class="fs-4">RM <?php echo app_escape(number_format((float) $summary['revenue'], 2)); ?></div>
+        <div class="card stat-card p-4">
+            <div class="stat-label">Revenue</div>
+            <div class="stat-value">RM <?php echo app_escape(number_format((float) $summary['revenue'], 2)); ?></div>
         </div>
     </div>
     <div class="col-6 col-md-3">
-        <div class="card p-4">
-            <div class="text-muted small">Average Order Value</div>
-            <div class="fs-4">
+        <div class="card stat-card p-4">
+            <div class="stat-label">Average Order Value</div>
+            <div class="stat-value">
                 <?php if ($summary['average_order_value'] !== null): ?>
                     RM <?php echo app_escape(number_format($summary['average_order_value'], 2)); ?>
                 <?php else: ?>
@@ -267,7 +267,7 @@ require_once __DIR__ . '/../../includes/header.php';
                     </tr>
                 <?php endforeach; ?>
                 <?php if ($bestSellers === []): ?>
-                    <tr><td colspan="5" class="text-muted">No sales in this period.</td></tr>
+                    <tr><td colspan="5"><div class="empty-state"><p class="empty-state-text mb-0">No sales in this period.</p></div></td></tr>
                 <?php endif; ?>
             </tbody>
         </table>
@@ -296,7 +296,7 @@ require_once __DIR__ . '/../../includes/header.php';
                     </tr>
                 <?php endforeach; ?>
                 <?php if ($salesTrend === []): ?>
-                    <tr><td colspan="4" class="text-muted">No sales in this period.</td></tr>
+                    <tr><td colspan="4"><div class="empty-state"><p class="empty-state-text mb-0">No sales in this period.</p></div></td></tr>
                 <?php endif; ?>
             </tbody>
         </table>
@@ -327,7 +327,7 @@ require_once __DIR__ . '/../../includes/header.php';
                             </tr>
                         <?php endforeach; ?>
                         <?php if ($salesByBrand === []): ?>
-                            <tr><td colspan="4" class="text-muted">No sales in this period.</td></tr>
+                            <tr><td colspan="4"><div class="empty-state"><p class="empty-state-text mb-0">No sales in this period.</p></div></td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -358,7 +358,7 @@ require_once __DIR__ . '/../../includes/header.php';
                             </tr>
                         <?php endforeach; ?>
                         <?php if ($salesByCollection === []): ?>
-                            <tr><td colspan="4" class="text-muted">No sales in this period.</td></tr>
+                            <tr><td colspan="4"><div class="empty-state"><p class="empty-state-text mb-0">No sales in this period.</p></div></td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -389,7 +389,7 @@ require_once __DIR__ . '/../../includes/header.php';
                     </tr>
                 <?php endforeach; ?>
                 <?php if ($salesByCategory === []): ?>
-                    <tr><td colspan="4" class="text-muted">No sales in this period.</td></tr>
+                    <tr><td colspan="4"><div class="empty-state"><p class="empty-state-text mb-0">No sales in this period.</p></div></td></tr>
                 <?php endif; ?>
             </tbody>
         </table>

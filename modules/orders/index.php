@@ -70,7 +70,7 @@ $canViewCustomers = app_has_permission('customers.view');
         </p>
     </div>
     <?php if ($canManage): ?>
-        <div class="d-flex gap-2">
+        <div class="action-bar">
             <a class="btn btn-primary" href="/modules/orders/create.php">New Order</a>
             <a class="btn btn-outline-secondary" href="/modules/orders/import.php">Import Historical Order</a>
         </div>
@@ -85,6 +85,7 @@ $canViewCustomers = app_has_permission('customers.view');
 <?php endif; ?>
 
 <div class="card p-4">
+    <div class="table-responsive">
     <table class="table table-hover align-middle">
         <thead>
             <tr>
@@ -125,7 +126,21 @@ $canViewCustomers = app_has_permission('customers.view');
                     </td>
                 </tr>
             <?php endforeach; ?>
+            <?php if ($orders === []): ?>
+                <tr>
+                    <td colspan="6">
+                        <div class="empty-state">
+                            <div class="empty-state-title">No Orders Yet</div>
+                            <p class="empty-state-text">Customer orders will appear here once created.</p>
+                            <?php if ($canManage): ?>
+                                <a class="btn btn-primary btn-sm" href="/modules/orders/create.php">New Order</a>
+                            <?php endif; ?>
+                        </div>
+                    </td>
+                </tr>
+            <?php endif; ?>
         </tbody>
     </table>
+    </div>
 </div>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

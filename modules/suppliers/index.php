@@ -15,7 +15,7 @@ $canManage = app_has_permission('suppliers.manage');
         <p class="text-muted mb-0">Purchase planning and supplier relationship foundation.</p>
     </div>
     <?php if ($canManage): ?>
-        <div class="d-flex gap-2">
+        <div class="action-bar">
             <a class="btn btn-primary" href="/modules/suppliers/create.php">Add Supplier</a>
             <a class="btn btn-outline-secondary" href="/modules/suppliers/import.php">Import CSV</a>
         </div>
@@ -27,6 +27,7 @@ $canManage = app_has_permission('suppliers.manage');
 <?php endif; ?>
 
 <div class="card p-4">
+    <div class="table-responsive">
     <table class="table table-hover align-middle">
         <thead>
             <tr>
@@ -55,9 +56,20 @@ $canManage = app_has_permission('suppliers.manage');
                 </tr>
             <?php endforeach; ?>
             <?php if ($suppliers === []): ?>
-                <tr><td colspan="5" class="text-muted">No suppliers yet.</td></tr>
+                <tr>
+                    <td colspan="5">
+                        <div class="empty-state">
+                            <div class="empty-state-title">No Suppliers Yet</div>
+                            <p class="empty-state-text">Suppliers you purchase stock from will appear here.</p>
+                            <?php if ($canManage): ?>
+                                <a class="btn btn-primary btn-sm" href="/modules/suppliers/create.php">Add Supplier</a>
+                            <?php endif; ?>
+                        </div>
+                    </td>
+                </tr>
             <?php endif; ?>
         </tbody>
     </table>
+    </div>
 </div>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

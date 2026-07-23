@@ -45,7 +45,7 @@ $canManage = app_has_permission('customers.manage');
         <p class="text-muted mb-0">CRM foundation for memberships, loyalty, and customer storage.</p>
     </div>
     <?php if ($canManage): ?>
-        <div class="d-flex gap-2">
+        <div class="action-bar">
             <a class="btn btn-primary" href="/modules/customers/create.php">Add Customer</a>
             <a class="btn btn-outline-secondary" href="/modules/customers/import.php">Import CSV</a>
         </div>
@@ -57,6 +57,7 @@ $canManage = app_has_permission('customers.manage');
 <?php endif; ?>
 
 <div class="card p-4">
+    <div class="table-responsive">
     <table class="table table-hover align-middle">
         <thead>
             <tr>
@@ -91,9 +92,20 @@ $canManage = app_has_permission('customers.manage');
                 </tr>
             <?php endforeach; ?>
             <?php if ($customers === []): ?>
-                <tr><td colspan="9" class="text-muted">No customers yet.</td></tr>
+                <tr>
+                    <td colspan="9">
+                        <div class="empty-state">
+                            <div class="empty-state-title">No Customers Yet</div>
+                            <p class="empty-state-text">Customer profiles will appear here once added.</p>
+                            <?php if ($canManage): ?>
+                                <a class="btn btn-primary btn-sm" href="/modules/customers/create.php">Add Customer</a>
+                            <?php endif; ?>
+                        </div>
+                    </td>
+                </tr>
             <?php endif; ?>
         </tbody>
     </table>
+    </div>
 </div>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

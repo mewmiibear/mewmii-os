@@ -31,7 +31,9 @@ require_once __DIR__ . '/../../includes/header.php';
         <p class="text-muted mb-0">Requests to ship items currently held in customer storage.</p>
     </div>
     <?php if ($canManage): ?>
-        <a class="btn btn-primary" href="/modules/ship-my-box/create.php">New Ship Request</a>
+        <div class="action-bar">
+            <a class="btn btn-primary" href="/modules/ship-my-box/create.php">New Ship Request</a>
+        </div>
     <?php endif; ?>
 </div>
 
@@ -40,6 +42,7 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php endif; ?>
 
 <div class="card p-4">
+    <div class="table-responsive">
     <table class="table table-hover align-middle">
         <thead>
             <tr>
@@ -68,9 +71,20 @@ require_once __DIR__ . '/../../includes/header.php';
                 </tr>
             <?php endforeach; ?>
             <?php if ($shipRequests === []): ?>
-                <tr><td colspan="6" class="text-muted">No ship requests yet.</td></tr>
+                <tr>
+                    <td colspan="6">
+                        <div class="empty-state">
+                            <div class="empty-state-title">No Ship Requests Yet</div>
+                            <p class="empty-state-text">Requests to ship items from customer storage will appear here.</p>
+                            <?php if ($canManage): ?>
+                                <a class="btn btn-primary btn-sm" href="/modules/ship-my-box/create.php">New Ship Request</a>
+                            <?php endif; ?>
+                        </div>
+                    </td>
+                </tr>
             <?php endif; ?>
         </tbody>
     </table>
+    </div>
 </div>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

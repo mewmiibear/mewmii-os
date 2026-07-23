@@ -270,38 +270,38 @@ require_once __DIR__ . '/includes/header.php';
     <div class="row g-4">
         <?php if ($canViewOrders): ?>
             <div class="col-md-6 col-lg-3">
-                <div class="card p-4 h-100 d-flex flex-column">
-                    <h6 class="text-muted mb-2">Orders Requiring Attention</h6>
-                    <h2 class="fw-bold mb-0"><?php echo (int) ($orderStatusCounts['waiting_stock'] + $orderStatusCounts['ready_to_ship']); ?></h2>
-                    <p class="text-muted small mb-2">Waiting on stock or ready to ship</p>
+                <div class="card stat-card p-4 h-100 d-flex flex-column">
+                    <div class="stat-label">Orders Requiring Attention</div>
+                    <div class="stat-value"><?php echo (int) ($orderStatusCounts['waiting_stock'] + $orderStatusCounts['ready_to_ship']); ?></div>
+                    <div class="stat-helper mb-2">Waiting on stock or ready to ship</div>
                     <a class="btn btn-outline-primary btn-sm mt-auto" href="/modules/orders/index.php">View Orders</a>
                 </div>
             </div>
         <?php endif; ?>
         <?php if ($canViewInventory): ?>
             <div class="col-md-6 col-lg-3">
-                <div class="card p-4 h-100 d-flex flex-column">
-                    <h6 class="text-muted mb-2">Low Stock</h6>
-                    <h2 class="fw-bold mb-0 <?php echo $lowStockCount > 0 ? 'text-danger' : ''; ?>"><?php echo (int) $lowStockCount; ?></h2>
-                    <p class="text-muted small mb-2">Ready-stock products below threshold</p>
+                <div class="card stat-card p-4 h-100 d-flex flex-column">
+                    <div class="stat-label">Low Stock</div>
+                    <div class="stat-value <?php echo $lowStockCount > 0 ? 'stat-value-alert' : ''; ?>"><?php echo (int) $lowStockCount; ?></div>
+                    <div class="stat-helper mb-2">Ready-stock products below threshold</div>
                     <a class="btn btn-outline-primary btn-sm mt-auto" href="/modules/inventory/index.php?stock_status=low_stock">View Inventory</a>
                 </div>
             </div>
         <?php endif; ?>
         <?php if ($canViewSupplierOrders): ?>
             <div class="col-md-6 col-lg-3">
-                <div class="card p-4 h-100 d-flex flex-column">
-                    <h6 class="text-muted mb-2">Incoming Supplier Orders</h6>
-                    <h2 class="fw-bold mb-0"><?php echo (int) ($supplierOrderStatusCounts['ordered'] + $supplierOrderStatusCounts['partially_received']); ?></h2>
-                    <p class="text-muted small mb-2">Confirmed or arriving</p>
+                <div class="card stat-card p-4 h-100 d-flex flex-column">
+                    <div class="stat-label">Incoming Supplier Orders</div>
+                    <div class="stat-value"><?php echo (int) ($supplierOrderStatusCounts['ordered'] + $supplierOrderStatusCounts['partially_received']); ?></div>
+                    <div class="stat-helper mb-2">Confirmed or arriving</div>
                     <a class="btn btn-outline-primary btn-sm mt-auto" href="/modules/supplier-orders/index.php">View Supplier Orders</a>
                 </div>
             </div>
         <?php endif; ?>
         <?php if ($canViewOrders): ?>
             <div class="col-md-6 col-lg-3">
-                <div class="card p-4 h-100 d-flex flex-column">
-                    <h6 class="text-muted mb-2">Fulfillment Status</h6>
+                <div class="card stat-card p-4 h-100 d-flex flex-column">
+                    <div class="stat-label">Fulfillment Status</div>
                     <div class="d-flex justify-content-between align-items-baseline mb-1">
                         <span class="text-muted small">Ready to Pack</span>
                         <span class="fw-bold fs-5"><?php echo (int) $orderStatusCounts['waiting_ship_my_box']; ?></span>

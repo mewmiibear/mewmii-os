@@ -118,6 +118,155 @@ $appTitle = 'Mewmii OS';
             color: #1D57B0;
         }
 
+        /* --- Page header (Title / Description / Primary actions) - the top of every module
+           list page. Markup stays the existing `d-flex justify-content-between` row already
+           used everywhere; these classes just standardise the spacing/typography instead of
+           relying on ad-hoc mb-* utilities repeated per page. */
+        .page-header {
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+            row-gap: 0.75rem;
+        }
+
+        .page-header h2 {
+            font-weight: 700;
+            margin-bottom: 0.2rem;
+        }
+
+        .page-description {
+            color: var(--text-secondary);
+            margin-bottom: 0;
+        }
+
+        /* --- Action bar - primary/secondary/import/export buttons grouped near the title,
+           same gap and alignment everywhere they appear. */
+        .action-bar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.6rem;
+        }
+
+        /* --- Filter card - a visually quieter card than content cards (no heavy shadow),
+           so filters read as a secondary, supporting control rather than competing with the
+           page's actual content below it. Behaviour of the form inside is unchanged. */
+        .filter-card {
+            background: #FBFAFC;
+            border: 1px solid #F1E7ED;
+            box-shadow: none;
+        }
+
+        .filter-card .form-label {
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+            margin-bottom: 0.3rem;
+        }
+
+        /* --- Stat card: small label / large value / small helper text, the one pattern every
+           KPI tile (dashboard, reports, module summaries) should use. */
+        .stat-card .stat-label {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+            margin-bottom: 0.4rem;
+        }
+
+        .stat-card .stat-value {
+            font-size: 1.9rem;
+            font-weight: 700;
+            color: var(--text-main);
+            line-height: 1.15;
+        }
+
+        .stat-card .stat-value.stat-value-alert {
+            color: #D9486E;
+        }
+
+        .stat-card .stat-helper {
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+            margin-top: 0.3rem;
+        }
+
+        /* --- Empty state card - replaces plain "No X yet." text rows with a calmer, centred
+           message + optional single call-to-action, used inside an existing table's empty
+           <tr>/<td> or in place of a table entirely. */
+        .empty-state {
+            text-align: center;
+            padding: 3rem 1.5rem;
+        }
+
+        .empty-state .empty-state-title {
+            font-weight: 700;
+            color: var(--text-main);
+            font-size: 1.05rem;
+            margin-bottom: 0.35rem;
+        }
+
+        .empty-state .empty-state-text {
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+        }
+
+        .empty-state .empty-state-text:last-child {
+            margin-bottom: 0;
+        }
+
+        /* --- Table refinement: comfortable vertical alignment (belt-and-suspenders on top of
+           the align-middle utility class already used on every table), breathing room around
+           badges and grouped action buttons/forms that aren't already using a gap utility. */
+        .table td {
+            vertical-align: middle;
+        }
+
+        .table .badge + .badge {
+            margin-left: 0.3rem;
+        }
+
+        .table td .btn + .btn,
+        .table td .btn + form,
+        .table td form + .btn,
+        .table td form + form {
+            margin-left: 0.35rem;
+        }
+
+        /* --- Form refinement: consistent label weight/colour and section headings, softer
+           input borders with a brand-coloured focus ring - presentation only, no field, name,
+           or validation behaviour changes anywhere this applies. */
+        .card .form-label {
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            margin-bottom: 0.35rem;
+        }
+
+        .card h5 {
+            color: var(--text-main);
+            font-weight: 700;
+        }
+
+        .form-control,
+        .form-select {
+            border-radius: 8px;
+            border-color: #E8DCE3;
+        }
+
+        .form-control:focus,
+        .form-select:focus {
+            border-color: var(--mewmii-blue);
+            box-shadow: 0 0 0 0.2rem rgba(52, 114, 239, 0.15);
+        }
+
+        .form-text {
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+        }
+
         .sidebar {
             background: linear-gradient(180deg, var(--base-white) 0%, var(--mewmii-pink-tint) 100%);
             min-height: 100vh;

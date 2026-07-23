@@ -78,7 +78,7 @@ require_once __DIR__ . '/../../includes/header.php';
         </p>
     </div>
     <?php if ($canManage): ?>
-        <div class="d-flex gap-2">
+        <div class="action-bar">
             <a class="btn btn-primary" href="/modules/supplier-orders/create.php">New Supplier Order</a>
             <a class="btn btn-outline-primary" href="/modules/purchase-planning/generate.php">Purchase Planning / Products Need Ordering</a>
             <a class="btn btn-outline-secondary" href="/modules/supplier-orders/import.php">Import Historical Order</a>
@@ -97,6 +97,7 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php endif; ?>
 
 <div class="card p-4">
+    <div class="table-responsive">
     <table class="table table-hover align-middle">
         <thead>
             <tr>
@@ -146,9 +147,20 @@ require_once __DIR__ . '/../../includes/header.php';
                 </tr>
             <?php endforeach; ?>
             <?php if ($supplierOrders === []): ?>
-                <tr><td colspan="7" class="text-muted">No supplier orders yet.</td></tr>
+                <tr>
+                    <td colspan="7">
+                        <div class="empty-state">
+                            <div class="empty-state-title">No Supplier Orders Yet</div>
+                            <p class="empty-state-text">Supplier orders will appear here once created.</p>
+                            <?php if ($canManage): ?>
+                                <a class="btn btn-primary btn-sm" href="/modules/supplier-orders/create.php">Create Supplier Order</a>
+                            <?php endif; ?>
+                        </div>
+                    </td>
+                </tr>
             <?php endif; ?>
         </tbody>
     </table>
+    </div>
 </div>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
