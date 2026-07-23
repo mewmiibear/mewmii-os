@@ -82,10 +82,38 @@ function migrate_find_foreign_keys_on_column(PDO $pdo, string $table, string $co
     return $stmt->fetchAll(PDO::FETCH_COLUMN);
 }
 
+/**
+ * Every migration statement that has failed so far this run, label => error message -
+ * populated by migrate_run() below and printed once at the end (see the summary at the
+ * bottom of this script). Returned by reference from one static array so both the writer
+ * (migrate_run()) and the final summary share the same underlying state without adding a
+ * parameter to any of the ~80 existing migrate_run() call sites below.
+ */
+function &migrate_failures(): array
+{
+    static $failures = [];
+
+    return $failures;
+}
+
+/**
+ * Runs one migration statement in isolation: a failure here (a stale FK/index name, a
+ * column that already exists under slightly different attributes, anything specific to
+ * one installation's drift) must NEVER abort the rest of the script - every block below
+ * is independently guarded by its own migrate_column_exists()/migrate_index_exists()
+ * check, so later columns (e.g. products.supplier_sku/internal_code) must still get their
+ * chance to be added even if an earlier, unrelated statement fails.
+ */
 function migrate_run(PDO $pdo, string $label, string $sql, array &$applied): void
 {
-    $pdo->exec($sql);
-    $applied[] = $label;
+    try {
+        $pdo->exec($sql);
+        $applied[] = $label;
+    } catch (PDOException $exception) {
+        echo '  ! FAILED: ' . $label . ' - ' . $exception->getMessage() . PHP_EOL;
+        $failures = &migrate_failures();
+        $failures[$label] = $exception->getMessage();
+    }
 }
 
 echo 'Mewmii OS catalog migration starting...' . PHP_EOL;
@@ -499,6 +527,14 @@ foreach ($applied as $item) {
 
 if ($applied === []) {
     echo 'Database was already up to date - nothing to do.' . PHP_EOL;
+}
+
+$failures = migrate_failures();
+if ($failures !== []) {
+    echo PHP_EOL . count($failures) . ' migration statement(s) FAILED - re-run this script after fixing the cause; every other step above still applied normally:' . PHP_EOL;
+    foreach ($failures as $label => $message) {
+        echo '  ! ' . $label . ' - ' . $message . PHP_EOL;
+    }
 }
 
 echo 'Done. Existing products, inventory, orders, and suppliers are untouched and remain catalog_type = simple.' . PHP_EOL;
