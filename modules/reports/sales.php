@@ -77,6 +77,103 @@ $bestSellersStmt = $pdo->query("
 ");
 $bestSellers = $bestSellersStmt->fetchAll(PDO::FETCH_ASSOC);
 
+// Sales Trend - one GROUP BY query. Date grouping happens in SQL (DATE()/DATE_FORMAT()), never
+// in PHP. "all" groups by calendar month since a full daily history would be an unbounded,
+// ever-growing row count; every other period is <=90 days so a daily row per date stays small.
+$groupByMonth = ($period === 'all');
+$trendDateExpr = $groupByMonth ? "DATE_FORMAT(o.order_date, '%Y-%m')" : 'DATE(o.order_date)';
+$trendStmt = $pdo->query("
+    SELECT
+        {$trendDateExpr} AS period_label,
+        COUNT(DISTINCT o.id) AS order_count,
+        SUM(oi.quantity) AS units_sold,
+        SUM(oi.subtotal) AS revenue
+    FROM mewmii_orders o
+    INNER JOIN mewmii_order_items oi ON oi.order_id = o.id
+    WHERE {$validOrderCondition}
+    GROUP BY {$trendDateExpr}
+    ORDER BY period_label DESC
+");
+$salesTrend = $trendStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Sales By Brand - brands.id is a direct, single-valued FK on products (products.brand_id),
+// so this join can never fan out order_items rows; no double-counting risk here at all.
+$salesByBrandStmt = $pdo->query("
+    SELECT
+        COALESCE(b.name, 'No Brand') AS group_name,
+        SUM(oi.quantity) AS units_sold,
+        COUNT(DISTINCT oi.order_id) AS order_count,
+        SUM(oi.subtotal) AS revenue
+    FROM mewmii_order_items oi
+    INNER JOIN mewmii_orders o ON o.id = oi.order_id
+    INNER JOIN products p ON p.id = oi.product_id
+    LEFT JOIN brands b ON b.id = p.brand_id
+    WHERE {$validOrderCondition}
+    GROUP BY b.id
+    ORDER BY revenue DESC
+    LIMIT 20
+");
+$salesByBrand = $salesByBrandStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Sales By Collection - product_collection_relationships is a many-to-many PIVOT table.
+// The application only ever writes one row per product (catalog_sync_product_collection()
+// always deletes-then-inserts exactly one row - includes/catalog.php), but that's an
+// application-level guarantee, not a database constraint: there is no UNIQUE(product_id)
+// on this table, only UNIQUE(product_id, collection_id), so nothing at the schema level
+// actually prevents a product from having two DIFFERENT collection rows. Joining the raw
+// pivot table directly to mewmii_order_items would fan out that product's order-item rows
+// once per collection row it has, inflating revenue if that invariant were ever violated.
+// To make this report correct regardless of whether that invariant holds, the pivot table is
+// pre-collapsed to at most one row per product_id (MIN(collection_id), deterministic) in a
+// derived table BEFORE joining to order_items - so fan-out is structurally impossible here,
+// not just assumed away.
+$salesByCollectionStmt = $pdo->query("
+    SELECT
+        COALESCE(col.name, 'No Collection') AS group_name,
+        SUM(oi.quantity) AS units_sold,
+        COUNT(DISTINCT oi.order_id) AS order_count,
+        SUM(oi.subtotal) AS revenue
+    FROM mewmii_order_items oi
+    INNER JOIN mewmii_orders o ON o.id = oi.order_id
+    INNER JOIN products p ON p.id = oi.product_id
+    LEFT JOIN (
+        SELECT product_id, MIN(collection_id) AS collection_id
+        FROM product_collection_relationships
+        GROUP BY product_id
+    ) pcol ON pcol.product_id = p.id
+    LEFT JOIN collections col ON col.id = pcol.collection_id
+    WHERE {$validOrderCondition}
+    GROUP BY col.id
+    ORDER BY revenue DESC
+    LIMIT 20
+");
+$salesByCollection = $salesByCollectionStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Sales By Category - identical reasoning and defense as Sales By Collection above
+// (product_category_relationships is the same shape of pivot table, same application-level-
+// only single-category guarantee via catalog_sync_product_category()).
+$salesByCategoryStmt = $pdo->query("
+    SELECT
+        COALESCE(cat.name, 'No Category') AS group_name,
+        SUM(oi.quantity) AS units_sold,
+        COUNT(DISTINCT oi.order_id) AS order_count,
+        SUM(oi.subtotal) AS revenue
+    FROM mewmii_order_items oi
+    INNER JOIN mewmii_orders o ON o.id = oi.order_id
+    INNER JOIN products p ON p.id = oi.product_id
+    LEFT JOIN (
+        SELECT product_id, MIN(category_id) AS category_id
+        FROM product_category_relationships
+        GROUP BY product_id
+    ) pcat ON pcat.product_id = p.id
+    LEFT JOIN categories cat ON cat.id = pcat.category_id
+    WHERE {$validOrderCondition}
+    GROUP BY cat.id
+    ORDER BY revenue DESC
+    LIMIT 20
+");
+$salesByCategory = $salesByCategoryStmt->fetchAll(PDO::FETCH_ASSOC);
+
 // Product row links go to modules/products/view.php, which requires products.view - the
 // destination controls permission, not this page's own orders.view gate.
 $canViewProducts = app_has_permission('products.view');
@@ -171,6 +268,128 @@ require_once __DIR__ . '/../../includes/header.php';
                 <?php endforeach; ?>
                 <?php if ($bestSellers === []): ?>
                     <tr><td colspan="5" class="text-muted">No sales in this period.</td></tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card p-4 mt-4">
+    <h5 class="mb-3">Sales Trend</h5>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Orders</th>
+                    <th>Units Sold</th>
+                    <th>Revenue</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($salesTrend as $row): ?>
+                    <tr>
+                        <td><?php echo app_escape($row['period_label']); ?></td>
+                        <td><?php echo (int) $row['order_count']; ?></td>
+                        <td><?php echo (int) $row['units_sold']; ?></td>
+                        <td>RM <?php echo app_escape(number_format((float) $row['revenue'], 2)); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if ($salesTrend === []): ?>
+                    <tr><td colspan="4" class="text-muted">No sales in this period.</td></tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="row g-4 mt-1">
+    <div class="col-lg-6">
+        <div class="card p-4 h-100">
+            <h5 class="mb-3">Sales By Brand</h5>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead>
+                        <tr>
+                            <th>Brand</th>
+                            <th>Units Sold</th>
+                            <th>Orders</th>
+                            <th>Revenue</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($salesByBrand as $row): ?>
+                            <tr>
+                                <td><?php echo app_escape($row['group_name']); ?></td>
+                                <td><?php echo (int) $row['units_sold']; ?></td>
+                                <td><?php echo (int) $row['order_count']; ?></td>
+                                <td>RM <?php echo app_escape(number_format((float) $row['revenue'], 2)); ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                        <?php if ($salesByBrand === []): ?>
+                            <tr><td colspan="4" class="text-muted">No sales in this period.</td></tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="card p-4 h-100">
+            <h5 class="mb-3">Sales By Collection</h5>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead>
+                        <tr>
+                            <th>Collection</th>
+                            <th>Units Sold</th>
+                            <th>Orders</th>
+                            <th>Revenue</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($salesByCollection as $row): ?>
+                            <tr>
+                                <td><?php echo app_escape($row['group_name']); ?></td>
+                                <td><?php echo (int) $row['units_sold']; ?></td>
+                                <td><?php echo (int) $row['order_count']; ?></td>
+                                <td>RM <?php echo app_escape(number_format((float) $row['revenue'], 2)); ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                        <?php if ($salesByCollection === []): ?>
+                            <tr><td colspan="4" class="text-muted">No sales in this period.</td></tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card p-4 mt-4">
+    <h5 class="mb-3">Sales By Category</h5>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>Category</th>
+                    <th>Units Sold</th>
+                    <th>Orders</th>
+                    <th>Revenue</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($salesByCategory as $row): ?>
+                    <tr>
+                        <td><?php echo app_escape($row['group_name']); ?></td>
+                        <td><?php echo (int) $row['units_sold']; ?></td>
+                        <td><?php echo (int) $row['order_count']; ?></td>
+                        <td>RM <?php echo app_escape(number_format((float) $row['revenue'], 2)); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if ($salesByCategory === []): ?>
+                    <tr><td colspan="4" class="text-muted">No sales in this period.</td></tr>
                 <?php endif; ?>
             </tbody>
         </table>

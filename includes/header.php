@@ -87,14 +87,6 @@ $appTitle = 'Mewmii OS';
     <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm">
         <div class="container-fluid px-4">
             <a class="navbar-brand" href="/index.php">🌸 Mewmii OS</a>
-            <?php if (app_is_logged_in()): ?>
-                <div class="flex-grow-1 mx-3" style="max-width: 480px;">
-                    <div id="global-search-wrapper" class="position-relative">
-                        <input type="text" id="global-search-input" class="form-control form-control-sm" placeholder="Search products, orders, suppliers..." autocomplete="off">
-                        <div id="global-search-results" class="list-group position-absolute w-100 border rounded shadow-sm bg-white" style="top: 100%; left: 0; z-index: 1050; max-height: 360px; overflow-y: auto; display: none;"></div>
-                    </div>
-                </div>
-            <?php endif; ?>
             <div class="ms-auto">
                 <?php if (app_is_logged_in()): ?>
                     <span class="me-3 text-muted">Hello, <?php echo app_escape($_SESSION['user_name'] ?? 'Admin'); ?></span>
@@ -105,13 +97,6 @@ $appTitle = 'Mewmii OS';
             </div>
         </div>
     </nav>
-    <?php if (app_is_logged_in()): ?>
-        <?php
-        $globalSearchJsPath = __DIR__ . '/../assets/js/global-search.js';
-        $globalSearchJsVersion = is_file($globalSearchJsPath) ? filemtime($globalSearchJsPath) : time();
-        ?>
-        <script src="/assets/js/global-search.js?v=<?php echo (int) $globalSearchJsVersion; ?>"></script>
-    <?php endif; ?>
     <div class="container-fluid">
         <div class="row">
             <?php if (app_is_logged_in()): ?>
