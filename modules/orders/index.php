@@ -7,14 +7,36 @@ app_require_permission('orders.view');
 $appTitle = 'Orders';
 require_once __DIR__ . '/../../includes/header.php';
 
-$stmt = app_db()->query('SELECT o.id, o.order_number, o.payment_status, o.order_status, o.is_historical, o.tracking_number, c.name AS customer_name FROM mewmii_orders o LEFT JOIN customers c ON c.id = o.customer_id ORDER BY o.id DESC LIMIT 20');
+// Optional ?status= filter - same read-only, additive pattern already used by
+// modules/inventory/index.php's ?stock_status=/?stage= filters. Lets the Operations
+// Dashboard's Orders cards link to a specific order_status instead of always the
+// unfiltered latest-20 list. Defaults to no filter (today's exact behavior) when absent.
+$filterStatus = isset($_GET['status']) && in_array($_GET['status'], array_merge(ORDER_STATUS_WORKFLOW, ['cancelled']), true)
+    ? $_GET['status']
+    : null;
+
+$sql = 'SELECT o.id, o.order_number, o.payment_status, o.order_status, o.is_historical, o.tracking_number, c.name AS customer_name FROM mewmii_orders o LEFT JOIN customers c ON c.id = o.customer_id';
+$params = [];
+if ($filterStatus !== null) {
+    $sql .= ' WHERE o.order_status = ?';
+    $params[] = $filterStatus;
+}
+$sql .= ' ORDER BY o.id DESC LIMIT 20';
+$stmt = app_db()->prepare($sql);
+$stmt->execute($params);
 $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
 $canManage = app_has_permission('orders.manage');
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <h2 class="mb-1">Orders</h2>
-        <p class="text-muted mb-0">WooCommerce and internal order tracking foundation.</p>
+        <p class="text-muted mb-0">
+            WooCommerce and internal order tracking foundation.
+            <?php if ($filterStatus !== null): ?>
+                &middot; Filtered: <?php echo app_escape(order_status_label($filterStatus)); ?>
+                <a href="/modules/orders/index.php" class="ms-1">(clear)</a>
+            <?php endif; ?>
+        </p>
     </div>
     <?php if ($canManage): ?>
         <div class="d-flex gap-2">
