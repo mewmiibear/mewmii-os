@@ -96,12 +96,17 @@ function catalog_product_lifecycle_stage(array $product): string
  */
 function catalog_lifecycle_badge(array $product): string
 {
+    // Colours match the Mewmii OS design tokens (Status Colours table) exactly - Early Bird,
+    // Preorder, Ready Stock, and Waiting Release each map to a specific brand/accent colour;
+    // Closed uses the secondary text tone rather than a saturated colour. Order/supplier-order/
+    // shipment/payment status badges intentionally keep their existing Bootstrap semantic
+    // colours and are out of scope here.
     $styles = [
-        'early_bird' => ['emoji' => '🟧', 'label' => 'Early Bird', 'bg' => '#fd7e14'],
-        'preorder' => ['emoji' => '🟪', 'label' => 'Preorder', 'bg' => '#6f42c1'],
-        'ready_stock' => ['emoji' => '🟩', 'label' => 'Ready Stock', 'bg' => '#198754'],
-        'waiting_release' => ['emoji' => '⚪', 'label' => 'Waiting Release', 'bg' => '#adb5bd'],
-        'closed' => ['emoji' => '🔴', 'label' => 'Closed', 'bg' => '#dc3545'],
+        'early_bird' => ['emoji' => '🟧', 'label' => 'Early Bird', 'bg' => '#FF94C4'],
+        'preorder' => ['emoji' => '🟪', 'label' => 'Preorder', 'bg' => '#3472EF'],
+        'ready_stock' => ['emoji' => '🟩', 'label' => 'Ready Stock', 'bg' => '#85D2FF'],
+        'waiting_release' => ['emoji' => '⚪', 'label' => 'Waiting Release', 'bg' => '#B2668C'],
+        'closed' => ['emoji' => '🔴', 'label' => 'Closed', 'bg' => '#66524E'],
     ];
 
     $stage = catalog_product_lifecycle_stage($product);

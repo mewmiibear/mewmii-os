@@ -12,15 +12,18 @@ $appTitle = 'Dashboard';
 $pdo = app_db();
 
 /**
- * Operations Dashboard (Phase 2A) - answers "what should I work on right now", grouped into
- * Orders / Purchasing / Inventory / Shipping / Quick Actions. Every number here is either a
- * direct reuse of an existing function (purchase_planning_needs(), purchase_planning_
- * untargeted_demand(), inventory_allocation_queue(), inventory_reservation_queue() - all
- * unchanged) or a plain read-only COUNT/GROUP BY aggregate over existing tables - no
- * calculation, formula, or write path here or anywhere else was touched. Each section's data
- * (and underlying query) is only fetched at all for a user who holds the permission its
- * linked destination page actually requires - see the per-section $can* flags below - so nei-
- * ther the query cost nor the data is paid for/shown to a user who can't act on it anyway.
+ * Operations Dashboard (UI/UX Refinement Phase) - answers "what should I work on right now",
+ * grouped into Today's Overview / Needs Attention / Quick Actions / Business Snapshot. Every
+ * number is either a direct reuse of an existing function (purchase_planning_needs(),
+ * purchase_planning_untargeted_demand(), inventory_allocation_queue(), inventory_reservation_
+ * queue() - all unchanged) or a plain read-only COUNT/GROUP BY aggregate over existing tables -
+ * no calculation, formula, or write path here or anywhere else was touched. Business Snapshot's
+ * three queries are new but reuse the exact "valid order" condition and query shapes already
+ * established in modules/reports/sales.php and modules/customers/index.php, just scoped to a
+ * fixed 30-day window. Each section's data (and underlying query) is only fetched at all for a
+ * user who holds the permission its linked destination page actually requires - see the
+ * per-section $can* flags below - so neither the query cost nor the data is paid for/shown to
+ * a user who can't act on it anyway.
  */
 
 // --- Permission flags: one per destination permission domain this dashboard links into -----
@@ -33,6 +36,7 @@ $canManageInventory = app_has_permission('inventory.manage');
 $canViewShipMyBox = app_has_permission('ship-my-box.view');
 $canViewShipments = app_has_permission('shipments.view');
 $canManageShipments = app_has_permission('shipments.manage');
+$canViewCustomers = app_has_permission('customers.view');
 
 // --- 1. Orders --------------------------------------------------------------------------
 // order_status is exclusively written by order_recompute_status() (includes/order_
@@ -176,188 +180,293 @@ if ($canViewShipments) {
     $shipmentsShippedTodayCount = (int) ($shipmentStats['shipped_today'] ?? 0);
 }
 
+// --- 5. Needs Attention (display-only regrouping of the numbers above) --------------------
+// Every entry here reuses a count already computed in sections 1-4 - no new calculation, just
+// a short, filtered list of "the ones that are actually non-zero right now" so the dashboard
+// doesn't show a wall of empty rows. Same permission gate each count's own section already used.
+$attentionItems = [];
+if ($canViewOrders && $orderStatusCounts['waiting_stock'] > 0) {
+    $attentionItems[] = ['label' => 'Orders Waiting on Stock', 'count' => $orderStatusCounts['waiting_stock'], 'url' => '/modules/orders/index.php?status=waiting_stock', 'tone' => 'danger'];
+}
+if ($canViewInventory && $lowStockCount > 0) {
+    $attentionItems[] = ['label' => 'Low Stock Products', 'count' => $lowStockCount, 'url' => '/modules/inventory/index.php?stock_status=low_stock', 'tone' => 'danger'];
+}
+if ($canViewSupplierOrders && $overdueSupplierOrderCount > 0) {
+    $attentionItems[] = ['label' => 'Overdue Supplier Orders', 'count' => $overdueSupplierOrderCount, 'url' => '/modules/supplier-orders/index.php?filter=overdue', 'tone' => 'danger'];
+}
+if ($canViewOrders && $orderStatusCounts['ready_to_ship'] > 0) {
+    $attentionItems[] = ['label' => 'Orders Ready to Ship', 'count' => $orderStatusCounts['ready_to_ship'], 'url' => '/modules/orders/index.php?status=ready_to_ship', 'tone' => 'warning'];
+}
+if ($canManageInventory && $reservationCount > 0) {
+    $attentionItems[] = ['label' => 'Orders Waiting to Be Reserved', 'count' => $reservationCount, 'url' => '/modules/inventory/reservation-center.php', 'tone' => 'warning'];
+}
+if ($canManageInventory && $allocationCount > 0) {
+    $attentionItems[] = ['label' => 'Preorders Waiting to Be Allocated', 'count' => $allocationCount, 'url' => '/modules/inventory/allocation-center.php', 'tone' => 'warning'];
+}
+if ($canViewShipMyBox && $shipRequestPendingCount > 0) {
+    $attentionItems[] = ['label' => 'Ship Requests Waiting', 'count' => $shipRequestPendingCount, 'url' => '/modules/ship-my-box/index.php', 'tone' => 'warning'];
+}
+if ($canViewShipments && $shipmentAwaitingTrackingCount > 0) {
+    $attentionItems[] = ['label' => 'Shipments Awaiting Tracking Number', 'count' => $shipmentAwaitingTrackingCount, 'url' => '/modules/shipments/index.php', 'tone' => 'warning'];
+}
+
+// --- 6. Business Snapshot ------------------------------------------------------------------
+// New for this phase, but not new logic: these three queries reuse the exact "valid order"
+// condition and query shape already established in modules/reports/sales.php (payment_status
+// = 'paid' AND order_status <> 'cancelled') and the aggregation style already used in
+// modules/customers/index.php - just scoped down to a fixed, lightweight 30-day window with no
+// filter UI, since the dashboard links out to the full report for anything beyond a glance.
+$snapshotPeriodCondition = "o.payment_status = 'paid' AND o.order_status <> 'cancelled' AND o.order_date >= DATE_SUB(CURDATE(), INTERVAL 29 DAY)";
+
+$salesSnapshot = ['total_orders' => 0, 'units_sold' => 0, 'revenue' => 0.0, 'active_customers' => 0];
+$topProducts = [];
+if ($canViewOrders) {
+    $salesSnapshotStmt = $pdo->query("
+        SELECT
+            COUNT(DISTINCT o.id) AS total_orders,
+            COALESCE(SUM(oi.quantity), 0) AS units_sold,
+            COALESCE(SUM(oi.subtotal), 0) AS revenue,
+            COUNT(DISTINCT o.customer_id) AS active_customers
+        FROM mewmii_orders o
+        INNER JOIN mewmii_order_items oi ON oi.order_id = o.id
+        WHERE {$snapshotPeriodCondition}
+    ");
+    $salesSnapshot = $salesSnapshotStmt->fetch(PDO::FETCH_ASSOC);
+
+    // Top 5 sellers, same shape as modules/reports/sales.php's Best Selling Products query,
+    // just LIMIT 5 instead of 20 for a dashboard-sized glance.
+    $topProductsStmt = $pdo->query("
+        SELECT p.id AS product_id, p.name AS product_name, SUM(oi.quantity) AS units_sold, SUM(oi.subtotal) AS revenue
+        FROM mewmii_order_items oi
+        INNER JOIN mewmii_orders o ON o.id = oi.order_id
+        INNER JOIN products p ON p.id = oi.product_id
+        WHERE {$snapshotPeriodCondition}
+        GROUP BY p.id, p.name
+        ORDER BY revenue DESC
+        LIMIT 5
+    ");
+    $topProducts = $topProductsStmt->fetchAll(PDO::FETCH_ASSOC);
+}
+$salesSnapshot['average_order_value'] = ((int) $salesSnapshot['total_orders'] > 0)
+    ? ((float) $salesSnapshot['revenue'] / (int) $salesSnapshot['total_orders'])
+    : null;
+
+$newCustomerCount = 0;
+if ($canViewCustomers) {
+    $newCustomerStmt = $pdo->query('SELECT COUNT(*) FROM customers WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 29 DAY)');
+    $newCustomerCount = (int) $newCustomerStmt->fetchColumn();
+}
+
+// Product row links go to modules/products/view.php, which requires products.view - the
+// destination controls permission, not this page's own dashboard.view gate.
+$canViewProducts = app_has_permission('products.view');
+
 require_once __DIR__ . '/includes/header.php';
 ?>
 
-<h4 class="mb-3">Orders</h4>
-<div class="row g-4 mb-4">
-    <?php if ($canViewOrders): ?>
-        <div class="col-md-6 col-lg-3">
-            <div class="card p-4 h-100 d-flex flex-column">
-                <h6 class="text-muted mb-2">Waiting for Stock</h6>
-                <h2 class="fw-bold mb-0"><?php echo (int) $orderStatusCounts['waiting_stock']; ?></h2>
-                <a class="btn btn-outline-primary btn-sm mt-auto" href="/modules/orders/index.php?status=waiting_stock">View Orders</a>
+<div class="mb-4">
+    <h4 class="mb-1">Today's Overview</h4>
+    <p class="text-muted small mb-3">The numbers that matter for running the warehouse today.</p>
+    <div class="row g-4">
+        <?php if ($canViewOrders): ?>
+            <div class="col-md-6 col-lg-3">
+                <div class="card p-4 h-100 d-flex flex-column">
+                    <h6 class="text-muted mb-2">Orders Requiring Attention</h6>
+                    <h2 class="fw-bold mb-0"><?php echo (int) ($orderStatusCounts['waiting_stock'] + $orderStatusCounts['ready_to_ship']); ?></h2>
+                    <p class="text-muted small mb-2">Waiting on stock or ready to ship</p>
+                    <a class="btn btn-outline-primary btn-sm mt-auto" href="/modules/orders/index.php">View Orders</a>
+                </div>
             </div>
-        </div>
-        <div class="col-md-6 col-lg-3">
-            <div class="card p-4 h-100 d-flex flex-column">
-                <h6 class="text-muted mb-2">Ready to Pack</h6>
-                <h2 class="fw-bold mb-0"><?php echo (int) $orderStatusCounts['waiting_ship_my_box']; ?></h2>
-                <a class="btn btn-outline-primary btn-sm mt-auto" href="/modules/orders/index.php?status=waiting_ship_my_box">View Orders</a>
+        <?php endif; ?>
+        <?php if ($canViewInventory): ?>
+            <div class="col-md-6 col-lg-3">
+                <div class="card p-4 h-100 d-flex flex-column">
+                    <h6 class="text-muted mb-2">Low Stock</h6>
+                    <h2 class="fw-bold mb-0 <?php echo $lowStockCount > 0 ? 'text-danger' : ''; ?>"><?php echo (int) $lowStockCount; ?></h2>
+                    <p class="text-muted small mb-2">Ready-stock products below threshold</p>
+                    <a class="btn btn-outline-primary btn-sm mt-auto" href="/modules/inventory/index.php?stock_status=low_stock">View Inventory</a>
+                </div>
             </div>
-        </div>
-        <div class="col-md-6 col-lg-3">
-            <div class="card p-4 h-100 d-flex flex-column">
-                <h6 class="text-muted mb-2">Ready to Ship</h6>
-                <h2 class="fw-bold mb-0"><?php echo (int) $orderStatusCounts['ready_to_ship']; ?></h2>
-                <a class="btn btn-outline-primary btn-sm mt-auto" href="/modules/orders/index.php?status=ready_to_ship">View Orders</a>
+        <?php endif; ?>
+        <?php if ($canViewSupplierOrders): ?>
+            <div class="col-md-6 col-lg-3">
+                <div class="card p-4 h-100 d-flex flex-column">
+                    <h6 class="text-muted mb-2">Incoming Supplier Orders</h6>
+                    <h2 class="fw-bold mb-0"><?php echo (int) ($supplierOrderStatusCounts['ordered'] + $supplierOrderStatusCounts['partially_received']); ?></h2>
+                    <p class="text-muted small mb-2">Confirmed or arriving</p>
+                    <a class="btn btn-outline-primary btn-sm mt-auto" href="/modules/supplier-orders/index.php">View Supplier Orders</a>
+                </div>
             </div>
-        </div>
-    <?php endif; ?>
-    <?php if ($canViewShipments): ?>
-        <div class="col-md-6 col-lg-3">
-            <div class="card p-4 h-100 d-flex flex-column">
-                <h6 class="text-muted mb-2">Shipped Today</h6>
-                <h2 class="fw-bold mb-0"><?php echo (int) $shipmentsShippedTodayCount; ?></h2>
-                <a class="btn btn-outline-primary btn-sm mt-auto" href="/modules/shipments/index.php">View Shipments</a>
+        <?php endif; ?>
+        <?php if ($canViewOrders): ?>
+            <div class="col-md-6 col-lg-3">
+                <div class="card p-4 h-100 d-flex flex-column">
+                    <h6 class="text-muted mb-2">Fulfillment Status</h6>
+                    <div class="d-flex justify-content-between align-items-baseline mb-1">
+                        <span class="text-muted small">Ready to Pack</span>
+                        <span class="fw-bold fs-5"><?php echo (int) $orderStatusCounts['waiting_ship_my_box']; ?></span>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-baseline mb-1">
+                        <span class="text-muted small">Ready to Ship</span>
+                        <span class="fw-bold fs-5"><?php echo (int) $orderStatusCounts['ready_to_ship']; ?></span>
+                    </div>
+                    <?php if ($canViewShipments): ?>
+                        <div class="d-flex justify-content-between align-items-baseline mb-2">
+                            <span class="text-muted small">Shipped Today</span>
+                            <span class="fw-bold fs-5"><?php echo (int) $shipmentsShippedTodayCount; ?></span>
+                        </div>
+                    <?php endif; ?>
+                    <a class="btn btn-outline-primary btn-sm mt-auto" href="/modules/orders/index.php">View Orders</a>
+                </div>
             </div>
-        </div>
-    <?php endif; ?>
+        <?php endif; ?>
+    </div>
 </div>
 
-<h4 class="mb-3">Purchasing</h4>
-<div class="row g-4 mb-4">
-    <?php if ($canManageSupplierOrders): ?>
-        <div class="col-md-6 col-lg-3">
-            <div class="card p-4 h-100 d-flex flex-column">
-                <h6 class="text-muted mb-2">Purchase Planning</h6>
-                <h2 class="fw-bold mb-0"><?php echo (int) $purchasePlanningCount; ?></h2>
-                <p class="text-muted small mb-2">RM <?php echo app_escape(number_format($purchasePlanningValue, 2)); ?> estimated</p>
-                <a class="btn btn-outline-primary btn-sm mt-auto" href="/modules/purchase-planning/generate.php">Review &amp; Generate</a>
+<div class="mb-4">
+    <h4 class="mb-1">Needs Attention</h4>
+    <p class="text-muted small mb-3">Only shows what actually needs a decision right now.</p>
+    <div class="card p-4">
+        <?php if ($attentionItems === []): ?>
+            <p class="text-muted mb-0">All caught up - nothing needs attention right now. 🌸</p>
+        <?php else: ?>
+            <div class="d-flex flex-column gap-2">
+                <?php foreach ($attentionItems as $item): ?>
+                    <div class="attention-item tone-<?php echo app_escape($item['tone']); ?> d-flex justify-content-between align-items-center p-3">
+                        <span><?php echo app_escape($item['label']); ?></span>
+                        <div class="d-flex align-items-center gap-3">
+                            <span class="fw-bold fs-5"><?php echo (int) $item['count']; ?></span>
+                            <a class="btn btn-outline-primary btn-sm" href="<?php echo app_escape($item['url']); ?>">Resolve &rarr;</a>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
             </div>
-        </div>
-    <?php endif; ?>
-    <?php if ($canViewSupplierOrders): ?>
-        <div class="col-md-6 col-lg-3">
-            <div class="card p-4 h-100 d-flex flex-column">
-                <h6 class="text-muted mb-2">Draft Supplier Orders</h6>
-                <h2 class="fw-bold mb-0"><?php echo (int) $supplierOrderStatusCounts['draft']; ?></h2>
-                <a class="btn btn-outline-primary btn-sm mt-auto" href="/modules/supplier-orders/index.php">View Supplier Orders</a>
-            </div>
-        </div>
-        <div class="col-md-6 col-lg-3">
-            <div class="card p-4 h-100 d-flex flex-column">
-                <h6 class="text-muted mb-2">Awaiting Confirmation</h6>
-                <h2 class="fw-bold mb-0"><?php echo (int) $supplierOrderStatusCounts['ordered']; ?></h2>
-                <a class="btn btn-outline-primary btn-sm mt-auto" href="/modules/supplier-orders/index.php">View Supplier Orders</a>
-            </div>
-        </div>
-        <div class="col-md-6 col-lg-3">
-            <div class="card p-4 h-100 d-flex flex-column">
-                <h6 class="text-muted mb-2">Arriving</h6>
-                <h2 class="fw-bold mb-0"><?php echo (int) $supplierOrderStatusCounts['partially_received']; ?></h2>
-                <a class="btn btn-outline-primary btn-sm mt-auto" href="/modules/supplier-orders/index.php">View Supplier Orders</a>
-            </div>
-        </div>
-        <div class="col-md-6 col-lg-3">
-            <div class="card p-4 h-100 d-flex flex-column">
-                <h6 class="text-muted mb-2">Overdue</h6>
-                <h2 class="fw-bold mb-0 <?php echo $overdueSupplierOrderCount > 0 ? 'text-danger' : ''; ?>"><?php echo (int) $overdueSupplierOrderCount; ?></h2>
-                <a class="btn btn-outline-primary btn-sm mt-auto" href="/modules/supplier-orders/index.php">View Supplier Orders</a>
-            </div>
-        </div>
-    <?php endif; ?>
+        <?php endif; ?>
+    </div>
 </div>
 
-<h4 class="mb-3">Inventory</h4>
-<div class="row g-4 mb-4">
-    <?php if ($canManageSupplierOrders): ?>
-        <div class="col-md-6 col-lg-4">
-            <div class="card p-4 h-100 d-flex flex-column">
-                <h6 class="text-muted mb-2">Below Target Stock</h6>
-                <h2 class="fw-bold mb-0"><?php echo (int) $belowTargetCount; ?></h2>
-                <a class="btn btn-outline-primary btn-sm mt-auto" href="/modules/purchase-planning/generate.php">Review in Purchase Planning</a>
+<div class="mb-4">
+    <h4 class="mb-3">Quick Actions</h4>
+    <div class="row g-3">
+        <?php if ($canManageOrders): ?>
+            <div class="col-md-4 col-lg-2">
+                <a class="btn btn-primary w-100 h-100 py-3" href="/modules/orders/create.php">Create Customer Order</a>
             </div>
-        </div>
-        <div class="col-md-6 col-lg-4">
-            <div class="card p-4 h-100 d-flex flex-column">
-                <h6 class="text-muted mb-2">Missing Target Stock</h6>
-                <h2 class="fw-bold mb-0"><?php echo (int) $missingTargetCount; ?></h2>
-                <a class="btn btn-outline-primary btn-sm mt-auto" href="/modules/purchase-planning/generate.php">Review in Purchase Planning</a>
+        <?php endif; ?>
+        <?php if ($canManageSupplierOrders): ?>
+            <div class="col-md-4 col-lg-2">
+                <a class="btn btn-primary w-100 h-100 py-3" href="/modules/purchase-planning/generate.php">
+                    Generate Purchase Planning
+                    <?php if ($purchasePlanningCount > 0): ?><span class="badge bg-light text-dark ms-1"><?php echo (int) $purchasePlanningCount; ?></span><?php endif; ?>
+                </a>
             </div>
-        </div>
-    <?php endif; ?>
-    <?php if ($canViewInventory): ?>
-        <div class="col-md-6 col-lg-4">
-            <div class="card p-4 h-100 d-flex flex-column">
-                <h6 class="text-muted mb-2">Low Stock Alerts</h6>
-                <h2 class="fw-bold mb-0 <?php echo $lowStockCount > 0 ? 'text-danger' : ''; ?>"><?php echo (int) $lowStockCount; ?></h2>
-                <a class="btn btn-outline-primary btn-sm mt-auto" href="/modules/inventory/index.php?stock_status=low_stock">View Inventory</a>
+            <div class="col-md-4 col-lg-2">
+                <a class="btn btn-primary w-100 h-100 py-3" href="/modules/supplier-orders/index.php">
+                    Receive Supplier Order
+                    <?php $receivable = $supplierOrderStatusCounts['ordered'] + $supplierOrderStatusCounts['partially_received']; ?>
+                    <?php if ($receivable > 0): ?><span class="badge bg-light text-dark ms-1"><?php echo (int) $receivable; ?></span><?php endif; ?>
+                </a>
             </div>
-        </div>
-    <?php endif; ?>
+        <?php endif; ?>
+        <?php if ($canManageInventory): ?>
+            <div class="col-md-4 col-lg-2">
+                <a class="btn btn-primary w-100 h-100 py-3" href="/modules/inventory/reservation-center.php">
+                    Reserve Waiting Orders
+                    <?php if ($reservationCount > 0): ?><span class="badge bg-light text-dark ms-1"><?php echo (int) $reservationCount; ?></span><?php endif; ?>
+                </a>
+            </div>
+            <div class="col-md-4 col-lg-2">
+                <a class="btn btn-primary w-100 h-100 py-3" href="/modules/inventory/allocation-center.php">
+                    Allocate Preorders
+                    <?php if ($allocationCount > 0): ?><span class="badge bg-light text-dark ms-1"><?php echo (int) $allocationCount; ?></span><?php endif; ?>
+                </a>
+            </div>
+        <?php endif; ?>
+        <?php if ($canManageShipments): ?>
+            <div class="col-md-4 col-lg-2">
+                <a class="btn btn-primary w-100 h-100 py-3" href="/modules/shipments/index.php">Ship Orders</a>
+            </div>
+        <?php endif; ?>
+    </div>
 </div>
 
-<h4 class="mb-3">Shipping</h4>
-<div class="row g-4 mb-4">
-    <?php if ($canViewShipMyBox): ?>
-        <div class="col-md-6 col-lg-4">
-            <div class="card p-4 h-100 d-flex flex-column">
-                <h6 class="text-muted mb-2">Ship Requests Waiting</h6>
-                <h2 class="fw-bold mb-0"><?php echo (int) $shipRequestPendingCount; ?></h2>
-                <a class="btn btn-outline-primary btn-sm mt-auto" href="/modules/ship-my-box/index.php">View Ship My Box</a>
+<?php if ($canViewOrders): ?>
+<div class="mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-1">
+        <h4 class="mb-0">Business Snapshot</h4>
+        <a class="small" href="/modules/reports/sales.php">View Full Sales Report &rarr;</a>
+    </div>
+    <p class="text-muted small mb-3">Last 30 days, at a glance.</p>
+    <div class="row g-4">
+        <div class="col-lg-5">
+            <div class="card p-4 h-100">
+                <h6 class="text-muted mb-3">Sales &amp; Orders</h6>
+                <div class="row g-3">
+                    <div class="col-6">
+                        <div class="text-muted small">Orders</div>
+                        <div class="fs-5 fw-bold"><?php echo (int) $salesSnapshot['total_orders']; ?></div>
+                    </div>
+                    <div class="col-6">
+                        <div class="text-muted small">Units Sold</div>
+                        <div class="fs-5 fw-bold"><?php echo (int) $salesSnapshot['units_sold']; ?></div>
+                    </div>
+                    <div class="col-6">
+                        <div class="text-muted small">Revenue</div>
+                        <div class="fs-5 fw-bold">RM <?php echo app_escape(number_format((float) $salesSnapshot['revenue'], 2)); ?></div>
+                    </div>
+                    <div class="col-6">
+                        <div class="text-muted small">Avg Order Value</div>
+                        <div class="fs-5 fw-bold">
+                            <?php if ($salesSnapshot['average_order_value'] !== null): ?>
+                                RM <?php echo app_escape(number_format($salesSnapshot['average_order_value'], 2)); ?>
+                            <?php else: ?>
+                                &mdash;
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
-    <?php endif; ?>
-    <?php if ($canViewShipments): ?>
-        <div class="col-md-6 col-lg-4">
-            <div class="card p-4 h-100 d-flex flex-column">
-                <h6 class="text-muted mb-2">Awaiting Tracking</h6>
-                <h2 class="fw-bold mb-0"><?php echo (int) $shipmentAwaitingTrackingCount; ?></h2>
-                <a class="btn btn-outline-primary btn-sm mt-auto" href="/modules/shipments/index.php">View Shipments</a>
+        <div class="col-lg-4">
+            <div class="card p-4 h-100">
+                <h6 class="text-muted mb-3">Top Selling Products</h6>
+                <?php if ($topProducts === []): ?>
+                    <p class="text-muted small mb-0">No sales in the last 30 days.</p>
+                <?php else: ?>
+                    <ul class="list-unstyled mb-0">
+                        <?php foreach ($topProducts as $product): ?>
+                            <li class="d-flex justify-content-between align-items-center mb-2">
+                                <span class="small">
+                                    <?php if ($canViewProducts): ?>
+                                        <a href="/modules/products/view.php?id=<?php echo (int) $product['product_id']; ?>"><?php echo app_escape($product['product_name']); ?></a>
+                                    <?php else: ?>
+                                        <?php echo app_escape($product['product_name']); ?>
+                                    <?php endif; ?>
+                                </span>
+                                <span class="text-muted small text-nowrap ms-2"><?php echo (int) $product['units_sold']; ?> sold</span>
+                            </li>
+                        <?php endforeach; ?>
+                    </ul>
+                <?php endif; ?>
             </div>
         </div>
-        <div class="col-md-6 col-lg-4">
-            <div class="card p-4 h-100 d-flex flex-column">
-                <h6 class="text-muted mb-2">Shipments Created Today</h6>
-                <h2 class="fw-bold mb-0"><?php echo (int) $shipmentsCreatedTodayCount; ?></h2>
-                <a class="btn btn-outline-primary btn-sm mt-auto" href="/modules/shipments/index.php">View Shipments</a>
+        <?php if ($canViewCustomers): ?>
+            <div class="col-lg-3">
+                <div class="card p-4 h-100">
+                    <h6 class="text-muted mb-3">Customer Activity</h6>
+                    <div class="mb-2">
+                        <div class="text-muted small">Active Customers</div>
+                        <div class="fs-5 fw-bold"><?php echo (int) $salesSnapshot['active_customers']; ?></div>
+                    </div>
+                    <div>
+                        <div class="text-muted small">New Customers</div>
+                        <div class="fs-5 fw-bold"><?php echo (int) $newCustomerCount; ?></div>
+                    </div>
+                </div>
             </div>
-        </div>
-    <?php endif; ?>
+        <?php endif; ?>
+    </div>
 </div>
-
-<h4 class="mb-3">Quick Actions</h4>
-<div class="row g-3 mb-4">
-    <?php if ($canManageOrders): ?>
-        <div class="col-md-4 col-lg-2">
-            <a class="btn btn-primary w-100 h-100 py-3" href="/modules/orders/create.php">Create Customer Order</a>
-        </div>
-    <?php endif; ?>
-    <?php if ($canManageSupplierOrders): ?>
-        <div class="col-md-4 col-lg-2">
-            <a class="btn btn-primary w-100 h-100 py-3" href="/modules/purchase-planning/generate.php">
-                Generate Purchase Planning
-                <?php if ($purchasePlanningCount > 0): ?><span class="badge bg-light text-dark ms-1"><?php echo (int) $purchasePlanningCount; ?></span><?php endif; ?>
-            </a>
-        </div>
-        <div class="col-md-4 col-lg-2">
-            <a class="btn btn-primary w-100 h-100 py-3" href="/modules/supplier-orders/index.php">
-                Receive Supplier Order
-                <?php $receivable = $supplierOrderStatusCounts['ordered'] + $supplierOrderStatusCounts['partially_received']; ?>
-                <?php if ($receivable > 0): ?><span class="badge bg-light text-dark ms-1"><?php echo (int) $receivable; ?></span><?php endif; ?>
-            </a>
-        </div>
-    <?php endif; ?>
-    <?php if ($canManageInventory): ?>
-        <div class="col-md-4 col-lg-2">
-            <a class="btn btn-primary w-100 h-100 py-3" href="/modules/inventory/reservation-center.php">
-                Reserve Waiting Orders
-                <?php if ($reservationCount > 0): ?><span class="badge bg-light text-dark ms-1"><?php echo (int) $reservationCount; ?></span><?php endif; ?>
-            </a>
-        </div>
-        <div class="col-md-4 col-lg-2">
-            <a class="btn btn-primary w-100 h-100 py-3" href="/modules/inventory/allocation-center.php">
-                Allocate Preorders
-                <?php if ($allocationCount > 0): ?><span class="badge bg-light text-dark ms-1"><?php echo (int) $allocationCount; ?></span><?php endif; ?>
-            </a>
-        </div>
-    <?php endif; ?>
-    <?php if ($canManageShipments): ?>
-        <div class="col-md-4 col-lg-2">
-            <a class="btn btn-primary w-100 h-100 py-3" href="/modules/shipments/index.php">Ship Orders</a>
-        </div>
-    <?php endif; ?>
-</div>
+<?php endif; ?>
 
 <?php require_once __DIR__ . '/includes/footer.php'; ?>
