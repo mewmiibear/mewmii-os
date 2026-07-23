@@ -87,6 +87,14 @@ $appTitle = 'Mewmii OS';
     <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm">
         <div class="container-fluid px-4">
             <a class="navbar-brand" href="/index.php">🌸 Mewmii OS</a>
+            <?php if (app_is_logged_in()): ?>
+                <div class="flex-grow-1 mx-3" style="max-width: 480px;">
+                    <div id="global-search-wrapper" class="position-relative">
+                        <input type="text" id="global-search-input" class="form-control form-control-sm" placeholder="Search products, orders, suppliers..." autocomplete="off">
+                        <div id="global-search-results" class="list-group position-absolute w-100 border rounded shadow-sm bg-white" style="top: 100%; left: 0; z-index: 1050; max-height: 360px; overflow-y: auto; display: none;"></div>
+                    </div>
+                </div>
+            <?php endif; ?>
             <div class="ms-auto">
                 <?php if (app_is_logged_in()): ?>
                     <span class="me-3 text-muted">Hello, <?php echo app_escape($_SESSION['user_name'] ?? 'Admin'); ?></span>
@@ -97,6 +105,13 @@ $appTitle = 'Mewmii OS';
             </div>
         </div>
     </nav>
+    <?php if (app_is_logged_in()): ?>
+        <?php
+        $globalSearchJsPath = __DIR__ . '/../assets/js/global-search.js';
+        $globalSearchJsVersion = is_file($globalSearchJsPath) ? filemtime($globalSearchJsPath) : time();
+        ?>
+        <script src="/assets/js/global-search.js?v=<?php echo (int) $globalSearchJsVersion; ?>"></script>
+    <?php endif; ?>
     <div class="container-fluid">
         <div class="row">
             <?php if (app_is_logged_in()): ?>
@@ -110,15 +125,33 @@ $appTitle = 'Mewmii OS';
                             <a class="btn btn-light btn-sm text-start ms-3" href="/modules/collections/index.php">Collections</a>
                             <a class="btn btn-light btn-sm text-start ms-3" href="/modules/tags/index.php">Tags</a>
                         <?php endif; ?>
-                        <a class="btn btn-light text-start" href="/modules/orders/index.php">Orders</a>
-                        <a class="btn btn-light text-start" href="/modules/suppliers/index.php">Suppliers</a>
-                        <a class="btn btn-light text-start" href="/modules/supplier-orders/index.php">Supplier Orders</a>
-                        <a class="btn btn-light text-start" href="/modules/inventory/index.php">Inventory</a>
-                        <a class="btn btn-light text-start" href="/modules/customers/index.php">Customers</a>
-                        <a class="btn btn-light text-start" href="/modules/customer-storage/index.php">Customer Storage</a>
-                        <a class="btn btn-light text-start" href="/modules/ship-my-box/index.php">Ship My Box</a>
-                        <a class="btn btn-light text-start" href="/modules/shipments/index.php">Shipments</a>
-                        <a class="btn btn-light text-start" href="/modules/sync-logs/index.php">Sync Logs</a>
+                        <?php if (app_has_permission('orders.view')): ?>
+                            <a class="btn btn-light text-start" href="/modules/orders/index.php">Orders</a>
+                        <?php endif; ?>
+                        <?php if (app_has_permission('suppliers.view')): ?>
+                            <a class="btn btn-light text-start" href="/modules/suppliers/index.php">Suppliers</a>
+                        <?php endif; ?>
+                        <?php if (app_has_permission('supplier-orders.view')): ?>
+                            <a class="btn btn-light text-start" href="/modules/supplier-orders/index.php">Supplier Orders</a>
+                        <?php endif; ?>
+                        <?php if (app_has_permission('inventory.view')): ?>
+                            <a class="btn btn-light text-start" href="/modules/inventory/index.php">Inventory</a>
+                        <?php endif; ?>
+                        <?php if (app_has_permission('customers.view')): ?>
+                            <a class="btn btn-light text-start" href="/modules/customers/index.php">Customers</a>
+                        <?php endif; ?>
+                        <?php if (app_has_permission('customer-storage.view')): ?>
+                            <a class="btn btn-light text-start" href="/modules/customer-storage/index.php">Customer Storage</a>
+                        <?php endif; ?>
+                        <?php if (app_has_permission('ship-my-box.view')): ?>
+                            <a class="btn btn-light text-start" href="/modules/ship-my-box/index.php">Ship My Box</a>
+                        <?php endif; ?>
+                        <?php if (app_has_permission('shipments.view')): ?>
+                            <a class="btn btn-light text-start" href="/modules/shipments/index.php">Shipments</a>
+                        <?php endif; ?>
+                        <?php if (app_has_permission('settings.manage')): ?>
+                            <a class="btn btn-light text-start" href="/modules/sync-logs/index.php">Sync Logs</a>
+                        <?php endif; ?>
                         <?php if (app_has_permission('settings.manage')): ?>
                             <a class="btn btn-light text-start" href="/modules/settings/maintenance.php">Settings</a>
                         <?php endif; ?>

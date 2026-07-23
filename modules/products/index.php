@@ -367,7 +367,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 <th>Reserved</th>
                 <th>Incoming</th>
                 <th>Price</th>
-                <?php if ($canManage): ?><th></th><?php endif; ?>
+                <th></th>
             </tr>
         </thead>
         <tbody>
@@ -408,8 +408,11 @@ require_once __DIR__ . '/../../includes/header.php';
                     <td><?php echo (int) $product['reserved_quantity']; ?></td>
                     <td><?php echo (int) $product['incoming_quantity']; ?></td>
                     <td>RM <?php echo app_escape(number_format((float) $product['selling_price'], 2)); ?><?php if ($isVariable): ?> <span class="text-muted small">(default)</span><?php endif; ?></td>
-                    <?php if ($canManage): ?>
-                        <td class="text-end">
+                    <td class="text-end">
+                        <?php if (app_has_permission('products.view')): ?>
+                            <a class="btn btn-sm btn-outline-secondary" href="/modules/products/view.php?id=<?php echo (int) $product['id']; ?>">View</a>
+                        <?php endif; ?>
+                        <?php if ($canManage): ?>
                             <a class="btn btn-sm btn-outline-primary" href="/modules/products/edit.php?id=<?php echo (int) $product['id']; ?>">Edit</a>
                             <a class="btn btn-sm btn-outline-secondary" href="/modules/products/control-center.php?id=<?php echo (int) $product['id']; ?>">Control Center</a>
                             <form method="post" action="/modules/products/duplicate.php" class="d-inline">
@@ -417,13 +420,13 @@ require_once __DIR__ . '/../../includes/header.php';
                                 <input type="hidden" name="product_id" value="<?php echo (int) $product['id']; ?>">
                                 <button type="submit" class="btn btn-sm btn-outline-secondary">Duplicate</button>
                             </form>
-                        </td>
-                    <?php endif; ?>
+                        <?php endif; ?>
+                    </td>
                 </tr>
             <?php endforeach; ?>
             <?php if ($products === []): ?>
                 <tr>
-                    <td colspan="<?php echo $canManage ? 14 : 13; ?>" class="text-muted">No products match these filters.</td>
+                    <td colspan="14" class="text-muted">No products match these filters.</td>
                 </tr>
             <?php endif; ?>
         </tbody>
