@@ -27,7 +27,87 @@ $filterStatus = in_array($_GET['status'] ?? '', $statusOptions, true) ? $_GET['s
 $quick = in_array($_GET['quick'] ?? '', ['ready_stock', 'preorder', 'early_bird', 'low_stock'], true) ? $_GET['quick'] : null;
 $searchTerm = trim((string) ($_GET['q'] ?? ''));
 
-$sql = "
+// --- Sorting: whitelisted field -> safe SQL expression, never string-built from raw input.
+// 'stock' sorts on the same batched available_quantity used for the new stock columns below,
+// not a per-row recalculation. A stable p.id DESC tiebreaker keeps LIMIT/OFFSET pagination
+// deterministic across pages even when many rows share the same sort value (e.g. stock = 0).
+$sortColumns = [
+    'name' => 'p.name',
+    'sku' => 'p.sku',
+    'stock' => 'COALESCE(stock.available_quantity, 0)',
+    'created' => 'p.created_at',
+];
+$sortKey = isset($_GET['sort']) && array_key_exists($_GET['sort'], $sortColumns) ? $_GET['sort'] : null;
+$sortDir = ($_GET['dir'] ?? '') === 'desc' ? 'DESC' : 'ASC';
+$orderSql = $sortKey !== null ? ($sortColumns[$sortKey] . ' ' . $sortDir . ', p.id DESC') : 'p.id DESC';
+
+// --- Pagination ---
+$perPage = 50;
+$page = isset($_GET['page']) && ctype_digit((string) $_GET['page']) && (int) $_GET['page'] > 0 ? (int) $_GET['page'] : 1;
+
+// Batched stock rollup - one JOIN shared by every row instead of a per-product
+// product_effective_stock() call. Mirrors that function's own rule exactly (simple products:
+// their own variation_id-IS-NULL row; variable products: SUM across non-archived variations)
+// so the numbers shown here never drift from what the product/Control Center pages compute -
+// see includes/inventory.php:product_effective_stock().
+$stockJoinSql = "
+    LEFT JOIN (
+        SELECT inv.product_id,
+               SUM(inv.available_quantity) AS available_quantity,
+               SUM(inv.reserved_quantity) AS reserved_quantity,
+               SUM(inv.incoming_quantity) AS incoming_quantity
+        FROM mewmii_inventory inv
+        LEFT JOIN product_variations pv ON pv.id = inv.variation_id
+        WHERE inv.variation_id IS NULL OR pv.status <> 'archived'
+        GROUP BY inv.product_id
+    ) stock ON stock.product_id = p.id
+";
+
+$whereSql = '';
+$params = [];
+
+if ($filterCategoryId !== null) {
+    $whereSql .= ' AND EXISTS (SELECT 1 FROM product_category_relationships r WHERE r.product_id = p.id AND r.category_id = ?)';
+    $params[] = $filterCategoryId;
+}
+if ($filterCollectionId !== null) {
+    $whereSql .= ' AND EXISTS (SELECT 1 FROM product_collection_relationships r WHERE r.product_id = p.id AND r.collection_id = ?)';
+    $params[] = $filterCollectionId;
+}
+if ($filterBrandId !== null) {
+    $whereSql .= ' AND p.brand_id = ?';
+    $params[] = $filterBrandId;
+}
+if ($filterSupplierId !== null) {
+    $whereSql .= ' AND p.supplier_id = ?';
+    $params[] = $filterSupplierId;
+}
+if ($filterCatalogType !== null) {
+    $whereSql .= ' AND p.catalog_type = ?';
+    $params[] = $filterCatalogType;
+}
+if ($filterStatus !== null) {
+    $whereSql .= ' AND p.status = ?';
+    $params[] = $filterStatus;
+}
+if ($searchTerm !== '') {
+    $whereSql .= ' AND (p.name LIKE ? OR p.sku LIKE ? OR p.barcode LIKE ?)';
+    $likeTerm = '%' . $searchTerm . '%';
+    $params[] = $likeTerm;
+    $params[] = $likeTerm;
+    $params[] = $likeTerm;
+}
+// quick=low_stock is a plain numeric comparison against the same batched stock.available_quantity
+// used for display/sorting above - not a re-derivation of a different formula, so it composes
+// with SQL-level pagination instead of needing a PHP-side pass. Preserves the exact prior rule
+// (ready_stock + a threshold set + available under that threshold; status is NOT part of this
+// rule, matching the original PHP filter it replaces).
+if ($quick === 'low_stock') {
+    $whereSql .= ' AND p.product_type = ? AND p.min_stock_threshold IS NOT NULL AND COALESCE(stock.available_quantity, 0) < p.min_stock_threshold';
+    $params[] = 'ready_stock';
+}
+
+$selectSql = "
     SELECT
         p.id, p.sku, p.name, p.internal_code, p.product_type, p.catalog_type, p.status, p.selling_price,
         p.min_stock_threshold, p.preorder_closing_date, p.preorder_reopened_at, p.availability_override,
@@ -35,6 +115,9 @@ $sql = "
         cat.id AS category_id, cat.name AS category_name,
         col.id AS collection_id, col.name AS collection_name,
         s.name AS supplier_name,
+        COALESCE(stock.available_quantity, 0) AS available_quantity,
+        COALESCE(stock.reserved_quantity, 0) AS reserved_quantity,
+        COALESCE(stock.incoming_quantity, 0) AS incoming_quantity,
         (SELECT image_path FROM product_images pi
             WHERE pi.product_id = p.id AND pi.variation_id IS NULL AND pi.image_type = 'main'
             ORDER BY pi.id DESC LIMIT 1) AS thumb_path
@@ -45,69 +128,43 @@ $sql = "
     LEFT JOIN categories cat ON cat.id = pcr.category_id
     LEFT JOIN product_collection_relationships pclr ON pclr.product_id = p.id
     LEFT JOIN collections col ON col.id = pclr.collection_id
-    WHERE 1 = 1
+    {$stockJoinSql}
+    WHERE 1 = 1 {$whereSql}
 ";
-$params = [];
 
-if ($filterCategoryId !== null) {
-    $sql .= ' AND EXISTS (SELECT 1 FROM product_category_relationships r WHERE r.product_id = p.id AND r.category_id = ?)';
-    $params[] = $filterCategoryId;
-}
-if ($filterCollectionId !== null) {
-    $sql .= ' AND EXISTS (SELECT 1 FROM product_collection_relationships r WHERE r.product_id = p.id AND r.collection_id = ?)';
-    $params[] = $filterCollectionId;
-}
-if ($filterBrandId !== null) {
-    $sql .= ' AND p.brand_id = ?';
-    $params[] = $filterBrandId;
-}
-if ($filterSupplierId !== null) {
-    $sql .= ' AND p.supplier_id = ?';
-    $params[] = $filterSupplierId;
-}
-if ($filterCatalogType !== null) {
-    $sql .= ' AND p.catalog_type = ?';
-    $params[] = $filterCatalogType;
-}
-if ($filterStatus !== null) {
-    $sql .= ' AND p.status = ?';
-    $params[] = $filterStatus;
-}
-if ($searchTerm !== '') {
-    $sql .= ' AND (p.name LIKE ? OR p.sku LIKE ? OR p.barcode LIKE ?)';
-    $likeTerm = '%' . $searchTerm . '%';
-    $params[] = $likeTerm;
-    $params[] = $likeTerm;
-    $params[] = $likeTerm;
-}
-
-$sql .= ' ORDER BY p.id DESC LIMIT 300';
-
-$stmt = $pdo->prepare($sql);
-$stmt->execute($params);
-$products = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-// quick=low_stock has no clean SQL equivalent without duplicating the low-stock business
-// rule (ready_stock only, min_stock_threshold set, effective available stock below it) -
-// reuse the exact formula from modules/products/edit.php via product_effective_stock()
-// instead of re-deriving stock math in raw SQL. Bounded by the 300-row cap above, so this
-// is at most ~300 extra small PK-lookup queries - fine at this admin-tool scale.
-if ($quick === 'low_stock') {
-    $products = array_values(array_filter($products, static function (array $product) use ($pdo): bool {
-        if ($product['product_type'] !== 'ready_stock' || $product['min_stock_threshold'] === null) {
-            return false;
-        }
-        $stock = product_effective_stock($pdo, (int) $product['id']);
-
-        return (int) $stock['available_quantity'] < (int) $product['min_stock_threshold'];
-    }));
-} elseif (in_array($quick, ['ready_stock', 'preorder', 'early_bird'], true)) {
+if ($quick === 'ready_stock' || $quick === 'preorder' || $quick === 'early_bird') {
     // These three tabs filter by the product's *current computed lifecycle stage*
     // (catalog_product_lifecycle_stage(), the same logic behind catalog_lifecycle_badge()),
     // not the raw product_type column - a reopened Early Bird product shows under the
     // Preorder tab, and a closed/inactive product shows under neither, matching what its
-    // badge actually displays rather than a static database value.
-    $products = array_values(array_filter($products, static fn (array $product): bool => catalog_product_lifecycle_stage($product) === $quick));
+    // badge actually displays rather than a static database value. That stage is a multi-branch
+    // state machine over dates/flags, not a single comparison like low_stock above, so
+    // reimplementing it as SQL would mean maintaining the same rule twice - instead every
+    // filtered+sorted row is fetched once (no row-count cap other than the filters above) and
+    // the existing canonical function is reused to filter in PHP, then the requested page is
+    // sliced out of that already-filtered list. Admin-catalog scale, so this stays cheap.
+    $stmt = $pdo->prepare($selectSql . ' ORDER BY ' . $orderSql);
+    $stmt->execute($params);
+    $allMatching = array_values(array_filter(
+        $stmt->fetchAll(PDO::FETCH_ASSOC),
+        static fn (array $product): bool => catalog_product_lifecycle_stage($product) === $quick
+    ));
+
+    $totalCount = count($allMatching);
+    $totalPages = max(1, (int) ceil($totalCount / $perPage));
+    $page = min($page, $totalPages);
+    $products = array_slice($allMatching, ($page - 1) * $perPage, $perPage);
+} else {
+    $countStmt = $pdo->prepare("SELECT COUNT(*) FROM products p {$stockJoinSql} WHERE 1 = 1 {$whereSql}");
+    $countStmt->execute($params);
+    $totalCount = (int) $countStmt->fetchColumn();
+    $totalPages = max(1, (int) ceil($totalCount / $perPage));
+    $page = min($page, $totalPages);
+    $offset = ($page - 1) * $perPage;
+
+    $stmt = $pdo->prepare($selectSql . " ORDER BY {$orderSql} LIMIT {$perPage} OFFSET {$offset}");
+    $stmt->execute($params);
+    $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
 $filterCategories = catalog_list_categories_tree($pdo);
@@ -267,6 +324,24 @@ require_once __DIR__ . '/../../includes/header.php';
             </select>
         </div>
 
+        <div class="col-md-2">
+            <label class="form-label small mb-1">Sort by</label>
+            <select name="sort" class="form-select form-select-sm">
+                <option value="">Newest first (default)</option>
+                <option value="name" <?php echo $sortKey === 'name' ? 'selected' : ''; ?>>Product Name</option>
+                <option value="sku" <?php echo $sortKey === 'sku' ? 'selected' : ''; ?>>SKU</option>
+                <option value="stock" <?php echo $sortKey === 'stock' ? 'selected' : ''; ?>>Available Stock</option>
+                <option value="created" <?php echo $sortKey === 'created' ? 'selected' : ''; ?>>Date Created</option>
+            </select>
+        </div>
+        <div class="col-md-1">
+            <label class="form-label small mb-1">Direction</label>
+            <select name="dir" class="form-select form-select-sm">
+                <option value="asc" <?php echo $sortDir === 'ASC' ? 'selected' : ''; ?>>Asc</option>
+                <option value="desc" <?php echo $sortDir === 'DESC' ? 'selected' : ''; ?>>Desc</option>
+            </select>
+        </div>
+
         <div class="col-auto">
             <button type="submit" class="btn btn-sm btn-primary">Filter</button>
             <a href="/modules/products/index.php" class="btn btn-sm btn-outline-secondary">Clear filters</a>
@@ -275,6 +350,7 @@ require_once __DIR__ . '/../../includes/header.php';
 </div>
 
 <div class="card p-4">
+    <div class="table-responsive">
     <table class="table table-hover align-middle">
         <thead>
             <tr>
@@ -282,10 +358,14 @@ require_once __DIR__ . '/../../includes/header.php';
                 <th>Product</th>
                 <th>Category</th>
                 <th>Brand</th>
+                <th>Supplier</th>
                 <th>Availability</th>
                 <th>Structure</th>
                 <th>Stage</th>
                 <th>Status</th>
+                <th>Available</th>
+                <th>Reserved</th>
+                <th>Incoming</th>
                 <th>Price</th>
                 <?php if ($canManage): ?><th></th><?php endif; ?>
             </tr>
@@ -319,10 +399,14 @@ require_once __DIR__ . '/../../includes/header.php';
                     </td>
                     <td><?php echo $product['category_name'] !== null ? app_escape($product['category_name']) : '—'; ?></td>
                     <td><?php echo $product['brand_name'] !== null ? app_escape($product['brand_name']) : '—'; ?></td>
+                    <td><?php echo $product['supplier_name'] !== null ? app_escape($product['supplier_name']) : '—'; ?></td>
                     <td><?php echo app_escape($productTypeLabels[$product['product_type']] ?? $product['product_type']); ?></td>
                     <td><span class="badge bg-<?php echo $isVariable ? 'info text-dark' : 'light text-dark'; ?>"><?php echo $isVariable ? 'Variable' : 'Simple'; ?></span></td>
                     <td><?php echo catalog_lifecycle_badge($product); ?></td>
                     <td><?php echo app_escape(catalog_status_dot($product['status'])); ?></td>
+                    <td><?php echo (int) $product['available_quantity']; ?></td>
+                    <td><?php echo (int) $product['reserved_quantity']; ?></td>
+                    <td><?php echo (int) $product['incoming_quantity']; ?></td>
                     <td>RM <?php echo app_escape(number_format((float) $product['selling_price'], 2)); ?><?php if ($isVariable): ?> <span class="text-muted small">(default)</span><?php endif; ?></td>
                     <?php if ($canManage): ?>
                         <td class="text-end">
@@ -339,10 +423,35 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php endforeach; ?>
             <?php if ($products === []): ?>
                 <tr>
-                    <td colspan="<?php echo $canManage ? 10 : 9; ?>" class="text-muted">No products match these filters.</td>
+                    <td colspan="<?php echo $canManage ? 14 : 13; ?>" class="text-muted">No products match these filters.</td>
                 </tr>
             <?php endif; ?>
         </tbody>
     </table>
+    </div>
+
+    <?php
+    $pageUrl = static function (int $targetPage): string {
+        return '/modules/products/index.php?' . http_build_query(array_merge($_GET, ['page' => $targetPage]));
+    };
+    $rangeStart = $totalCount === 0 ? 0 : (($page - 1) * $perPage) + 1;
+    $rangeEnd = min($totalCount, $page * $perPage);
+    ?>
+    <div class="d-flex justify-content-between align-items-center mt-3">
+        <p class="text-muted small mb-0">
+            <?php if ($totalCount > 0): ?>
+                Showing <?php echo (int) $rangeStart; ?>&ndash;<?php echo (int) $rangeEnd; ?> of <?php echo (int) $totalCount; ?> product<?php echo $totalCount === 1 ? '' : 's'; ?>
+            <?php else: ?>
+                0 products
+            <?php endif; ?>
+        </p>
+        <?php if ($totalPages > 1): ?>
+            <div class="d-flex gap-2 align-items-center">
+                <a class="btn btn-sm btn-outline-secondary <?php echo $page <= 1 ? 'disabled' : ''; ?>" href="<?php echo app_escape($pageUrl(max(1, $page - 1))); ?>">&laquo; Prev</a>
+                <span class="text-muted small">Page <?php echo (int) $page; ?> of <?php echo (int) $totalPages; ?></span>
+                <a class="btn btn-sm btn-outline-secondary <?php echo $page >= $totalPages ? 'disabled' : ''; ?>" href="<?php echo app_escape($pageUrl(min($totalPages, $page + 1))); ?>">Next &raquo;</a>
+            </div>
+        <?php endif; ?>
+    </div>
 </div>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
