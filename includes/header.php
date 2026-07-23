@@ -405,6 +405,9 @@ $appTitle = 'Mewmii OS';
                             <a class="btn btn-light text-start<?php echo $navActive('/modules/shipments/index.php'); ?>" href="/modules/shipments/index.php">Shipments</a>
                         <?php endif; ?>
                         <?php if (app_has_permission('settings.manage')): ?>
+                            <a class="btn btn-light text-start<?php echo $navActive('/modules/integrations/woocommerce.php'); ?>" href="/modules/integrations/woocommerce.php">WooCommerce Orders</a>
+                        <?php endif; ?>
+                        <?php if (app_has_permission('settings.manage')): ?>
                             <a class="btn btn-light text-start<?php echo $navActive('/modules/sync-logs/index.php'); ?>" href="/modules/sync-logs/index.php">Sync Logs</a>
                         <?php endif; ?>
                         <?php if (app_has_permission('settings.manage')): ?>
