@@ -3,23 +3,28 @@
 require_once __DIR__ . '/wc_client.php';
 require_once __DIR__ . '/sync_log.php';
 require_once __DIR__ . '/supplier_orders.php';
+require_once __DIR__ . '/order_fulfillment.php';
 
 /**
- * Shared order-workflow config for the linear order_status progression (see
- * modules/orders/view.php and modules/orders/index.php) - one place both pages read
- * stage labels/colors/next-step from, so they can never drift out of sync with each other.
- * 'cancelled' is deliberately NOT part of this list - it's a side branch reachable from any
- * non-terminal stage (see the Cancel Order action), not a step in the forward progression.
+ * order_status is now ALWAYS computed by order_recompute_status() (see
+ * includes/order_fulfillment.php) - this array is no longer a manual-advance sequence (there
+ * is no "next status" button anymore), just the full set of values the column can hold, used
+ * for labels/badges and for the historical-order CSV importer's allowed-value list (a
+ * historical order's status is set once at import time and never recomputed - see
+ * includes/order_import.php). 'cancelled' is a side branch reachable from any non-terminal
+ * stage (see the Cancel Order action), not a step in the automatic progression.
  */
-const ORDER_STATUS_WORKFLOW = ['pending', 'processing', 'waiting_stock', 'ready_to_ship', 'shipped', 'completed'];
+const ORDER_STATUS_WORKFLOW = ['pending', 'processing', 'waiting_stock', 'waiting_ship_my_box', 'ready_to_ship', 'partially_fulfilled', 'shipped', 'completed'];
 
 function order_status_label(string $status): string
 {
     $labels = [
-        'pending' => 'Pending',
+        'pending' => 'Pending Payment',
         'processing' => 'Processing',
         'waiting_stock' => 'Waiting Stock',
-        'ready_to_ship' => 'Ready to Ship',
+        'waiting_ship_my_box' => 'Waiting Ship My Box',
+        'ready_to_ship' => 'Ready To Ship',
+        'partially_fulfilled' => 'Partially Fulfilled',
         'shipped' => 'Shipped',
         'completed' => 'Completed',
         'cancelled' => 'Cancelled',
@@ -34,7 +39,9 @@ function order_status_badge(string $status): string
         'pending' => 'secondary',
         'processing' => 'info text-dark',
         'waiting_stock' => 'warning text-dark',
+        'waiting_ship_my_box' => 'warning text-dark',
         'ready_to_ship' => 'primary',
+        'partially_fulfilled' => 'primary',
         'shipped' => 'dark',
         'completed' => 'success',
         'cancelled' => 'danger',
@@ -42,34 +49,6 @@ function order_status_badge(string $status): string
     $color = $colors[$status] ?? 'secondary';
 
     return '<span class="badge bg-' . $color . '">' . htmlspecialchars(order_status_label($status), ENT_QUOTES, 'UTF-8') . '</span>';
-}
-
-/**
- * The single valid next step for $status in the linear workflow, or null if there is none
- * (already at/after 'completed', or 'cancelled'). Used to render exactly one action button
- * and, server-side, to reject any status jump that isn't this exact value.
- */
-function order_status_next(string $status): ?string
-{
-    $index = array_search($status, ORDER_STATUS_WORKFLOW, true);
-    if ($index === false || !isset(ORDER_STATUS_WORKFLOW[$index + 1])) {
-        return null;
-    }
-
-    return ORDER_STATUS_WORKFLOW[$index + 1];
-}
-
-function order_status_next_action_label(string $status): ?string
-{
-    $labels = [
-        'pending' => 'Start Processing',
-        'processing' => 'Mark Waiting Stock',
-        'waiting_stock' => 'Mark Ready to Ship',
-        'ready_to_ship' => 'Mark Shipped',
-        'shipped' => 'Mark Completed',
-    ];
-
-    return $labels[$status] ?? null;
 }
 
 /**
@@ -173,14 +152,17 @@ function order_list_deletable(PDO $pdo): array
 // --- Order Management UX Upgrade: Product Picker + full edit reconciliation -------------
 
 /**
- * Order statuses in which items/quantities/pricing can still be freely changed - nothing
- * has physically shipped yet. 'pending' has no reservation at all; 'processing',
- * 'waiting_stock', and 'ready_to_ship' already reserved stock for the CURRENT item set (see
- * inventory_reserve_for_order()), so order_apply_edit() releases and re-reserves around
- * the edit rather than patching reserved_quantity directly. 'shipped'/'completed' (and
- * 'cancelled') are locked to notes-only - see modules/orders/edit.php.
+ * Order statuses in which items/quantities/pricing can still be freely changed - nothing has
+ * been packed into a shipment yet. 'pending' has no reservation at all; 'processing',
+ * 'waiting_stock', and 'waiting_ship_my_box' may already have reserved/allocated stock for
+ * the CURRENT item set, so order_apply_edit() releases and re-reserves around the edit
+ * rather than patching reserved_quantity directly. Once order_status reaches
+ * 'ready_to_ship' a shipment already exists referencing specific order items (see
+ * includes/shipments.php) - editing at that point could desync the shipment's item list, so
+ * 'ready_to_ship'/'partially_fulfilled'/'shipped'/'completed' (and 'cancelled') are locked to
+ * notes-only - see modules/orders/edit.php.
  */
-const ORDER_EDITABLE_STATUSES = ['pending', 'processing', 'waiting_stock', 'ready_to_ship'];
+const ORDER_EDITABLE_STATUSES = ['pending', 'processing', 'waiting_stock', 'waiting_ship_my_box'];
 
 /**
  * Every product for the customer Order "+ Add Product" picker, grouped exactly like
@@ -450,4 +432,8 @@ function order_apply_edit(PDO $pdo, int $orderId, int $customerId, array $newLin
 
     $pdo->prepare('UPDATE mewmii_orders SET customer_id = ?, subtotal = ?, discount = ?, shipping_fee = ?, total_amount = ?, customer_note = ?, internal_note = ? WHERE id = ?')
         ->execute([$customerId, $subtotal, $discountTotal, round($shippingFee, 2), $totalAmount, $customerNote !== '' ? $customerNote : null, $internalNote !== '' ? $internalNote : null, $orderId]);
+
+    // Item changes can change what's reserved (e.g. removing the item that was blocking
+    // reservation) - resync the automatically computed order_status to match.
+    order_recompute_status($pdo, $orderId);
 }

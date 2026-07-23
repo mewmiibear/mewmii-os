@@ -96,10 +96,12 @@ function inventory_unit_allocated_total(PDO $pdo, int $productId, ?int $variatio
 }
 
 /**
- * Total outstanding demand for one unit: the sum, across every non-cancelled order item
- * for it, of (ordered quantity - already allocated) - reusing
+ * Total outstanding demand for one unit: the sum, across every non-cancelled, non-historical
+ * order item for it, of (ordered quantity - already allocated) - reusing
  * supplier_order_item_customer_storage_allocated() (unchanged) per item rather than
  * re-deriving that math. This is the "Need Allocate" figure in the Allocation Center.
+ * is_historical orders are excluded - they must never be surfaced as allocation candidates
+ * or receive real (live-ledger) stock.
  */
 function inventory_unit_outstanding_demand(PDO $pdo, int $productId, ?int $variationId): int
 {
@@ -107,7 +109,7 @@ function inventory_unit_outstanding_demand(PDO $pdo, int $productId, ?int $varia
         SELECT oi.id, oi.quantity
         FROM mewmii_order_items oi
         INNER JOIN mewmii_orders o ON o.id = oi.order_id
-        WHERE oi.product_id = ? AND oi.variation_id <=> ? AND o.order_status <> 'cancelled'
+        WHERE oi.product_id = ? AND oi.variation_id <=> ? AND o.order_status <> 'cancelled' AND o.is_historical = 0
     ");
     $stmt->execute([$productId, $variationId]);
 
@@ -241,7 +243,7 @@ function inventory_allocate_fifo(PDO $pdo, int $productId, ?int $variationId): a
         SELECT oi.id AS order_item_id, oi.quantity, o.id AS order_id, o.order_number, o.customer_id, o.order_status
         FROM mewmii_order_items oi
         INNER JOIN mewmii_orders o ON o.id = oi.order_id
-        WHERE oi.product_id = ? AND oi.variation_id <=> ? AND o.order_status <> 'cancelled'
+        WHERE oi.product_id = ? AND oi.variation_id <=> ? AND o.order_status <> 'cancelled' AND o.is_historical = 0
         ORDER BY o.order_date ASC, o.id ASC, oi.id ASC
     ");
     $candidatesStmt->execute([$productId, $variationId]);

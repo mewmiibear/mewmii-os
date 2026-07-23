@@ -55,6 +55,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($error === '') {
         $newStatus = (string) ($_POST['new_status'] ?? '');
         $oldStatus = (string) $shipRequest['status'];
+        $carrier = trim((string) ($_POST['carrier'] ?? ''));
+        $trackingNumber = trim((string) ($_POST['tracking_number'] ?? ''));
 
         if (!in_array($newStatus, $statuses, true)) {
             $error = 'Invalid status.';
@@ -62,12 +64,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'This ship request is final and cannot be changed.';
         } elseif ($oldStatus === $newStatus) {
             $error = 'Ship request is already in that status.';
+        } elseif ($newStatus === 'shipped' && ($carrier === '' || $trackingNumber === '')) {
+            $error = 'Carrier and tracking number are required to mark this shipped.';
         } else {
             $pdo->beginTransaction();
 
             try {
                 if ($newStatus === 'shipped') {
-                    ship_request_process($pdo, $shipRequestId);
+                    // Creates a unified shipment (see includes/shipments.php) and consumes
+                    // the underlying customer_storage lots - the one and only place that
+                    // happens, so ship_requests.status is only ever a summary label here.
+                    ship_request_process($pdo, $shipRequestId, $carrier, $trackingNumber);
                 }
 
                 $pdo->prepare('UPDATE ship_requests SET status = ? WHERE id = ?')
@@ -120,13 +127,22 @@ $activityStmt = $pdo->prepare("
 $activityStmt->execute([$shipRequestId]);
 $activity = $activityStmt->fetchAll(PDO::FETCH_ASSOC);
 
+$shipmentStmt = $pdo->prepare("
+    SELECT id, shipment_number, carrier, tracking_number, shipping_status, shipped_at
+    FROM shipments
+    WHERE source_type = 'ship_my_box' AND source_id = ?
+    LIMIT 1
+");
+$shipmentStmt->execute([$shipRequestId]);
+$linkedShipment = $shipmentStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
 $canManage = app_has_permission('ship-my-box.manage');
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1">Ship Request #<?php echo (int) $shipRequest['id']; ?></h2>
+        <h2 class="mb-1">Ship Request <?php echo app_escape($shipRequest['request_number'] ?? ('#' . $shipRequest['id'])); ?></h2>
         <p class="text-muted mb-0"><?php echo app_escape($shipRequest['customer_name']); ?> &middot; <?php echo app_escape($shipRequest['customer_email'] ?? '-'); ?></p>
     </div>
     <a class="btn btn-outline-secondary btn-sm" href="/modules/ship-my-box/index.php">Back to Ship My Box</a>
@@ -153,6 +169,10 @@ require_once __DIR__ . '/../../includes/header.php';
                 <tr><th>Shipping Fee</th><td><?php echo app_escape((string) $shipRequest['shipping_fee']); ?></td></tr>
                 <tr><th>Weight</th><td><?php echo app_escape($shipRequest['weight'] !== null ? (string) $shipRequest['weight'] : '-'); ?></td></tr>
                 <tr><th>Requested</th><td><?php echo app_escape($shipRequest['created_at']); ?></td></tr>
+                <?php if ($linkedShipment !== null): ?>
+                    <tr><th>Shipment</th><td><a href="/modules/shipments/view.php?id=<?php echo (int) $linkedShipment['id']; ?>"><?php echo app_escape($linkedShipment['shipment_number']); ?></a></td></tr>
+                    <tr><th>Tracking</th><td><?php echo $linkedShipment['tracking_number'] !== null ? app_escape($linkedShipment['tracking_number']) . ($linkedShipment['carrier'] !== null ? ' (' . app_escape($linkedShipment['carrier']) . ')' : '') : '&mdash;'; ?></td></tr>
+                <?php endif; ?>
             </table>
         </div>
 
@@ -211,9 +231,12 @@ require_once __DIR__ . '/../../includes/header.php';
                             <?php endforeach; ?>
                         </select>
 
+                        <input type="text" class="form-control form-control-sm" style="max-width: 160px;" name="carrier" placeholder="Carrier (if shipping)">
+                        <input type="text" class="form-control form-control-sm" style="max-width: 160px;" name="tracking_number" placeholder="Tracking # (if shipping)">
+
                         <button class="btn btn-primary btn-sm" type="submit">Update</button>
                     </form>
-                    <p class="text-muted small mt-2 mb-0">Moving to "shipped" deducts the items from customer storage and logs inventory activity.</p>
+                    <p class="text-muted small mt-2 mb-0">Moving to "shipped" requires carrier + tracking number, creates a shipment record, deducts the items from customer storage, and logs inventory activity.</p>
                 <?php endif; ?>
             </div>
         <?php endif; ?>

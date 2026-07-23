@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/customer_storage.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
+require_once __DIR__ . '/../../includes/order_fulfillment.php';
 app_require_permission('customer-storage.view');
 
 $appTitle = 'Customer Storage Detail';
@@ -98,7 +99,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->beginTransaction();
 
                 try {
+                    $orderItemLookupStmt = $pdo->prepare('
+                        SELECT order_id FROM mewmii_order_items WHERE id = (SELECT order_item_id FROM customer_storage WHERE id = ?)
+                    ');
+                    $orderItemLookupStmt->execute([$storageId]);
+                    $linkedOrderId = $orderItemLookupStmt->fetchColumn();
+
                     customer_storage_remove($pdo, $storageId, $quantity);
+
+                    // Removing a lot that was allocated against an order can change that
+                    // order's computed fulfillment state (e.g. back to Waiting Stock).
+                    if ($linkedOrderId !== false) {
+                        order_recompute_status($pdo, (int) $linkedOrderId);
+                    }
+
                     $pdo->commit();
 
                     app_redirect('/modules/customer-storage/view.php?customer_id=' . $customerId . '&updated=1');

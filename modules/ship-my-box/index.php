@@ -8,6 +8,7 @@ $pdo = app_db();
 $stmt = $pdo->query('
     SELECT
         sr.id,
+        sr.request_number,
         sr.status,
         sr.created_at,
         c.name AS customer_name,
@@ -53,7 +54,10 @@ require_once __DIR__ . '/../../includes/header.php';
         <tbody>
             <?php foreach ($shipRequests as $request): ?>
                 <tr>
-                    <td><?php echo app_escape($request['customer_name']); ?></td>
+                    <td>
+                        <?php echo app_escape($request['customer_name']); ?>
+                        <div class="text-muted small"><?php echo app_escape($request['request_number'] ?? ('#' . $request['id'])); ?></div>
+                    </td>
                     <td><?php echo app_escape($request['status']); ?></td>
                     <td><?php echo app_escape((string) $request['item_count']); ?></td>
                     <td><?php echo app_escape((string) $request['total_quantity']); ?></td>

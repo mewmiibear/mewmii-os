@@ -4,6 +4,7 @@ require_once __DIR__ . '/../../includes/inventory.php';
 require_once __DIR__ . '/../../includes/customer_storage.php';
 require_once __DIR__ . '/../../includes/supplier_orders.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
+require_once __DIR__ . '/../../includes/order_fulfillment.php';
 app_require_permission('inventory.view');
 
 $appTitle = 'Allocate Arrived Stock';
@@ -99,6 +100,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         throw new RuntimeException(catalog_format_stock_error($pdo, 'Total allocated quantity exceeds arrived stock on hand.', $productId, $variationId, 'Arrived quantity', (int) $row['arrived_quantity'], $requestedTotal));
                     }
 
+                    $touchedOrderIds = [];
+
                     foreach ($tickedIds as $orderItemId) {
                         $qty = (int) ($qtys[$orderItemId] ?? 0);
 
@@ -107,7 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
 
                         $itemStmt = $pdo->prepare('
-                            SELECT oi.id, oi.product_id, oi.variation_id, oi.quantity, o.id AS order_id, o.customer_id, o.order_status, o.order_number
+                            SELECT oi.id, oi.product_id, oi.variation_id, oi.quantity, o.id AS order_id, o.customer_id, o.order_status, o.order_number, o.is_historical
                             FROM mewmii_order_items oi
                             INNER JOIN mewmii_orders o ON o.id = oi.order_id
                             WHERE oi.id = ?
@@ -126,6 +129,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             (int) $orderItem['product_id'] !== $productId
                             || $itemVariationId !== $variationId
                             || $orderItem['order_status'] === 'cancelled'
+                            || !empty($orderItem['is_historical'])
                             || (int) $orderItem['customer_id'] < 1
                         ) {
                             throw new RuntimeException('Order ' . $orderItem['order_number'] . ' is no longer eligible for allocation.');
@@ -148,6 +152,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             (int) $orderItem['order_id'],
                             'Preorder item(s) arrived and stored (qty ' . $qty . '). Customer notification: "Your preorder item has arrived and is now stored."'
                         );
+
+                        $touchedOrderIds[(int) $orderItem['order_id']] = true;
+                    }
+
+                    foreach (array_keys($touchedOrderIds) as $touchedOrderId) {
+                        order_recompute_status($pdo, $touchedOrderId);
                     }
 
                     $pdo->commit();
@@ -174,12 +184,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     throw new RuntimeException('Nothing to allocate - no arrived stock or no outstanding orders for this item.');
                 }
 
+                $touchedOrderIds = [];
                 foreach ($allocations as $allocation) {
                     inventory_log_allocation_event(
                         $pdo,
                         $allocation['order_id'],
                         'Preorder item(s) arrived and stored (qty ' . $allocation['quantity'] . '). Customer notification: "Your preorder item has arrived and is now stored."'
                     );
+                    $touchedOrderIds[$allocation['order_id']] = true;
+                }
+
+                foreach (array_keys($touchedOrderIds) as $touchedOrderId) {
+                    order_recompute_status($pdo, $touchedOrderId);
                 }
 
                 $pdo->commit();
@@ -248,7 +264,7 @@ $candidatesStmt = $pdo->prepare('
     INNER JOIN mewmii_orders o ON o.id = oi.order_id
     INNER JOIN customers c ON c.id = o.customer_id
     WHERE oi.product_id = ? AND oi.variation_id <=> ?
-      AND o.order_status <> \'cancelled\'
+      AND o.order_status <> \'cancelled\' AND o.is_historical = 0
     ORDER BY o.order_date ASC, o.id ASC, oi.id ASC
 ');
 $candidatesStmt->execute([$productId, $variationId]);

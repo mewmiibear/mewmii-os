@@ -651,8 +651,13 @@ CREATE TABLE IF NOT EXISTS customer_storage (
   INDEX idx_customer_storage_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- request_number ("SB-0001") is the customer-facing box-request reference - distinct from
+-- a shipment_number, which identifies the physical package created once this request ships
+-- (see shipments.source_type = 'ship_my_box'). Nullable/UNIQUE (MySQL allows multiple NULLs
+-- in a unique index) so it never blocks pre-migration rows on an existing install.
 CREATE TABLE IF NOT EXISTS ship_requests (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  request_number VARCHAR(100) NULL UNIQUE,
   customer_id INT UNSIGNED NOT NULL,
   shipping_fee DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   weight DECIMAL(10,2) NULL,
@@ -662,11 +667,85 @@ CREATE TABLE IF NOT EXISTS ship_requests (
   INDEX idx_ship_requests_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- order_id/order_item_id are denormalized from customer_storage.order_item_id at insert
+-- time, purely for query/reporting convenience (e.g. "which orders does this ship request
+-- touch") - customer_storage_id remains the one authoritative link every write path uses.
 CREATE TABLE IF NOT EXISTS ship_request_items (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   ship_request_id INT UNSIGNED NOT NULL,
   customer_storage_id INT UNSIGNED NOT NULL,
+  order_id INT UNSIGNED NULL,
+  order_item_id INT UNSIGNED NULL,
   quantity INT UNSIGNED NOT NULL DEFAULT 1,
   CONSTRAINT fk_ship_request_items_request FOREIGN KEY (ship_request_id) REFERENCES ship_requests(id) ON DELETE CASCADE,
-  CONSTRAINT fk_ship_request_items_storage FOREIGN KEY (customer_storage_id) REFERENCES customer_storage(id)
+  CONSTRAINT fk_ship_request_items_storage FOREIGN KEY (customer_storage_id) REFERENCES customer_storage(id),
+  CONSTRAINT fk_ship_request_items_order FOREIGN KEY (order_id) REFERENCES mewmii_orders(id) ON DELETE SET NULL,
+  CONSTRAINT fk_ship_request_items_order_item FOREIGN KEY (order_item_id) REFERENCES mewmii_order_items(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Unified shipment/tracking record - the ONE place carrier/tracking_number live for every
+-- physical package leaving the warehouse, regardless of how it was assembled. source_type
+-- distinguishes what produced it:
+--   'order'       - source_id = mewmii_orders.id (ready-stock/preorder items shipped
+--                    straight off one order, see modules/shipments/create.php)
+--   'ship_my_box' - source_id = ship_requests.id (a customer's combined-storage request)
+--   'manual'      - source_id NULL (replacement/warranty shipment not tied to any existing
+--                    order or ship request)
+-- No FK on source_id since it's polymorphic - same convention as
+-- inventory_transactions.reference_type/reference_id elsewhere in this schema.
+CREATE TABLE IF NOT EXISTS shipments (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  shipment_number VARCHAR(100) NOT NULL UNIQUE,
+  customer_id INT UNSIGNED NOT NULL,
+  source_type VARCHAR(20) NOT NULL,
+  source_id INT UNSIGNED NULL,
+  carrier VARCHAR(50) NULL,
+  tracking_number VARCHAR(100) NULL,
+  shipping_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  shipped_at DATETIME NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_shipments_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+  INDEX idx_shipments_source (source_type, source_id),
+  INDEX idx_shipments_customer (customer_id),
+  INDEX idx_shipments_status (shipping_status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Contents of one shipment. order_id/order_item_id/customer_storage_id are all nullable
+-- since a 'manual' shipment has none of them, an 'order'-sourced ready-stock line has no
+-- customer_storage_id, and a 'ship_my_box'-sourced line has no order_id if that storage lot
+-- was never tied to an order (see customer_storage.order_item_id being nullable already).
+CREATE TABLE IF NOT EXISTS shipment_items (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  shipment_id INT UNSIGNED NOT NULL,
+  order_id INT UNSIGNED NULL,
+  order_item_id INT UNSIGNED NULL,
+  customer_storage_id INT UNSIGNED NULL,
+  product_id INT UNSIGNED NOT NULL,
+  variation_id INT UNSIGNED NULL,
+  quantity INT UNSIGNED NOT NULL DEFAULT 0,
+  CONSTRAINT fk_shipment_items_shipment FOREIGN KEY (shipment_id) REFERENCES shipments(id) ON DELETE CASCADE,
+  CONSTRAINT fk_shipment_items_order FOREIGN KEY (order_id) REFERENCES mewmii_orders(id) ON DELETE SET NULL,
+  CONSTRAINT fk_shipment_items_order_item FOREIGN KEY (order_item_id) REFERENCES mewmii_order_items(id) ON DELETE SET NULL,
+  CONSTRAINT fk_shipment_items_storage FOREIGN KEY (customer_storage_id) REFERENCES customer_storage(id) ON DELETE SET NULL,
+  CONSTRAINT fk_shipment_items_product FOREIGN KEY (product_id) REFERENCES products(id),
+  CONSTRAINT fk_shipment_items_variation FOREIGN KEY (variation_id) REFERENCES product_variations(id),
+  INDEX idx_shipment_items_shipment (shipment_id),
+  INDEX idx_shipment_items_order_item (order_item_id),
+  INDEX idx_shipment_items_storage (customer_storage_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Shipment lifecycle history, mirroring mewmii_order_events/supplier_order_events exactly -
+-- append-only, one row per transition (shipment_created, packed, shipped, delivered,
+-- cancelled, tracking_updated, carrier_changed).
+CREATE TABLE IF NOT EXISTS shipment_events (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  shipment_id INT UNSIGNED NOT NULL,
+  event_type VARCHAR(80) NOT NULL,
+  notes VARCHAR(255) NULL,
+  created_by INT UNSIGNED NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_shipment_events_shipment FOREIGN KEY (shipment_id) REFERENCES shipments(id) ON DELETE CASCADE,
+  CONSTRAINT fk_shipment_events_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_shipment_events_shipment (shipment_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -2,35 +2,26 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/inventory.php';
 require_once __DIR__ . '/../../includes/orders.php';
+require_once __DIR__ . '/../../includes/order_fulfillment.php';
+require_once __DIR__ . '/../../includes/shipments.php';
 app_require_permission('orders.view');
 
 $appTitle = 'Order Detail';
 
 /**
- * order_status's real values now include the two new workflow stages (ready_to_ship,
- * shipped) - see includes/orders.php's ORDER_STATUS_WORKFLOW. payment_status keeps its own
- * dropdown further down (the Approve/Reject Payment buttons above it cover the common
- * path; the dropdown remains for the refunded/failed edge cases those buttons don't
- * handle) - shipping_status no longer gets a standalone dropdown since it's now driven
- * entirely by the Mark Shipped action below, but its config stays here because
- * apply_order_status_change() still needs it for the shipping_status update inside that
- * handler.
+ * order_status is now always computed by order_recompute_status() (see
+ * includes/order_fulfillment.php) - it is never set through this page's status dropdown
+ * anymore. payment_status keeps its own dropdown further down (the Approve/Reject Payment
+ * buttons above it cover the common path; the dropdown remains for the refunded/failed edge
+ * cases those buttons don't handle). shipping_status (the legacy single-tracking-number
+ * field) is no longer driven from this page at all - shipping now happens per item through
+ * the Shipments module (see modules/shipments/create.php).
  */
 $statusFields = [
-    'order_status' => [
-        'label' => 'Order Status',
-        'values' => ['pending', 'processing', 'waiting_stock', 'ready_to_ship', 'shipped', 'completed', 'cancelled'],
-        'terminal' => ['completed', 'cancelled'],
-    ],
     'payment_status' => [
         'label' => 'Payment Status',
         'values' => ['pending', 'paid', 'refunded', 'failed'],
         'terminal' => ['refunded'],
-    ],
-    'shipping_status' => [
-        'label' => 'Shipping Status',
-        'values' => ['pending', 'packed', 'shipped', 'delivered'],
-        'terminal' => ['delivered'],
     ],
 ];
 
@@ -66,40 +57,23 @@ if (!$order) {
 }
 
 /**
- * Shared by the generic per-field status dropdown AND the Approve/Reject Payment
- * buttons, so both paths trigger the exact same inventory reserve/ship/release
- * conditions - no duplicated business logic between the two entry points.
+ * payment_status changes only - order_status is never written directly anymore (see
+ * order_recompute_status()). Used by Approve Payment and the generic Change Payment Status
+ * dropdown below.
  */
-function apply_order_status_change(PDO $pdo, int $orderId, array $order, string $statusField, string $newStatus, string $notes, array $statusFieldsConfig): void
+function apply_payment_status_change(PDO $pdo, int $orderId, string $oldStatus, string $newStatus, string $notes): void
 {
-    $oldStatus = (string) $order[$statusField];
+    $pdo->prepare('UPDATE mewmii_orders SET payment_status = ? WHERE id = ?')->execute([$newStatus, $orderId]);
 
-    $updateStmt = $pdo->prepare("UPDATE mewmii_orders SET {$statusField} = ? WHERE id = ?");
-    $updateStmt->execute([$newStatus, $orderId]);
-
-    $description = sprintf(
-        "%s changed from '%s' to '%s'.",
-        $statusFieldsConfig[$statusField]['label'],
-        $oldStatus,
-        $newStatus
-    );
+    $description = sprintf("Payment Status changed from '%s' to '%s'.", $oldStatus, $newStatus);
     if ($notes !== '') {
         $description .= ' Notes: ' . $notes;
     }
 
-    $eventStmt = $pdo->prepare('
+    $pdo->prepare('
         INSERT INTO mewmii_order_events (order_id, event_type, description, created_by)
         VALUES (?, ?, ?, ?)
-    ');
-    $eventStmt->execute([$orderId, $statusField . '_change', $description, $_SESSION['user_id'] ?? null]);
-
-    if ($statusField === 'order_status' && $oldStatus === 'pending' && $newStatus === 'processing') {
-        inventory_reserve_for_order($pdo, $orderId);
-    } elseif ($statusField === 'shipping_status' && $newStatus === 'shipped' && in_array($oldStatus, ['pending', 'packed'], true)) {
-        inventory_ship_for_order($pdo, $orderId);
-    } elseif ($statusField === 'order_status' && $newStatus === 'cancelled') {
-        inventory_release_for_order($pdo, $orderId);
-    }
+    ')->execute([$orderId, 'payment_status_change', $description, $_SESSION['user_id'] ?? null]);
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -114,128 +88,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'You do not have permission to change order status.';
     }
 
-    // Historical (imported) orders are read-only business records - none of the actions
-    // below may run for one, since every single one of them can trigger
-    // inventory_reserve_for_order()/inventory_ship_for_order()/inventory_release_for_order()
-    // (see apply_order_status_change()), which an imported order must never touch.
-    if ($error === '' && !empty($order['is_historical'])) {
-        $error = 'This is a historical (imported) order - its status cannot be changed.';
-    }
-
-    if ($error === '' && !empty($_POST['approve_payment'])) {
-        if ($order['payment_status'] !== 'pending') {
-            $error = 'This order is not awaiting payment approval.';
+    if ($error === '' && !empty($_POST['add_note'])) {
+        // A plain annotation on the order timeline - never changes order_status/payment
+        // status or touches the ledger, so this is the one action allowed even on a
+        // historical (imported) order.
+        $noteText = trim((string) ($_POST['note_text'] ?? ''));
+        if ($noteText === '') {
+            $error = 'Enter a note.';
         } else {
-            $pdo->beginTransaction();
+            $pdo->prepare('
+                INSERT INTO mewmii_order_events (order_id, event_type, description, created_by)
+                VALUES (?, ?, ?, ?)
+            ')->execute([$orderId, 'admin_note', $noteText, $_SESSION['user_id'] ?? null]);
 
-            try {
-                apply_order_status_change($pdo, $orderId, $order, 'payment_status', 'paid', 'Approved via receipt review.', $statusFields);
-
-                $refreshed = $order;
-                $refreshed['payment_status'] = 'paid';
-                if ($refreshed['order_status'] === 'pending') {
-                    apply_order_status_change($pdo, $orderId, $refreshed, 'order_status', 'processing', 'Auto-advanced after payment approval.', $statusFields);
-                }
-
-                $pdo->commit();
-
-                app_redirect('/modules/orders/view.php?id=' . $orderId . '&updated=1');
-            } catch (RuntimeException $exception) {
-                $pdo->rollBack();
-                $error = $exception->getMessage();
-            } catch (Exception $exception) {
-                $pdo->rollBack();
-                $error = 'Failed to approve payment.';
-            }
+            app_redirect('/modules/orders/view.php?id=' . $orderId . '&updated=1');
         }
-    } elseif ($error === '' && !empty($_POST['reject_payment'])) {
-        if ($order['payment_status'] !== 'pending') {
-            $error = 'This order is not awaiting payment approval.';
-        } else {
-            $pdo->beginTransaction();
-
-            try {
-                $pdo->prepare("UPDATE mewmii_orders SET payment_status = 'pending', receipt_url = NULL WHERE id = ?")
-                    ->execute([$orderId]);
-
-                $eventStmt = $pdo->prepare('
-                    INSERT INTO mewmii_order_events (order_id, event_type, description, created_by)
-                    VALUES (?, ?, ?, ?)
-                ');
-                $eventStmt->execute([$orderId, 'payment_status_change', 'Payment receipt rejected - awaiting a new receipt.', $_SESSION['user_id'] ?? null]);
-
-                $pdo->commit();
-
-                app_redirect('/modules/orders/view.php?id=' . $orderId . '&updated=1');
-            } catch (Exception $exception) {
-                $pdo->rollBack();
-                $error = 'Failed to reject payment.';
-            }
+    } else {
+        // Historical (imported) orders are read-only business records for everything below -
+        // every action here can trigger inventory reservation/release or order_recompute_status
+        // writing order_status, which an imported order must never touch.
+        if ($error === '' && !empty($order['is_historical'])) {
+            $error = 'This is a historical (imported) order - its status cannot be changed.';
         }
-    } elseif ($error === '' && !empty($_POST['advance_status'])) {
-        // Covers Start Processing / Mark Ready to Ship / Mark Completed - never Mark
-        // Shipped, which always goes through the mark_shipped branch below so shipping
-        // details are never skipped. $expectedNext is looked up server-side (not trusted
-        // from the posted target_status) so a crafted request can't skip a stage.
-        $targetStatus = (string) ($_POST['target_status'] ?? '');
-        $expectedNext = order_status_next((string) $order['order_status']);
 
-        if ($expectedNext === null || $targetStatus !== $expectedNext) {
-            $error = 'Invalid status transition.';
-        } elseif ($targetStatus === 'shipped') {
-            $error = 'Use "Mark Shipped" to record shipping details.';
-        } else {
-            $pdo->beginTransaction();
-
-            try {
-                apply_order_status_change($pdo, $orderId, $order, 'order_status', $targetStatus, '', $statusFields);
-
-                $pdo->commit();
-
-                app_redirect('/modules/orders/view.php?id=' . $orderId . '&updated=1');
-            } catch (RuntimeException $exception) {
-                $pdo->rollBack();
-                $error = $exception->getMessage();
-            } catch (Exception $exception) {
-                $pdo->rollBack();
-                $error = 'Failed to update order status.';
-            }
-        }
-    } elseif ($error === '' && !empty($_POST['mark_shipped'])) {
-        if ((string) $order['order_status'] !== 'ready_to_ship') {
-            $error = 'Order must be Ready to Ship before it can be marked as shipped.';
-        } else {
-            $carrier = trim((string) ($_POST['shipping_carrier'] ?? ''));
-            $tracking = trim((string) ($_POST['tracking_number'] ?? ''));
-            $shippedDateInput = trim((string) ($_POST['shipped_date'] ?? ''));
-
-            if ($carrier === '' || $tracking === '') {
-                $error = 'Shipping carrier and tracking number are required.';
+        if ($error === '' && !empty($_POST['approve_payment'])) {
+            if ($order['payment_status'] !== 'pending') {
+                $error = 'This order is not awaiting payment approval.';
             } else {
-                $shippedAt = $shippedDateInput !== '' ? $shippedDateInput . ' ' . date('H:i:s') : date('Y-m-d H:i:s');
-
                 $pdo->beginTransaction();
 
                 try {
-                    apply_order_status_change($pdo, $orderId, $order, 'order_status', 'shipped', '', $statusFields);
-
-                    // Also flips shipping_status -> shipped so inventory_ship_for_order()'s
-                    // existing trigger condition in apply_order_status_change() still fires
-                    // exactly as it did under the old shipping_status dropdown - only the UI
-                    // entry point changed, not the ledger side effect. Skipped if
-                    // shipping_status is already past 'packed' (nothing to reconcile).
-                    if (in_array((string) $order['shipping_status'], ['pending', 'packed'], true)) {
-                        $refreshedForShipping = $order;
-                        $refreshedForShipping['order_status'] = 'shipped';
-                        apply_order_status_change($pdo, $orderId, $refreshedForShipping, 'shipping_status', 'shipped', '', $statusFields);
-                    }
-
-                    $pdo->prepare('UPDATE mewmii_orders SET tracking_number = ?, shipping_carrier = ?, shipped_at = ? WHERE id = ?')
-                        ->execute([$tracking, $carrier, $shippedAt, $orderId]);
+                    apply_payment_status_change($pdo, $orderId, (string) $order['payment_status'], 'paid', 'Approved via receipt review.');
+                    // Reserves whatever ready-stock items can be reserved right now; any that
+                    // can't (out of stock) simply stay unreserved rather than blocking payment
+                    // approval - order_recompute_status() will reflect that as Waiting Stock.
+                    inventory_reserve_for_order_partial($pdo, $orderId);
+                    order_recompute_status($pdo, $orderId);
 
                     $pdo->commit();
-
-                    order_sync_tracking_to_woocommerce($pdo, $orderId);
 
                     app_redirect('/modules/orders/view.php?id=' . $orderId . '&updated=1');
                 } catch (RuntimeException $exception) {
@@ -243,66 +133,102 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $error = $exception->getMessage();
                 } catch (Exception $exception) {
                     $pdo->rollBack();
-                    $error = 'Failed to mark order as shipped.';
+                    $error = 'Failed to approve payment.';
                 }
             }
-        }
-    } elseif ($error === '' && !empty($_POST['cancel_order'])) {
-        if (in_array((string) $order['order_status'], ['completed', 'cancelled'], true)) {
-            $error = 'This order can no longer be cancelled.';
-        } else {
+        } elseif ($error === '' && !empty($_POST['reject_payment'])) {
+            if ($order['payment_status'] !== 'pending') {
+                $error = 'This order is not awaiting payment approval.';
+            } else {
+                $pdo->beginTransaction();
+
+                try {
+                    $pdo->prepare("UPDATE mewmii_orders SET payment_status = 'pending', receipt_url = NULL WHERE id = ?")
+                        ->execute([$orderId]);
+
+                    $eventStmt = $pdo->prepare('
+                        INSERT INTO mewmii_order_events (order_id, event_type, description, created_by)
+                        VALUES (?, ?, ?, ?)
+                    ');
+                    $eventStmt->execute([$orderId, 'payment_status_change', 'Payment receipt rejected - awaiting a new receipt.', $_SESSION['user_id'] ?? null]);
+
+                    order_recompute_status($pdo, $orderId);
+
+                    $pdo->commit();
+
+                    app_redirect('/modules/orders/view.php?id=' . $orderId . '&updated=1');
+                } catch (Exception $exception) {
+                    $pdo->rollBack();
+                    $error = 'Failed to reject payment.';
+                }
+            }
+        } elseif ($error === '' && !empty($_POST['cancel_order'])) {
+            if (in_array((string) $order['order_status'], ['completed', 'cancelled'], true)) {
+                $error = 'This order can no longer be cancelled.';
+            } else {
+                $notes = trim((string) ($_POST['notes'] ?? ''));
+
+                $pdo->beginTransaction();
+
+                try {
+                    $oldStatus = (string) $order['order_status'];
+                    $pdo->prepare("UPDATE mewmii_orders SET order_status = 'cancelled' WHERE id = ?")->execute([$orderId]);
+
+                    $description = sprintf("Order Status changed from '%s' to 'cancelled'.", $oldStatus);
+                    if ($notes !== '') {
+                        $description .= ' Notes: ' . $notes;
+                    }
+                    $pdo->prepare('
+                        INSERT INTO mewmii_order_events (order_id, event_type, description, created_by)
+                        VALUES (?, ?, ?, ?)
+                    ')->execute([$orderId, 'order_status_change', $description, $_SESSION['user_id'] ?? null]);
+
+                    inventory_release_for_order($pdo, $orderId);
+
+                    $pdo->commit();
+
+                    app_redirect('/modules/orders/view.php?id=' . $orderId . '&updated=1');
+                } catch (RuntimeException $exception) {
+                    $pdo->rollBack();
+                    $error = $exception->getMessage();
+                } catch (Exception $exception) {
+                    $pdo->rollBack();
+                    $error = 'Failed to cancel order.';
+                }
+            }
+        } elseif ($error === '') {
+            $statusField = (string) ($_POST['status_field'] ?? '');
+            $newStatus = trim((string) ($_POST['new_status'] ?? ''));
             $notes = trim((string) ($_POST['notes'] ?? ''));
 
-            $pdo->beginTransaction();
-
-            try {
-                apply_order_status_change($pdo, $orderId, $order, 'order_status', 'cancelled', $notes, $statusFields);
-
-                $pdo->commit();
-
-                app_redirect('/modules/orders/view.php?id=' . $orderId . '&updated=1');
-            } catch (RuntimeException $exception) {
-                $pdo->rollBack();
-                $error = $exception->getMessage();
-            } catch (Exception $exception) {
-                $pdo->rollBack();
-                $error = 'Failed to cancel order.';
-            }
-        }
-    } elseif ($error === '') {
-        $statusField = (string) ($_POST['status_field'] ?? '');
-        $newStatus = trim((string) ($_POST['new_status'] ?? ''));
-        $notes = trim((string) ($_POST['notes'] ?? ''));
-
-        // Only payment_status still uses this generic path (see the Change Payment
-        // Status card below) - order_status/shipping_status are handled by the branches
-        // above.
-        if ($statusField !== 'payment_status') {
-            $error = 'Invalid status field.';
-        } elseif (!in_array($newStatus, $statusFields[$statusField]['values'], true)) {
-            $error = 'Invalid status value.';
-        } else {
-            $oldStatus = (string) $order[$statusField];
-
-            if (in_array($oldStatus, $statusFields[$statusField]['terminal'], true)) {
-                $error = 'This status is final and cannot be changed.';
-            } elseif ($oldStatus === $newStatus) {
-                $error = 'Order is already in that status.';
+            if ($statusField !== 'payment_status') {
+                $error = 'Invalid status field.';
+            } elseif (!in_array($newStatus, $statusFields[$statusField]['values'], true)) {
+                $error = 'Invalid status value.';
             } else {
-                $pdo->beginTransaction();
+                $oldStatus = (string) $order[$statusField];
 
-                try {
-                    apply_order_status_change($pdo, $orderId, $order, $statusField, $newStatus, $notes, $statusFields);
+                if (in_array($oldStatus, $statusFields[$statusField]['terminal'], true)) {
+                    $error = 'This status is final and cannot be changed.';
+                } elseif ($oldStatus === $newStatus) {
+                    $error = 'Order is already in that status.';
+                } else {
+                    $pdo->beginTransaction();
 
-                    $pdo->commit();
+                    try {
+                        apply_payment_status_change($pdo, $orderId, $oldStatus, $newStatus, $notes);
+                        order_recompute_status($pdo, $orderId);
 
-                    app_redirect('/modules/orders/view.php?id=' . $orderId . '&updated=1');
-                } catch (RuntimeException $exception) {
-                    $pdo->rollBack();
-                    $error = $exception->getMessage();
-                } catch (Exception $exception) {
-                    $pdo->rollBack();
-                    $error = 'Failed to update order status.';
+                        $pdo->commit();
+
+                        app_redirect('/modules/orders/view.php?id=' . $orderId . '&updated=1');
+                    } catch (RuntimeException $exception) {
+                        $pdo->rollBack();
+                        $error = $exception->getMessage();
+                    } catch (Exception $exception) {
+                        $pdo->rollBack();
+                        $error = 'Failed to update payment status.';
+                    }
                 }
             }
         }
@@ -325,6 +251,20 @@ $itemsStmt = $pdo->prepare('
 ');
 $itemsStmt->execute([$orderId]);
 $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
+foreach ($items as &$item) {
+    $item['fulfillment'] = order_item_get_fulfillment_status($pdo, (int) $item['id']);
+}
+unset($item);
+
+$shipmentsStmt = $pdo->prepare('
+    SELECT DISTINCT s.id, s.shipment_number, s.carrier, s.tracking_number, s.shipping_status, s.shipped_at, s.created_at
+    FROM shipments s
+    INNER JOIN shipment_items si ON si.shipment_id = s.id
+    WHERE si.order_id = ?
+    ORDER BY s.created_at DESC
+');
+$shipmentsStmt->execute([$orderId]);
+$orderShipments = $shipmentsStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $eventsStmt = $pdo->prepare('
     SELECT e.id, e.event_type, e.description, e.created_at, u.name AS user_name
@@ -446,10 +386,12 @@ require_once __DIR__ . '/../../includes/header.php';
                         <th>Price</th>
                         <th>Discount</th>
                         <th>Subtotal</th>
+                        <th>Fulfillment</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php foreach ($items as $item): ?>
+                        <?php $fulfillment = $item['fulfillment']; ?>
                         <tr>
                             <td><?php echo app_escape($item['sku']); ?></td>
                             <td>
@@ -462,10 +404,21 @@ require_once __DIR__ . '/../../includes/header.php';
                             <td>RM <?php echo app_escape(number_format((float) $item['selling_price'], 2)); ?></td>
                             <td>RM <?php echo app_escape(number_format((float) ($item['discount'] ?? 0), 2)); ?></td>
                             <td>RM <?php echo app_escape(number_format((float) ($item['subtotal'] ?? ($item['quantity'] * $item['selling_price'])), 2)); ?></td>
+                            <td>
+                                <div><?php echo app_escape(order_item_fulfillment_label($fulfillment['state'])); ?></div>
+                                <?php foreach ($fulfillment['shipments'] as $itemShipment): ?>
+                                    <div class="text-muted small">
+                                        <a href="/modules/shipments/view.php?id=<?php echo (int) $itemShipment['id']; ?>"><?php echo app_escape($itemShipment['shipment_number']); ?></a>
+                                        <?php if (!empty($itemShipment['tracking_number'])): ?>
+                                            &middot; <?php echo app_escape($itemShipment['tracking_number']); ?>
+                                        <?php endif; ?>
+                                    </div>
+                                <?php endforeach; ?>
+                            </td>
                         </tr>
                     <?php endforeach; ?>
                     <?php if ($items === []): ?>
-                        <tr><td colspan="6" class="text-muted">No items recorded for this order.</td></tr>
+                        <tr><td colspan="7" class="text-muted">No items recorded for this order.</td></tr>
                     <?php endif; ?>
                 </tbody>
             </table>
@@ -482,7 +435,7 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php endif; ?>
             <?php if ($canManage && empty($order['is_historical']) && $order['payment_status'] === 'pending'): ?>
                 <div class="d-flex gap-2">
-                    <form method="post" onsubmit="return confirm('Approve this payment? Order status will advance to Processing.');">
+                    <form method="post" onsubmit="return confirm('Approve this payment? Ready-stock items will be reserved where possible and the order status will update automatically.');">
                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                         <input type="hidden" name="approve_payment" value="1">
                         <button type="submit" class="btn btn-success btn-sm">Approve Payment</button>
@@ -497,26 +450,13 @@ require_once __DIR__ . '/../../includes/header.php';
         </div>
 
         <?php if ($canManage && empty($order['is_historical'])): ?>
-            <?php $nextOrderStatus = order_status_next((string) $order['order_status']); ?>
             <div class="card p-4 mb-4">
                 <h5 class="mb-3">Order Workflow</h5>
                 <div class="mb-3"><?php echo order_status_badge($order['order_status']); ?></div>
-
-                <?php if ($nextOrderStatus === 'shipped'): ?>
-                    <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#shipOrderModal">Mark Shipped</button>
-                <?php elseif ($nextOrderStatus !== null): ?>
-                    <form method="post" onsubmit="return confirm('<?php echo app_escape((string) order_status_next_action_label((string) $order['order_status'])); ?>?');">
-                        <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
-                        <input type="hidden" name="advance_status" value="1">
-                        <input type="hidden" name="target_status" value="<?php echo app_escape($nextOrderStatus); ?>">
-                        <button type="submit" class="btn btn-primary btn-sm"><?php echo app_escape((string) order_status_next_action_label((string) $order['order_status'])); ?></button>
-                    </form>
-                <?php else: ?>
-                    <span class="badge bg-secondary">Final</span>
-                <?php endif; ?>
+                <p class="text-muted small mb-3">Order Status is calculated automatically from payment status, item fulfillment, and shipments - see the Items table and Shipments below. Use Create Shipment to move items forward.</p>
 
                 <?php if (!in_array($order['order_status'], ['completed', 'cancelled'], true)): ?>
-                    <form method="post" class="mt-2" onsubmit="return confirm('Cancel this order? Any reserved stock will be released back to available.');">
+                    <form method="post" onsubmit="return confirm('Cancel this order? Any reserved stock will be released back to available.');">
                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                         <input type="hidden" name="cancel_order" value="1">
                         <button type="submit" class="btn btn-outline-danger btn-sm">Cancel Order</button>
@@ -570,7 +510,33 @@ require_once __DIR__ . '/../../includes/header.php';
             <a class="small" href="/modules/inventory/index.php">View full inventory transaction history &rarr;</a>
         </div>
 
-        <div class="card p-4">
+        <div class="card p-4 mb-4">
+            <h5 class="mb-3">Shipments</h5>
+            <ul class="list-unstyled mb-0">
+                <?php foreach ($orderShipments as $shipment): ?>
+                    <li class="mb-3">
+                        <div class="fw-semibold">
+                            <a href="/modules/shipments/view.php?id=<?php echo (int) $shipment['id']; ?>"><?php echo app_escape($shipment['shipment_number']); ?></a>
+                            <?php echo shipment_status_badge($shipment['shipping_status']); ?>
+                        </div>
+                        <?php if (!empty($shipment['tracking_number'])): ?>
+                            <div>Tracking: <?php echo app_escape($shipment['tracking_number']); ?><?php if (!empty($shipment['carrier'])): ?> (<?php echo app_escape($shipment['carrier']); ?>)<?php endif; ?></div>
+                        <?php endif; ?>
+                        <div class="text-muted small">
+                            <?php echo $shipment['shipped_at'] !== null ? 'Shipped ' . app_escape(date('j F Y', strtotime($shipment['shipped_at']))) : 'Created ' . app_escape($shipment['created_at']); ?>
+                        </div>
+                    </li>
+                <?php endforeach; ?>
+                <?php if ($orderShipments === []): ?>
+                    <li class="text-muted">No shipments created for this order yet.</li>
+                <?php endif; ?>
+            </ul>
+            <?php if ($canManage && empty($order['is_historical'])): ?>
+                <a class="small" href="/modules/shipments/create.php?order_id=<?php echo (int) $orderId; ?>">Create Shipment &rarr;</a>
+            <?php endif; ?>
+        </div>
+
+        <div class="card p-4 mb-4">
             <h5 class="mb-3">Order Timeline</h5>
             <ul class="list-unstyled mb-0">
                 <?php foreach ($events as $event): ?>
@@ -590,42 +556,20 @@ require_once __DIR__ . '/../../includes/header.php';
                 <?php endif; ?>
             </ul>
         </div>
-    </div>
-</div>
 
-<?php if ($canManage): ?>
-<div class="modal fade" id="shipOrderModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <form method="post">
-                <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
-                <input type="hidden" name="mark_shipped" value="1">
-                <div class="modal-header">
-                    <h5 class="modal-title">Mark Shipped</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label class="form-label">Shipping Carrier</label>
-                        <input type="text" class="form-control" name="shipping_carrier" placeholder="e.g. Ninja Van, J&amp;T Express, Pos Laju" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Tracking Number</label>
-                        <input type="text" class="form-control" name="tracking_number" required>
-                    </div>
-                    <div class="mb-0">
-                        <label class="form-label">Shipped Date</label>
-                        <input type="date" class="form-control" name="shipped_date" value="<?php echo date('Y-m-d'); ?>">
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Confirm Shipped</button>
-                </div>
-            </form>
-        </div>
+        <?php if ($canManage): ?>
+            <div class="card p-4">
+                <h5 class="mb-3">Add Note</h5>
+                <p class="text-muted small mb-2">A plain annotation on the order timeline - never changes the automatically computed order status.</p>
+                <form method="post" class="d-flex gap-2 align-items-start">
+                    <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                    <input type="hidden" name="add_note" value="1">
+                    <input type="text" class="form-control form-control-sm" name="note_text" placeholder="e.g. Customer requested delivery instructions" required>
+                    <button class="btn btn-outline-secondary btn-sm" type="submit">Add</button>
+                </form>
+            </div>
+        <?php endif; ?>
     </div>
 </div>
-<?php endif; ?>
 
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

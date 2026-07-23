@@ -686,6 +686,7 @@ CREATE TABLE IF NOT EXISTS customer_storage (
 
 CREATE TABLE IF NOT EXISTS ship_requests (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  request_number VARCHAR(100) NULL UNIQUE,
   customer_id INT UNSIGNED NOT NULL,
   shipping_fee DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   weight DECIMAL(10,2) NULL,
@@ -699,7 +700,61 @@ CREATE TABLE IF NOT EXISTS ship_request_items (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   ship_request_id INT UNSIGNED NOT NULL,
   customer_storage_id INT UNSIGNED NOT NULL,
+  order_id INT UNSIGNED NULL,
+  order_item_id INT UNSIGNED NULL,
   quantity INT UNSIGNED NOT NULL DEFAULT 1,
   CONSTRAINT fk_ship_request_items_request FOREIGN KEY (ship_request_id) REFERENCES ship_requests(id) ON DELETE CASCADE,
-  CONSTRAINT fk_ship_request_items_storage FOREIGN KEY (customer_storage_id) REFERENCES customer_storage(id)
+  CONSTRAINT fk_ship_request_items_storage FOREIGN KEY (customer_storage_id) REFERENCES customer_storage(id),
+  CONSTRAINT fk_ship_request_items_order FOREIGN KEY (order_id) REFERENCES mewmii_orders(id) ON DELETE SET NULL,
+  CONSTRAINT fk_ship_request_items_order_item FOREIGN KEY (order_item_id) REFERENCES mewmii_order_items(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS shipments (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  shipment_number VARCHAR(100) NOT NULL UNIQUE,
+  customer_id INT UNSIGNED NOT NULL,
+  source_type VARCHAR(20) NOT NULL,
+  source_id INT UNSIGNED NULL,
+  carrier VARCHAR(50) NULL,
+  tracking_number VARCHAR(100) NULL,
+  shipping_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  shipped_at DATETIME NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_shipments_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+  INDEX idx_shipments_source (source_type, source_id),
+  INDEX idx_shipments_customer (customer_id),
+  INDEX idx_shipments_status (shipping_status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS shipment_items (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  shipment_id INT UNSIGNED NOT NULL,
+  order_id INT UNSIGNED NULL,
+  order_item_id INT UNSIGNED NULL,
+  customer_storage_id INT UNSIGNED NULL,
+  product_id INT UNSIGNED NOT NULL,
+  variation_id INT UNSIGNED NULL,
+  quantity INT UNSIGNED NOT NULL DEFAULT 0,
+  CONSTRAINT fk_shipment_items_shipment FOREIGN KEY (shipment_id) REFERENCES shipments(id) ON DELETE CASCADE,
+  CONSTRAINT fk_shipment_items_order FOREIGN KEY (order_id) REFERENCES mewmii_orders(id) ON DELETE SET NULL,
+  CONSTRAINT fk_shipment_items_order_item FOREIGN KEY (order_item_id) REFERENCES mewmii_order_items(id) ON DELETE SET NULL,
+  CONSTRAINT fk_shipment_items_storage FOREIGN KEY (customer_storage_id) REFERENCES customer_storage(id) ON DELETE SET NULL,
+  CONSTRAINT fk_shipment_items_product FOREIGN KEY (product_id) REFERENCES products(id),
+  CONSTRAINT fk_shipment_items_variation FOREIGN KEY (variation_id) REFERENCES product_variations(id),
+  INDEX idx_shipment_items_shipment (shipment_id),
+  INDEX idx_shipment_items_order_item (order_item_id),
+  INDEX idx_shipment_items_storage (customer_storage_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS shipment_events (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  shipment_id INT UNSIGNED NOT NULL,
+  event_type VARCHAR(80) NOT NULL,
+  notes VARCHAR(255) NULL,
+  created_by INT UNSIGNED NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_shipment_events_shipment FOREIGN KEY (shipment_id) REFERENCES shipments(id) ON DELETE CASCADE,
+  CONSTRAINT fk_shipment_events_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_shipment_events_shipment (shipment_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -565,6 +565,28 @@ if (!migrate_column_exists($pdo, 'mewmii_orders', 'fulfillment_date')) {
     migrate_run($pdo, 'mewmii_orders.fulfillment_date', 'ALTER TABLE mewmii_orders ADD COLUMN fulfillment_date DATE NULL AFTER shipped_at', $applied);
 }
 
+// --- Fulfillment, Shipment Tracking & Ship My Box Architecture Upgrade -------------------
+// shipments/shipment_items/shipment_events are brand-new tables - already ensured by Step
+// 1's CREATE TABLE IF NOT EXISTS pass over schema.sql. Only the new COLUMNS on the
+// already-existing ship_requests/ship_request_items tables need guards here.
+
+// ship_requests.request_number: the customer-facing "SB-0001" box-request reference - see
+// includes/ship_my_box.php. Nullable/UNIQUE so existing rows on an upgraded install are
+// left as NULL rather than blocked (MySQL allows multiple NULLs in a unique index).
+if (!migrate_column_exists($pdo, 'ship_requests', 'request_number')) {
+    migrate_run($pdo, 'ship_requests.request_number', 'ALTER TABLE ship_requests ADD COLUMN request_number VARCHAR(100) NULL UNIQUE AFTER id', $applied);
+}
+
+// ship_request_items.order_id/order_item_id: denormalized from customer_storage.order_item_id
+// at insert time, for query/reporting convenience only - customer_storage_id remains the
+// one authoritative link (see includes/ship_my_box.php).
+if (!migrate_column_exists($pdo, 'ship_request_items', 'order_id')) {
+    migrate_run($pdo, 'ship_request_items.order_id', 'ALTER TABLE ship_request_items ADD COLUMN order_id INT UNSIGNED NULL AFTER customer_storage_id', $applied);
+}
+if (!migrate_column_exists($pdo, 'ship_request_items', 'order_item_id')) {
+    migrate_run($pdo, 'ship_request_items.order_item_id', 'ALTER TABLE ship_request_items ADD COLUMN order_item_id INT UNSIGNED NULL AFTER order_id', $applied);
+}
+
 echo count($applied) . ' migration statement(s) applied:' . PHP_EOL;
 foreach ($applied as $item) {
     echo '  - ' . $item . PHP_EOL;

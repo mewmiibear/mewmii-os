@@ -24,6 +24,8 @@ $permissionNames = [
     'customer-storage.manage',
     'ship-my-box.view',
     'ship-my-box.manage',
+    'shipments.view',
+    'shipments.manage',
     'settings.manage'
 ];
 

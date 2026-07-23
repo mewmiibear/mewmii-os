@@ -416,6 +416,7 @@ require_once __DIR__ . '/../../includes/header.php';
     </div>
     <div class="d-flex gap-2">
         <a class="btn btn-outline-primary" href="/modules/inventory/allocation-center.php">Allocate Preorders</a>
+        <a class="btn btn-outline-primary" href="/modules/inventory/reservation-center.php">Reservation Center</a>
         <?php if ($canManage): ?>
             <a class="btn btn-primary" href="/modules/purchase-planning/generate.php">Generate Supplier Order</a>
             <button type="button" class="btn btn-outline-primary" onclick="InventoryUI.openAdjustModal('')">Adjust Stock</button>

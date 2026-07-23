@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
+require_once __DIR__ . '/../../includes/ship_my_box.php';
 app_require_permission('ship-my-box.manage');
 
 $appTitle = 'New Ship Request';
@@ -56,12 +57,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new RuntimeException('Selected customer does not exist.');
             }
 
-            $requestStmt = $pdo->prepare("INSERT INTO ship_requests (customer_id, status) VALUES (?, 'pending')");
-            $requestStmt->execute([$customerId]);
+            $requestNumber = ship_request_generate_number();
+            $requestStmt = $pdo->prepare("INSERT INTO ship_requests (request_number, customer_id, status) VALUES (?, ?, 'pending')");
+            $requestStmt->execute([$requestNumber, $customerId]);
             $shipRequestId = (int) $pdo->lastInsertId();
 
             $storageStmt = $pdo->prepare("SELECT * FROM customer_storage WHERE id = ? AND customer_id = ? AND status = 'stored' FOR UPDATE");
-            $itemStmt = $pdo->prepare('INSERT INTO ship_request_items (ship_request_id, customer_storage_id, quantity) VALUES (?, ?, ?)');
+            $itemStmt = $pdo->prepare('INSERT INTO ship_request_items (ship_request_id, customer_storage_id, order_id, order_item_id, quantity) VALUES (?, ?, ?, ?, ?)');
+            $orderItemStmt = $pdo->prepare('SELECT order_id FROM mewmii_order_items WHERE id = ?');
 
             foreach ($lines as $storageId => $qty) {
                 $storageStmt->execute([$storageId, $customerId]);
@@ -75,7 +78,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     throw new RuntimeException('Requested quantity exceeds stored quantity for storage record #' . $storageId . '.');
                 }
 
-                $itemStmt->execute([$shipRequestId, $storageId, $qty]);
+                // order_id/order_item_id are denormalized from the storage lot's own
+                // order_item_id (which may itself be NULL for manually-added storage) purely
+                // for query/reporting convenience - customer_storage_id remains the one
+                // authoritative link (see includes/ship_my_box.php).
+                $orderItemId = $storageRow['order_item_id'] !== null ? (int) $storageRow['order_item_id'] : null;
+                $orderId = null;
+                if ($orderItemId !== null) {
+                    $orderItemStmt->execute([$orderItemId]);
+                    $foundOrderId = $orderItemStmt->fetchColumn();
+                    $orderId = $foundOrderId !== false ? (int) $foundOrderId : null;
+                }
+
+                $itemStmt->execute([$shipRequestId, $storageId, $orderId, $orderItemId, $qty]);
             }
 
             $pdo->commit();
