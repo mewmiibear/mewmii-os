@@ -7,7 +7,7 @@ $appTitle = 'Supplier Orders';
 $pdo = app_db();
 
 $stmt = $pdo->query('
-    SELECT so.id, so.purchase_number, so.status, so.payment_status, so.estimated_cost, so.actual_cost, so.shipping_fee, so.order_date, s.name AS supplier_name
+    SELECT so.id, so.purchase_number, so.status, so.payment_status, so.is_historical, so.estimated_cost, so.actual_cost, so.shipping_fee, so.order_date, s.name AS supplier_name
     FROM supplier_orders so
     INNER JOIN suppliers s ON s.id = so.supplier_id
     ORDER BY so.id DESC
@@ -25,12 +25,18 @@ require_once __DIR__ . '/../../includes/header.php';
         <p class="text-muted mb-0">Purchase orders sent to suppliers and inventory receiving.</p>
     </div>
     <?php if ($canManage): ?>
-        <a class="btn btn-primary" href="/modules/supplier-orders/create.php">New Supplier Order</a>
+        <div class="d-flex gap-2">
+            <a class="btn btn-primary" href="/modules/supplier-orders/create.php">New Supplier Order</a>
+            <a class="btn btn-outline-secondary" href="/modules/supplier-orders/import.php">Import Historical Order</a>
+        </div>
     <?php endif; ?>
 </div>
 
 <?php if (isset($_GET['created'])): ?>
     <div class="alert alert-success">Supplier order created.</div>
+<?php endif; ?>
+<?php if (isset($_GET['generated'])): ?>
+    <div class="alert alert-success"><?php echo (int) $_GET['generated']; ?> supplier order(s) generated from Purchase Planning.</div>
 <?php endif; ?>
 <?php if (isset($_GET['deleted'])): ?>
     <div class="alert alert-success">Supplier order deleted.</div>
@@ -52,7 +58,12 @@ require_once __DIR__ . '/../../includes/header.php';
         <tbody>
             <?php foreach ($supplierOrders as $order): ?>
                 <tr>
-                    <td><?php echo app_escape($order['purchase_number']); ?></td>
+                    <td>
+                        <?php echo app_escape($order['purchase_number']); ?>
+                        <?php if (!empty($order['is_historical'])): ?>
+                            <span class="badge bg-secondary">Historical</span>
+                        <?php endif; ?>
+                    </td>
                     <td><?php echo app_escape($order['supplier_name']); ?></td>
                     <td><?php echo supplier_order_status_badge($order['status']); ?></td>
                     <td><?php echo supplier_order_payment_status_badge((string) $order['payment_status']); ?></td>

@@ -5,13 +5,14 @@ require_once __DIR__ . '/../../includes/product_variations.php';
 require_once __DIR__ . '/../../includes/product_images.php';
 require_once __DIR__ . '/../../includes/catalog.php';
 require_once __DIR__ . '/../../includes/activity_log.php';
+require_once __DIR__ . '/../../includes/purchase_planning.php';
 app_require_permission('inventory.view');
 
 $appTitle = 'Inventory';
 $error = '';
 $pdo = app_db();
 
-$adjustmentReasons = ['Damaged', 'Lost', 'Stock Correction', 'Sample', 'Giveaway', 'Other'];
+$adjustmentReasons = ['Damaged', 'Lost', 'Stock Correction', 'Sample', 'Giveaway', 'Return', 'Transfer', 'Other'];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
@@ -97,6 +98,7 @@ $productTypeLabels = ['ready_stock' => 'Ready Stock', 'preorder' => 'Preorder', 
 $catalogTypeOptions = ['simple', 'variable'];
 $stockStatusOptions = ['in_stock', 'low_stock', 'out_of_stock'];
 $stageOptions = ['on_hand', 'reserved', 'incoming', 'arrived'];
+$productTypeOptions = ['ready_stock', 'preorder', 'early_bird'];
 
 $searchTerm = trim((string) ($_GET['q'] ?? ''));
 $filterCatalogType = in_array($_GET['catalog_type'] ?? '', $catalogTypeOptions, true) ? $_GET['catalog_type'] : null;
@@ -104,6 +106,10 @@ $filterStockStatus = in_array($_GET['stock_status'] ?? '', $stockStatusOptions, 
 $filterStage = in_array($_GET['stage'] ?? '', $stageOptions, true) ? $_GET['stage'] : null;
 $filterSupplierId = isset($_GET['supplier_id']) && ctype_digit((string) $_GET['supplier_id']) ? (int) $_GET['supplier_id'] : null;
 $filterCategoryId = isset($_GET['category_id']) && ctype_digit((string) $_GET['category_id']) ? (int) $_GET['category_id'] : null;
+$filterProductType = in_array($_GET['product_type'] ?? '', $productTypeOptions, true) ? $_GET['product_type'] : null;
+// "Need Ordering" - Purchase Planning quick filter (see includes/purchase_planning.php);
+// applied post-fetch below since it depends on a cross-table calculation, not a plain column.
+$filterNeedsOrdering = isset($_GET['needs_ordering']);
 
 $productSql = "
     SELECT p.id, p.sku, p.name, p.catalog_type, p.product_type, p.min_stock_threshold,
@@ -116,6 +122,10 @@ $productParams = [];
 if ($filterCatalogType !== null) {
     $productSql .= ' AND p.catalog_type = ?';
     $productParams[] = $filterCatalogType;
+}
+if ($filterProductType !== null) {
+    $productSql .= ' AND p.product_type = ?';
+    $productParams[] = $filterProductType;
 }
 if ($filterSupplierId !== null) {
     $productSql .= ' AND p.supplier_id = ?';
@@ -301,6 +311,29 @@ if ($filterStockStatus !== null || $filterStage !== null) {
     $inventory = $filteredInventory;
 }
 
+if ($filterNeedsOrdering) {
+    $needyKeys = array_column(purchase_planning_needs($pdo), null, 'key');
+
+    $filteredInventory = [];
+    foreach ($inventory as $product) {
+        if ($product['catalog_type'] === 'variable') {
+            $product['variations'] = array_values(array_filter(
+                $product['variations'],
+                static fn (array $variation): bool => isset($needyKeys[(int) $product['id'] . ':' . (int) $variation['variation_id']])
+            ));
+            if ($product['variations'] === []) {
+                continue;
+            }
+            $product['auto_expand'] = true;
+        } elseif (!isset($needyKeys[(int) $product['id'] . ':0'])) {
+            continue;
+        }
+
+        $filteredInventory[] = $product;
+    }
+    $inventory = $filteredInventory;
+}
+
 $sellableUnits = catalog_sellable_units($pdo);
 $canManage = app_has_permission('inventory.manage');
 $filterSuppliers = $pdo->query('SELECT id, name FROM suppliers ORDER BY name ASC')->fetchAll(PDO::FETCH_ASSOC);
@@ -384,7 +417,9 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="d-flex gap-2">
         <a class="btn btn-outline-primary" href="/modules/inventory/allocation-center.php">Allocate Preorders</a>
         <?php if ($canManage): ?>
-            <button type="button" class="btn btn-primary" onclick="InventoryUI.openAdjustModal('')">Adjust Stock</button>
+            <a class="btn btn-primary" href="/modules/purchase-planning/generate.php">Generate Supplier Order</a>
+            <button type="button" class="btn btn-outline-primary" onclick="InventoryUI.openAdjustModal('')">Adjust Stock</button>
+            <a class="btn btn-outline-secondary" href="/modules/inventory/import_opening_stock.php">Import Opening Stock</a>
         <?php endif; ?>
     </div>
 </div>
@@ -396,6 +431,16 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php if ($error !== ''): ?>
     <div class="alert alert-danger"><?php echo nl2br(app_escape($error)); ?></div>
 <?php endif; ?>
+
+<div class="d-flex flex-wrap gap-2 mb-3">
+    <a class="btn btn-sm <?php echo $filterNeedsOrdering ? 'btn-primary' : 'btn-outline-primary'; ?>" href="/modules/inventory/index.php?needs_ordering=1">Need Ordering</a>
+    <a class="btn btn-sm <?php echo $filterStage === 'incoming' ? 'btn-primary' : 'btn-outline-secondary'; ?>" href="/modules/inventory/index.php?stage=incoming">Waiting Supplier</a>
+    <a class="btn btn-sm <?php echo $filterStockStatus === 'low_stock' ? 'btn-primary' : 'btn-outline-secondary'; ?>" href="/modules/inventory/index.php?stock_status=low_stock">Low Stock</a>
+    <a class="btn btn-sm <?php echo $filterProductType === 'preorder' ? 'btn-primary' : 'btn-outline-secondary'; ?>" href="/modules/inventory/index.php?product_type=preorder">Preorder</a>
+    <?php if ($filterNeedsOrdering || $filterStage !== null || $filterStockStatus !== null || $filterProductType !== null): ?>
+        <a class="btn btn-sm btn-outline-secondary" href="/modules/inventory/index.php">Clear quick filters</a>
+    <?php endif; ?>
+</div>
 
 <div class="card p-3 mb-4">
     <form method="get" class="row g-2 align-items-end">
@@ -449,6 +494,22 @@ require_once __DIR__ . '/../../includes/header.php';
                     </option>
                 <?php endforeach; ?>
             </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small mb-1">Availability Type</label>
+            <select name="product_type" class="form-select form-select-sm">
+                <option value="">All</option>
+                <?php foreach ($productTypeOptions as $typeOption): ?>
+                    <option value="<?php echo app_escape($typeOption); ?>" <?php echo $filterProductType === $typeOption ? 'selected' : ''; ?>><?php echo app_escape($productTypeLabels[$typeOption]); ?></option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="col-auto">
+            <label class="form-label small mb-1 d-block">&nbsp;</label>
+            <label class="form-check">
+                <input type="checkbox" class="form-check-input" name="needs_ordering" value="1" <?php echo $filterNeedsOrdering ? 'checked' : ''; ?>>
+                <span class="form-check-label small">Needs Ordering only</span>
+            </label>
         </div>
         <div class="col-auto">
             <button type="submit" class="btn btn-sm btn-primary">Filter</button>

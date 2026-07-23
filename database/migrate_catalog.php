@@ -520,6 +520,51 @@ if (!migrate_column_exists($pdo, 'customer_storage', 'storage_location')) {
     migrate_run($pdo, 'customer_storage.storage_location', 'ALTER TABLE customer_storage ADD COLUMN storage_location VARCHAR(100) NULL AFTER arrival_date', $applied);
 }
 
+// --- Purchase Planning + Historical Data Migration Support ------------------------------
+
+// products.target_stock_level: the reorder-UP-TO quantity for Ready Stock purchase
+// planning (Order Qty = target - available - incoming). Deliberately separate from
+// min_stock_threshold, which only ever drives the Low Stock warning badge - conflating
+// the two would silently change existing Low Stock behavior. NULL means "not planned yet",
+// so a product with no target set simply never appears in the Need To Order list.
+if (!migrate_column_exists($pdo, 'products', 'target_stock_level')) {
+    migrate_run($pdo, 'products.target_stock_level', 'ALTER TABLE products ADD COLUMN target_stock_level INT UNSIGNED NULL AFTER min_stock_threshold', $applied);
+}
+
+// supplier_orders.expected_delivery_date: purchase-planning ETA, separate from
+// received_date (when it actually arrived). Purely informational - no code branches on it.
+if (!migrate_column_exists($pdo, 'supplier_orders', 'expected_delivery_date')) {
+    migrate_run($pdo, 'supplier_orders.expected_delivery_date', 'ALTER TABLE supplier_orders ADD COLUMN expected_delivery_date DATE NULL AFTER order_date', $applied);
+}
+
+// supplier_orders.is_historical: marks a supplier order as an imported business record
+// rather than a live purchase - see includes/supplier_order_import.php. Every existing row
+// defaults to 0 (a real, ledger-affecting order), so no existing order changes meaning.
+// Checked before ANY call to supplier_order_mark_incoming()/supplier_order_receive_item()
+// so historical POs can never touch incoming_quantity/available_quantity.
+if (!migrate_column_exists($pdo, 'supplier_orders', 'is_historical')) {
+    migrate_run($pdo, 'supplier_orders.is_historical', 'ALTER TABLE supplier_orders ADD COLUMN is_historical TINYINT(1) NOT NULL DEFAULT 0 AFTER status', $applied);
+}
+
+// mewmii_orders.is_historical: same idea as supplier_orders.is_historical - see
+// includes/order_import.php. Checked before ANY call to inventory_reserve_for_order()/
+// inventory_ship_for_order()/inventory_release_for_order() so an imported historical order
+// can never touch the live ledger. Default 0 preserves every existing order's behavior.
+if (!migrate_column_exists($pdo, 'mewmii_orders', 'is_historical')) {
+    migrate_run($pdo, 'mewmii_orders.is_historical', 'ALTER TABLE mewmii_orders ADD COLUMN is_historical TINYINT(1) NOT NULL DEFAULT 0 AFTER order_status', $applied);
+}
+
+// mewmii_orders.payment_date/fulfillment_date: historical-import fields (an imported order
+// needs to record when it was actually paid/completed, which may be years before this
+// column existed) - also usable going forward for live orders, but nothing currently
+// writes fulfillment_date automatically; it's set explicitly by the import tool for now.
+if (!migrate_column_exists($pdo, 'mewmii_orders', 'payment_date')) {
+    migrate_run($pdo, 'mewmii_orders.payment_date', 'ALTER TABLE mewmii_orders ADD COLUMN payment_date DATE NULL AFTER payment_status', $applied);
+}
+if (!migrate_column_exists($pdo, 'mewmii_orders', 'fulfillment_date')) {
+    migrate_run($pdo, 'mewmii_orders.fulfillment_date', 'ALTER TABLE mewmii_orders ADD COLUMN fulfillment_date DATE NULL AFTER shipped_at', $applied);
+}
+
 echo count($applied) . ' migration statement(s) applied:' . PHP_EOL;
 foreach ($applied as $item) {
     echo '  - ' . $item . PHP_EOL;

@@ -208,6 +208,38 @@ function inventory_release_for_order(PDO $pdo, int $orderId): void
 }
 
 /**
+ * Historical Inventory import - sets a unit's Opening Stock, the one and only place
+ * transaction_type = 'opening_stock' is ever written. Deliberately refuses to run if this
+ * unit already has ANY inventory_transactions history - an opening balance only makes
+ * sense as the very first entry in a unit's ledger; applying it after real activity has
+ * already happened would silently double-count stock. Goes straight to available_quantity
+ * (through the normal ledger-paired update, never a raw column write) since an opening
+ * balance is, by definition, stock already physically on hand and unreserved.
+ */
+function inventory_import_opening_stock(PDO $pdo, int $productId, ?int $variationId, int $quantity, ?string $notes = null): void
+{
+    if ($quantity < 1) {
+        throw new RuntimeException('Opening stock quantity must be at least 1.');
+    }
+
+    $historyStmt = $pdo->prepare('SELECT COUNT(*) FROM inventory_transactions WHERE product_id = ? AND variation_id <=> ?');
+    $historyStmt->execute([$productId, $variationId]);
+    if ((int) $historyStmt->fetchColumn() > 0) {
+        throw new RuntimeException(catalog_format_stock_error($pdo, 'This unit already has inventory history - Opening Stock can only be set once, before any other activity.', $productId, $variationId, 'Existing transaction count', (int) $historyStmt->fetchColumn(), 0));
+    }
+
+    inventory_get_or_create_row($pdo, $productId, $variationId);
+
+    $pdo->prepare('
+        UPDATE mewmii_inventory
+        SET available_quantity = available_quantity + ?
+        WHERE product_id = ? AND variation_id <=> ?
+    ')->execute([$quantity, $productId, $variationId]);
+
+    inventory_log_transaction($pdo, $productId, 'opening_stock', $quantity, 'inventory_import', null, $variationId, 'Opening Stock', $notes);
+}
+
+/**
  * Stock for one product as shown to staff: a simple product reads its own direct row;
  * a variable product's stock is never stored on the product itself - it is always the
  * sum across its (non-archived) variations.

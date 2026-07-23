@@ -10,7 +10,15 @@ require_once __DIR__ . '/activity_log.php';
 // "Arrived" is a display label for the existing status = 'received' value (set
 // automatically by supplier_order_receive_item() once every line is fully received) -
 // there is no separate database value for it, so this never duplicates that logic.
-
+//
+// 'partially_received' and 'cancelled' are NOT part of this linear next-step sequence:
+// - partially_received is an automatic label supplier_order_receive_item() sets in place
+//   of 'ordered' once SOME (but not all) quantity has arrived - supplier_order_status_next()
+//   special-cases it below to still point at 'received', so the "Mark Arrived" button for
+//   the remainder keeps showing exactly as it does for 'ordered'.
+// - cancelled is a terminal side-branch reachable only from draft/ordered (never once any
+//   receiving history exists) via supplier_order_cancel() - the exact same eligibility
+//   guard already used by supplier_order_delete_if_unreceived().
 const SUPPLIER_ORDER_WORKFLOW = ['draft', 'ordered', 'received', 'completed'];
 
 function supplier_order_status_label(string $status): string
@@ -18,8 +26,10 @@ function supplier_order_status_label(string $status): string
     $labels = [
         'draft' => 'Draft',
         'ordered' => 'Ordered',
+        'partially_received' => 'Partially Received',
         'received' => 'Arrived',
         'completed' => 'Completed',
+        'cancelled' => 'Cancelled',
         'waiting_payment' => 'Waiting Payment',
         'shipping' => 'Shipping',
     ];
@@ -32,8 +42,10 @@ function supplier_order_status_badge(string $status): string
     $colors = [
         'draft' => 'secondary',
         'ordered' => 'info text-dark',
+        'partially_received' => 'primary',
         'received' => 'warning text-dark',
         'completed' => 'success',
+        'cancelled' => 'danger',
         'waiting_payment' => 'secondary',
         'shipping' => 'info text-dark',
     ];
@@ -44,12 +56,20 @@ function supplier_order_status_badge(string $status): string
 
 /**
  * Next step in the linear Draft->Ordered->Arrived->Completed workflow, or null if there
- * is none (already Completed, or an older waiting_payment/shipping status that predates
- * this simplified workflow and isn't part of it - those are left as-is, displayed with no
- * action button, rather than guessed into the new flow).
+ * is none (already Completed/Cancelled, or an older waiting_payment/shipping status that
+ * predates this simplified workflow and isn't part of it - those are left as-is, displayed
+ * with no action button, rather than guessed into the new flow).
+ *
+ * 'partially_received' is treated exactly like 'ordered' here (next = 'received') since
+ * it's the same "still waiting on the rest of the shipment" state - see SUPPLIER_ORDER_WORKFLOW's
+ * doc comment for why it isn't a member of the array itself.
  */
 function supplier_order_status_next(string $status): ?string
 {
+    if ($status === 'partially_received') {
+        return 'received';
+    }
+
     $index = array_search($status, SUPPLIER_ORDER_WORKFLOW, true);
     if ($index === false || !isset(SUPPLIER_ORDER_WORKFLOW[$index + 1])) {
         return null;
@@ -63,6 +83,7 @@ function supplier_order_status_next_action_label(string $status): ?string
     $labels = [
         'draft' => 'Submit Order',
         'ordered' => 'Mark Arrived',
+        'partially_received' => 'Mark Arrived',
         'received' => 'Complete Order',
     ];
 
@@ -304,23 +325,32 @@ function supplier_order_receive_item(PDO $pdo, int $itemId, int $quantity): void
     $allItems = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
 
     $fullyReceived = true;
+    $anyReceived = false;
     foreach ($allItems as $orderItem) {
         $received = supplier_order_item_received_quantity($pdo, (int) $orderItem['id']);
+        if ($received > 0) {
+            $anyReceived = true;
+        }
         if ($received < (int) $orderItem['total_quantity']) {
             $fullyReceived = false;
-            break;
         }
     }
 
-    if ($fullyReceived) {
-        $orderStmt = $pdo->prepare('SELECT status FROM supplier_orders WHERE id = ?');
-        $orderStmt->execute([$orderId]);
-        $currentStatus = (string) $orderStmt->fetchColumn();
+    $orderStmt = $pdo->prepare('SELECT status FROM supplier_orders WHERE id = ?');
+    $orderStmt->execute([$orderId]);
+    $currentStatus = (string) $orderStmt->fetchColumn();
 
+    if ($fullyReceived) {
         if (!in_array($currentStatus, ['received', 'completed'], true)) {
             $pdo->prepare("UPDATE supplier_orders SET status = 'received', received_date = CURDATE() WHERE id = ?")
                 ->execute([$orderId]);
         }
+    } elseif ($anyReceived && !in_array($currentStatus, ['partially_received', 'received', 'completed', 'cancelled'], true)) {
+        // Some lines/quantities have arrived but not all - auto-label the order
+        // 'partially_received' (see SUPPLIER_ORDER_WORKFLOW's doc comment). Only ever
+        // moves it OUT of draft/ordered; never overrides a status already further along.
+        $pdo->prepare("UPDATE supplier_orders SET status = 'partially_received' WHERE id = ?")
+            ->execute([$orderId]);
     }
 }
 
@@ -422,9 +452,15 @@ function supplier_order_log_event(PDO $pdo, int $orderId, string $description): 
  */
 function supplier_order_apply_edit(PDO $pdo, int $orderId, int $supplierId, string $notes, array $newLines, float $shippingFee = 0.00, ?string $paymentStatus = null): void
 {
-    $oldRowStmt = $pdo->prepare('SELECT shipping_fee, payment_status, purchase_number FROM supplier_orders WHERE id = ?');
+    $oldRowStmt = $pdo->prepare('SELECT shipping_fee, payment_status, purchase_number, is_historical FROM supplier_orders WHERE id = ?');
     $oldRowStmt->execute([$orderId]);
     $oldRow = $oldRowStmt->fetch(PDO::FETCH_ASSOC);
+    // A historical (imported) supplier order must never go through
+    // supplier_order_mark_incoming()/supplier_order_adjust_incoming() below - see
+    // includes/supplier_order_import.php's doc comment.
+    if (!empty($oldRow['is_historical'])) {
+        throw new RuntimeException('This is a historical (imported) supplier order and cannot be edited through this workflow.');
+    }
     $oldShippingFee = (float) $oldRow['shipping_fee'];
     $oldPaymentStatus = (string) $oldRow['payment_status'];
     if ($paymentStatus === null || !in_array($paymentStatus, SUPPLIER_ORDER_PAYMENT_STATUSES, true)) {
@@ -566,6 +602,38 @@ function supplier_order_delete_if_unreceived(PDO $pdo, int $orderId): void
     }
 
     $pdo->prepare('DELETE FROM supplier_orders WHERE id = ?')->execute([$orderId]);
+}
+
+/**
+ * Soft-cancels a supplier order: same eligibility guard as
+ * supplier_order_delete_if_unreceived() (nothing may have ever been received against it -
+ * once any receiving history exists, Cancel is blocked exactly like Delete is, since the
+ * arrived portion is real physical stock and cancelling can't safely un-happen that), and
+ * reverses every line's outstanding incoming contribution via the same, unmodified
+ * supplier_order_reverse_incoming(). Unlike delete, the row itself is kept (status =
+ * 'cancelled') so it still appears in history/reporting instead of disappearing.
+ */
+function supplier_order_cancel(PDO $pdo, int $orderId): void
+{
+    if (supplier_order_has_receiving_history($pdo, $orderId)) {
+        throw new RuntimeException('This supplier order has receiving history and cannot be cancelled.');
+    }
+
+    $itemsStmt = $pdo->prepare('SELECT id, product_id, variation_id, total_quantity FROM supplier_order_items WHERE supplier_order_id = ?');
+    $itemsStmt->execute([$orderId]);
+
+    foreach ($itemsStmt->fetchAll(PDO::FETCH_ASSOC) as $item) {
+        supplier_order_reverse_incoming(
+            $pdo,
+            (int) $item['product_id'],
+            $item['variation_id'] !== null ? (int) $item['variation_id'] : null,
+            (int) $item['id'],
+            (int) $item['total_quantity']
+        );
+    }
+
+    $pdo->prepare("UPDATE supplier_orders SET status = 'cancelled' WHERE id = ?")->execute([$orderId]);
+    activity_log($pdo, 'supplier_orders', 'cancel', $orderId, 'Cancelled supplier order #' . $orderId);
 }
 
 /**

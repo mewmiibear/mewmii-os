@@ -11,13 +11,14 @@ require_once __DIR__ . '/supplier_orders.php';
  * 'cancelled' is deliberately NOT part of this list - it's a side branch reachable from any
  * non-terminal stage (see the Cancel Order action), not a step in the forward progression.
  */
-const ORDER_STATUS_WORKFLOW = ['pending', 'processing', 'ready_to_ship', 'shipped', 'completed'];
+const ORDER_STATUS_WORKFLOW = ['pending', 'processing', 'waiting_stock', 'ready_to_ship', 'shipped', 'completed'];
 
 function order_status_label(string $status): string
 {
     $labels = [
         'pending' => 'Pending',
         'processing' => 'Processing',
+        'waiting_stock' => 'Waiting Stock',
         'ready_to_ship' => 'Ready to Ship',
         'shipped' => 'Shipped',
         'completed' => 'Completed',
@@ -32,8 +33,9 @@ function order_status_badge(string $status): string
     $colors = [
         'pending' => 'secondary',
         'processing' => 'info text-dark',
-        'ready_to_ship' => 'warning text-dark',
-        'shipped' => 'primary',
+        'waiting_stock' => 'warning text-dark',
+        'ready_to_ship' => 'primary',
+        'shipped' => 'dark',
         'completed' => 'success',
         'cancelled' => 'danger',
     ];
@@ -61,7 +63,8 @@ function order_status_next_action_label(string $status): ?string
 {
     $labels = [
         'pending' => 'Start Processing',
-        'processing' => 'Mark Ready to Ship',
+        'processing' => 'Mark Waiting Stock',
+        'waiting_stock' => 'Mark Ready to Ship',
         'ready_to_ship' => 'Mark Shipped',
         'shipped' => 'Mark Completed',
     ];
@@ -171,13 +174,13 @@ function order_list_deletable(PDO $pdo): array
 
 /**
  * Order statuses in which items/quantities/pricing can still be freely changed - nothing
- * has physically shipped yet. 'pending' has no reservation at all; 'processing' and
- * 'ready_to_ship' already reserved stock for the CURRENT item set (see
+ * has physically shipped yet. 'pending' has no reservation at all; 'processing',
+ * 'waiting_stock', and 'ready_to_ship' already reserved stock for the CURRENT item set (see
  * inventory_reserve_for_order()), so order_apply_edit() releases and re-reserves around
  * the edit rather than patching reserved_quantity directly. 'shipped'/'completed' (and
  * 'cancelled') are locked to notes-only - see modules/orders/edit.php.
  */
-const ORDER_EDITABLE_STATUSES = ['pending', 'processing', 'ready_to_ship'];
+const ORDER_EDITABLE_STATUSES = ['pending', 'processing', 'waiting_stock', 'ready_to_ship'];
 
 /**
  * Every product for the customer Order "+ Add Product" picker, grouped exactly like
@@ -333,13 +336,20 @@ function order_unit_is_available(array $product, string $stage, string $override
  */
 function order_apply_edit(PDO $pdo, int $orderId, int $customerId, array $newLines, float $shippingFee, string $customerNote, string $internalNote): void
 {
-    $orderStmt = $pdo->prepare('SELECT order_status FROM mewmii_orders WHERE id = ? FOR UPDATE');
+    $orderStmt = $pdo->prepare('SELECT order_status, is_historical FROM mewmii_orders WHERE id = ? FOR UPDATE');
     $orderStmt->execute([$orderId]);
-    $orderStatus = $orderStmt->fetchColumn();
+    $orderRow = $orderStmt->fetch(PDO::FETCH_ASSOC);
 
-    if ($orderStatus === false) {
+    if ($orderRow === false) {
         throw new RuntimeException('Order not found.');
     }
+    // A historical (imported) order must never go through the release-then-reserve cycle
+    // below - see includes/order_import.php's doc comment. Editing one is a data-cleanup
+    // operation (SKU/name typo, wrong date, etc.), not covered here.
+    if (!empty($orderRow['is_historical'])) {
+        throw new RuntimeException('This is a historical (imported) order and cannot be edited through this workflow.');
+    }
+    $orderStatus = $orderRow['order_status'];
     if (!in_array($orderStatus, ORDER_EDITABLE_STATUSES, true)) {
         throw new RuntimeException('This order can no longer be edited - use Cancel or the adjustment workflow instead.');
     }

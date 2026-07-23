@@ -344,6 +344,11 @@
                     <span class="badge bg-warning text-dark mt-1">Low Stock</span>
                 <?php endif; ?>
             </div>
+            <div class="col-md-4 js-stock-ready">
+                <label class="form-label">Target Stock Level</label>
+                <input type="number" min="0" class="form-control" name="target_stock_level" value="<?php echo app_escape($form['target_stock_level']); ?>">
+                <div class="form-text">Purchase Planning orders up to this quantity. Leave blank to exclude this product from Purchase Planning.</div>
+            </div>
             <div class="col-md-4 js-stock-preorder">
                 <label class="form-label">ETA (Estimated Arrival)</label>
                 <input type="date" class="form-control" name="estimated_arrival_date" value="<?php echo app_escape($form['estimated_arrival_date']); ?>">

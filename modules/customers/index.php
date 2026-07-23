@@ -30,7 +30,10 @@ $canManage = app_has_permission('customers.manage');
         <p class="text-muted mb-0">CRM foundation for memberships, loyalty, and customer storage.</p>
     </div>
     <?php if ($canManage): ?>
-        <a class="btn btn-primary" href="/modules/customers/create.php">Add Customer</a>
+        <div class="d-flex gap-2">
+            <a class="btn btn-primary" href="/modules/customers/create.php">Add Customer</a>
+            <a class="btn btn-outline-secondary" href="/modules/customers/import.php">Import CSV</a>
+        </div>
     <?php endif; ?>
 </div>
 
@@ -47,7 +50,7 @@ $canManage = app_has_permission('customers.manage');
                 <th>Phone</th>
                 <th>Tier</th>
                 <th>Points</th>
-                <?php if ($canManage): ?><th></th><?php endif; ?>
+                <th></th>
             </tr>
         </thead>
         <tbody>
@@ -58,15 +61,16 @@ $canManage = app_has_permission('customers.manage');
                     <td><?php echo app_escape($customer['phone'] ?? '-'); ?></td>
                     <td><?php echo app_escape($customer['membership_tier']); ?></td>
                     <td><?php echo app_escape((string) $customer['points']); ?></td>
-                    <?php if ($canManage): ?>
-                        <td class="text-end">
+                    <td class="text-end">
+                        <a class="btn btn-sm btn-outline-secondary" href="/modules/customers/view.php?id=<?php echo (int) $customer['id']; ?>">History</a>
+                        <?php if ($canManage): ?>
                             <a class="btn btn-sm btn-outline-primary" href="/modules/customers/edit.php?id=<?php echo (int) $customer['id']; ?>">Edit</a>
-                        </td>
-                    <?php endif; ?>
+                        <?php endif; ?>
+                    </td>
                 </tr>
             <?php endforeach; ?>
             <?php if ($customers === []): ?>
-                <tr><td colspan="<?php echo $canManage ? 6 : 5; ?>" class="text-muted">No customers yet.</td></tr>
+                <tr><td colspan="6" class="text-muted">No customers yet.</td></tr>
             <?php endif; ?>
         </tbody>
     </table>

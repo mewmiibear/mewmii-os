@@ -19,7 +19,7 @@ $appTitle = 'Order Detail';
 $statusFields = [
     'order_status' => [
         'label' => 'Order Status',
-        'values' => ['pending', 'processing', 'ready_to_ship', 'shipped', 'completed', 'cancelled'],
+        'values' => ['pending', 'processing', 'waiting_stock', 'ready_to_ship', 'shipped', 'completed', 'cancelled'],
         'terminal' => ['completed', 'cancelled'],
     ],
     'payment_status' => [
@@ -112,6 +112,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($error === '' && !app_has_permission('orders.manage')) {
         http_response_code(403);
         $error = 'You do not have permission to change order status.';
+    }
+
+    // Historical (imported) orders are read-only business records - none of the actions
+    // below may run for one, since every single one of them can trigger
+    // inventory_reserve_for_order()/inventory_ship_for_order()/inventory_release_for_order()
+    // (see apply_order_status_change()), which an imported order must never touch.
+    if ($error === '' && !empty($order['is_historical'])) {
+        $error = 'This is a historical (imported) order - its status cannot be changed.';
     }
 
     if ($error === '' && !empty($_POST['approve_payment'])) {
@@ -344,7 +352,12 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1">Order <?php echo app_escape($order['order_number']); ?></h2>
+        <h2 class="mb-1">
+            Order <?php echo app_escape($order['order_number']); ?>
+            <?php if (!empty($order['is_historical'])): ?>
+                <span class="badge bg-secondary">Historical</span>
+            <?php endif; ?>
+        </h2>
         <p class="text-muted mb-0"><?php echo app_escape($order['customer_name'] ?? 'Unknown customer'); ?></p>
     </div>
     <div class="d-flex gap-2">
@@ -467,7 +480,7 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php else: ?>
                 <p class="text-muted mb-3">No receipt uploaded.</p>
             <?php endif; ?>
-            <?php if ($canManage && $order['payment_status'] === 'pending'): ?>
+            <?php if ($canManage && empty($order['is_historical']) && $order['payment_status'] === 'pending'): ?>
                 <div class="d-flex gap-2">
                     <form method="post" onsubmit="return confirm('Approve this payment? Order status will advance to Processing.');">
                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
@@ -483,7 +496,7 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php endif; ?>
         </div>
 
-        <?php if ($canManage): ?>
+        <?php if ($canManage && empty($order['is_historical'])): ?>
             <?php $nextOrderStatus = order_status_next((string) $order['order_status']); ?>
             <div class="card p-4 mb-4">
                 <h5 class="mb-3">Order Workflow</h5>

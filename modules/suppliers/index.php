@@ -15,7 +15,10 @@ $canManage = app_has_permission('suppliers.manage');
         <p class="text-muted mb-0">Purchase planning and supplier relationship foundation.</p>
     </div>
     <?php if ($canManage): ?>
-        <a class="btn btn-primary" href="/modules/suppliers/create.php">Add Supplier</a>
+        <div class="d-flex gap-2">
+            <a class="btn btn-primary" href="/modules/suppliers/create.php">Add Supplier</a>
+            <a class="btn btn-outline-secondary" href="/modules/suppliers/import.php">Import CSV</a>
+        </div>
     <?php endif; ?>
 </div>
 

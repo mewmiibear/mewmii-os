@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(git merge *)",
-      "Bash(python3 -)"
+      "Bash(python3 -)",
+      "Bash(grep -n 'elseif \\($action ===\\\\|action === '\\\\''delete_payment'\\\\''\\\\|Unknown action' d:/Work/GIT/mewmii-os/modules/supplier-orders/view.php)",
+      "Bash(grep -n 'statusFields\\\\['\\\\''order_status'\\\\''\\\\]\\\\|statusFields\\\\[\\\\$statusField\\\\]' d:/Work/GIT/mewmii-os/modules/orders/view.php)"
     ]
   }
 }

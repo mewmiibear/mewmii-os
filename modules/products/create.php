@@ -47,6 +47,7 @@ $form = [
     'expiry_date' => '',
     'stock_quantity' => '',
     'min_stock_threshold' => '',
+    'target_stock_level' => '',
     'estimated_arrival_date' => '',
     'estimated_release_month' => '',
     'moq' => '1',
@@ -85,6 +86,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form['expiry_date'] = trim((string) ($_POST['expiry_date'] ?? ''));
     $form['stock_quantity'] = trim((string) ($_POST['stock_quantity'] ?? ''));
     $form['min_stock_threshold'] = trim((string) ($_POST['min_stock_threshold'] ?? ''));
+    $form['target_stock_level'] = trim((string) ($_POST['target_stock_level'] ?? ''));
     $form['estimated_arrival_date'] = trim((string) ($_POST['estimated_arrival_date'] ?? ''));
     $form['estimated_release_month'] = trim((string) ($_POST['estimated_release_month'] ?? ''));
     $form['moq'] = trim((string) ($_POST['moq'] ?? '1'));
@@ -194,9 +196,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     sku, name, short_description, description, product_type, catalog_type, brand_id, barcode,
                     supplier_sku, internal_code,
                     supplier_id, product_cost, selling_price, sale_enabled, sale_price,
-                    min_stock_threshold, sale_start_date, estimated_arrival_date, estimated_release_month,
+                    min_stock_threshold, target_stock_level, sale_start_date, estimated_arrival_date, estimated_release_month,
                     preorder_closing_date, expiry_date, moq, status, availability_override
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ');
             $stmt->execute([
                 $form['sku'],
@@ -215,6 +217,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $form['sale_enabled'] ? 1 : 0,
                 ($form['sale_enabled'] && $form['sale_price'] !== '') ? round((float) $form['sale_price'], 2) : null,
                 $form['min_stock_threshold'] !== '' ? (int) $form['min_stock_threshold'] : null,
+                $form['target_stock_level'] !== '' ? (int) $form['target_stock_level'] : null,
                 $form['sale_start_date'] !== '' ? $form['sale_start_date'] : null,
                 $form['estimated_arrival_date'] !== '' ? $form['estimated_arrival_date'] : null,
                 $form['estimated_release_month'] !== '' ? $form['estimated_release_month'] : null,

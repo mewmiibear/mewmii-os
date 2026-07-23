@@ -7,7 +7,7 @@ app_require_permission('orders.view');
 $appTitle = 'Orders';
 require_once __DIR__ . '/../../includes/header.php';
 
-$stmt = app_db()->query('SELECT o.id, o.order_number, o.payment_status, o.order_status, o.tracking_number, c.name AS customer_name FROM mewmii_orders o LEFT JOIN customers c ON c.id = o.customer_id ORDER BY o.id DESC LIMIT 20');
+$stmt = app_db()->query('SELECT o.id, o.order_number, o.payment_status, o.order_status, o.is_historical, o.tracking_number, c.name AS customer_name FROM mewmii_orders o LEFT JOIN customers c ON c.id = o.customer_id ORDER BY o.id DESC LIMIT 20');
 $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
 $canManage = app_has_permission('orders.manage');
 ?>
@@ -17,7 +17,10 @@ $canManage = app_has_permission('orders.manage');
         <p class="text-muted mb-0">WooCommerce and internal order tracking foundation.</p>
     </div>
     <?php if ($canManage): ?>
-        <a class="btn btn-primary" href="/modules/orders/create.php">New Order</a>
+        <div class="d-flex gap-2">
+            <a class="btn btn-primary" href="/modules/orders/create.php">New Order</a>
+            <a class="btn btn-outline-secondary" href="/modules/orders/import.php">Import Historical Order</a>
+        </div>
     <?php endif; ?>
 </div>
 
@@ -43,7 +46,12 @@ $canManage = app_has_permission('orders.manage');
         <tbody>
             <?php foreach ($orders as $order): ?>
                 <tr>
-                    <td><?php echo app_escape($order['order_number']); ?></td>
+                    <td>
+                        <?php echo app_escape($order['order_number']); ?>
+                        <?php if (!empty($order['is_historical'])): ?>
+                            <span class="badge bg-secondary">Historical</span>
+                        <?php endif; ?>
+                    </td>
                     <td><?php echo app_escape($order['customer_name'] ?? 'Unknown'); ?></td>
                     <td><?php echo app_escape($order['payment_status']); ?></td>
                     <td><?php echo order_status_badge($order['order_status']); ?></td>

@@ -52,7 +52,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($error === '') {
         $action = (string) ($_POST['action'] ?? '');
 
-        if ($action === 'receive') {
+        // Historical (imported) supplier orders are read-only business records for every
+        // action that could touch incoming/received stock - payments are still allowed,
+        // since those are pure bookkeeping and never move inventory. This must be the
+        // first branch of the chain below (not a separate preceding "if"), since none of
+        // the other branches re-check $error before running.
+        if (!empty($order['is_historical']) && in_array($action, ['receive', 'mark_arrived', 'advance_status', 'cancel'], true)) {
+            $error = 'This is a historical (imported) supplier order - it cannot receive stock or change status.';
+        } elseif ($action === 'receive') {
             $itemId = (int) ($_POST['item_id'] ?? 0);
             $quantity = (int) ($_POST['quantity'] ?? 0);
 
@@ -167,6 +174,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $error = 'Failed to delete payment.';
                 }
             }
+        } elseif ($action === 'cancel') {
+            $pdo->beginTransaction();
+
+            try {
+                supplier_order_cancel($pdo, $orderId);
+                $pdo->commit();
+
+                app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1');
+            } catch (RuntimeException $exception) {
+                $pdo->rollBack();
+                $error = $exception->getMessage();
+            } catch (Exception $exception) {
+                $pdo->rollBack();
+                $error = 'Failed to cancel supplier order.';
+            }
         } else {
             $error = 'Unknown action.';
         }
@@ -227,17 +249,32 @@ $payments = supplier_order_list_payments($pdo, $orderId);
 
 $canManage = app_has_permission('supplier-orders.manage');
 $nextStatus = supplier_order_status_next((string) $order['status']);
+// Same eligibility as delete - once anything has actually been received, a supplier order
+// can no longer be cancelled (see supplier_order_cancel()'s guard).
+$canCancel = $canManage && empty($order['is_historical']) && !in_array($order['status'], ['cancelled', 'completed'], true) && !supplier_order_has_receiving_history($pdo, $orderId);
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1">Supplier Order <?php echo app_escape($order['purchase_number']); ?></h2>
+        <h2 class="mb-1">
+            Supplier Order <?php echo app_escape($order['purchase_number']); ?>
+            <?php if (!empty($order['is_historical'])): ?>
+                <span class="badge bg-secondary">Historical</span>
+            <?php endif; ?>
+        </h2>
         <p class="text-muted mb-0"><?php echo app_escape($order['supplier_name']); ?></p>
     </div>
     <div class="d-flex gap-2">
         <?php if ($canManage): ?>
             <a class="btn btn-outline-secondary btn-sm" href="/modules/supplier-orders/edit.php?id=<?php echo (int) $orderId; ?>">Edit</a>
+        <?php endif; ?>
+        <?php if ($canCancel): ?>
+            <form method="post" class="d-inline" onsubmit="return confirm('Cancel this supplier order? Any outstanding incoming stock will be reversed.');">
+                <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                <input type="hidden" name="action" value="cancel">
+                <button type="submit" class="btn btn-outline-warning btn-sm">Cancel Order</button>
+            </form>
         <?php endif; ?>
         <?php if ($canManage): ?>
             <form method="post" action="/modules/supplier-orders/delete.php" class="d-inline" onsubmit="return confirm('Delete this supplier order? This cannot be undone.');">
@@ -272,6 +309,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 <tr><th>Payment Status</th><td><?php echo supplier_order_payment_status_badge((string) $order['payment_status']); ?></td></tr>
                 <tr><th>Supplier</th><td><?php echo app_escape($order['supplier_name']); ?></td></tr>
                 <tr><th>Created Date</th><td><?php echo app_escape($order['order_date'] ?? '-'); ?></td></tr>
+                <tr><th>Expected Delivery</th><td><?php echo app_escape($order['expected_delivery_date'] ?? '-'); ?></td></tr>
                 <tr><th>Product Subtotal</th><td>RM <?php echo app_escape(number_format($orderTotal, 2)); ?></td></tr>
                 <tr><th>Shipping Fee</th><td>RM <?php echo app_escape(number_format((float) $order['shipping_fee'], 2)); ?></td></tr>
                 <tr><th>Total Purchase Amount</th><td>RM <?php echo app_escape(number_format($totalPurchaseAmount, 2)); ?></td></tr>
@@ -314,7 +352,9 @@ require_once __DIR__ . '/../../includes/header.php';
                             <td>RM <?php echo app_escape(number_format((float) $item['supplier_price'], 2)); ?></td>
                             <?php if ($canManage): ?>
                                 <td class="text-end">
-                                    <?php if ($item['remaining_quantity'] > 0): ?>
+                                    <?php if (!empty($order['is_historical'])): ?>
+                                        <span class="text-muted small">&mdash;</span>
+                                    <?php elseif ($item['remaining_quantity'] > 0): ?>
                                         <form method="post" class="d-flex gap-1 justify-content-end" onsubmit="return confirm('Record a partial receipt for this line?');">
                                             <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                                             <input type="hidden" name="action" value="receive">
@@ -338,7 +378,7 @@ require_once __DIR__ . '/../../includes/header.php';
     </div>
 
     <div class="col-lg-5">
-        <?php if ($canManage): ?>
+        <?php if ($canManage && empty($order['is_historical'])): ?>
             <div class="card p-4 mb-4">
                 <h5 class="mb-3">Order Workflow</h5>
                 <div class="mb-3"><?php echo supplier_order_status_badge($order['status']); ?></div>
