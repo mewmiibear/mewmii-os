@@ -2,6 +2,10 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/catalog.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
+// Product Control Center (Phase 1) needs order_status_badge() and, via this file's own
+// require of supplier_orders.php, supplier_order_status_badge() - neither was previously
+// loaded on this page.
+require_once __DIR__ . '/../../includes/orders.php';
 app_require_permission('products.manage');
 
 $appTitle = 'Edit Product';
