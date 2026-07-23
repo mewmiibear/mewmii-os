@@ -20,7 +20,7 @@
   - preorder/early_bird: `Need = paid customer demand (mewmii_orders.payment_status = 'paid', net of what's already gone to Customer Storage) - incoming_quantity`
   - ready_stock: `Need = products.target_stock_level - available_quantity - incoming_quantity` (skipped entirely if `target_stock_level` is NULL)
 - Only units with a positive Need are surfaced; the suggested quantity is bumped up to the product's MOQ if below it (admin can still edit before generating).
-- `modules/purchase-planning/generate.php` (linked from Inventory's "Generate Supplier Order" button) groups the reviewed lines by supplier and creates one `supplier_orders` row + its `supplier_order_items` per supplier via `purchase_planning_generate()`. Every line still goes through the existing `supplier_order_mark_incoming()`, so incoming stock/ledger updates happen through the one existing code path.
+- `modules/purchase-planning/generate.php` (linked from Inventory's "Generate Supplier Order" button and Supplier Orders' "Purchase Planning / Products Need Ordering" button) groups the reviewed lines by supplier and creates one `supplier_orders` row + its `supplier_order_items` per supplier via `purchase_planning_generate()`. Every line still goes through the existing `supplier_order_mark_incoming()`, so incoming stock/ledger updates happen through the one existing code path.
 - `supplier_order_items.customer_quantity` / `moq_quantity` / `top_up_quantity` always sum exactly to `total_quantity`.
 
 ## Supplier Order workflow

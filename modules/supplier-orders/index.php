@@ -27,6 +27,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <?php if ($canManage): ?>
         <div class="d-flex gap-2">
             <a class="btn btn-primary" href="/modules/supplier-orders/create.php">New Supplier Order</a>
+            <a class="btn btn-outline-primary" href="/modules/purchase-planning/generate.php">Purchase Planning / Products Need Ordering</a>
             <a class="btn btn-outline-secondary" href="/modules/supplier-orders/import.php">Import Historical Order</a>
         </div>
     <?php endif; ?>
