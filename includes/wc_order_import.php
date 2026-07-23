@@ -27,6 +27,13 @@ const WC_ORDER_IMPORT_SYNC_TYPE = 'woocommerce_order_import';
 /**
  * WooCommerce order status -> Mewmii payment_status. Any WooCommerce status not listed here
  * (cancelled, trash, checkout-draft, ...) means "do not import this order at all".
+ *
+ * rcpt-review/rcpt-rejected are custom statuses added by the Mewmii Preorder WordPress plugin
+ * for its receipt-approval workflow (awaiting admin review / receipt rejected, re-upload
+ * pending) - in both cases the customer has not had payment confirmed, so they map to
+ * 'pending' exactly like every other not-yet-paid WooCommerce status. WooCommerce remains the
+ * source of truth for which of the two the order is actually in; Mewmii OS only needs to know
+ * "not paid yet" to run its own operational workflow correctly.
  */
 function wc_order_import_map_payment_status(string $wcStatus): ?string
 {
@@ -35,6 +42,8 @@ function wc_order_import_map_payment_status(string $wcStatus): ?string
         'completed' => 'paid',
         'pending' => 'pending',
         'on-hold' => 'pending',
+        'rcpt-review' => 'pending',
+        'rcpt-rejected' => 'pending',
         'refunded' => 'refunded',
         'failed' => 'failed',
     ];
@@ -272,7 +281,7 @@ function wc_order_import_single(PDO $pdo, array $wcOrder): array
         ]);
     }
 
-    $eventDescription = 'Imported from WooCommerce order #' . $wcOrderId . '.';
+    $eventDescription = 'Imported from WooCommerce order #' . $wcOrderId . ' (status: ' . $wcStatus . ').';
     if ($skippedItems !== []) {
         $eventDescription .= ' Unresolved SKU(s), item(s) skipped: ' . implode('; ', $skippedItems) . '.';
     }
