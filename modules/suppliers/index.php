@@ -34,7 +34,7 @@ $canManage = app_has_permission('suppliers.manage');
                 <th>Contact</th>
                 <th>Country</th>
                 <th>Notes</th>
-                <?php if ($canManage): ?><th></th><?php endif; ?>
+                <th></th>
             </tr>
         </thead>
         <tbody>
@@ -44,15 +44,18 @@ $canManage = app_has_permission('suppliers.manage');
                     <td><?php echo app_escape($supplier['contact'] ?? '-'); ?></td>
                     <td><?php echo app_escape($supplier['country'] ?? '-'); ?></td>
                     <td><?php echo app_escape($supplier['notes'] ?? '-'); ?></td>
-                    <?php if ($canManage): ?>
-                        <td class="text-end">
-                            <a class="btn btn-sm btn-outline-primary" href="/modules/suppliers/edit.php?id=<?php echo (int) $supplier['id']; ?>">Edit</a>
-                        </td>
-                    <?php endif; ?>
+                    <td class="text-end">
+                        <div class="d-flex gap-1 justify-content-end">
+                            <a class="btn btn-sm btn-outline-secondary" href="/modules/suppliers/view.php?id=<?php echo (int) $supplier['id']; ?>">View</a>
+                            <?php if ($canManage): ?>
+                                <a class="btn btn-sm btn-outline-primary" href="/modules/suppliers/edit.php?id=<?php echo (int) $supplier['id']; ?>">Edit</a>
+                            <?php endif; ?>
+                        </div>
+                    </td>
                 </tr>
             <?php endforeach; ?>
             <?php if ($suppliers === []): ?>
-                <tr><td colspan="<?php echo $canManage ? 5 : 4; ?>" class="text-muted">No suppliers yet.</td></tr>
+                <tr><td colspan="5" class="text-muted">No suppliers yet.</td></tr>
             <?php endif; ?>
         </tbody>
     </table>
