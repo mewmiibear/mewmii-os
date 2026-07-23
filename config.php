@@ -41,9 +41,9 @@ return [
     */
 
     'woocommerce' => [
-        'url' => getenv('WC_URL') ?: '',
-        'consumer_key' => getenv('WC_CONSUMER_KEY') ?: '',
-        'consumer_secret' => getenv('WC_CONSUMER_SECRET') ?: '',
+        'url' => getenv('https://mewmiibear.com') ?: '',
+        'consumer_key' => getenv('ck_424dc98501df5ccad492f7ad3b332b1e551c3f00') ?: '',
+        'consumer_secret' => getenv('cs_acd5163f0111ea2cca74992cf17801b6724d94ee') ?: '',
         'webhook_secret' => getenv('WC_WEBHOOK_SECRET') ?: '',
     ],
 
