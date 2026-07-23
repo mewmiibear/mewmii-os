@@ -64,7 +64,7 @@ function purchase_planning_needs(PDO $pdo): array
 {
     $units = catalog_sellable_units($pdo);
 
-    $productIds = array_unique(array_column($units, 'product_id'));
+    $productIds = array_values(array_unique(array_column($units, 'product_id')));
     $placeholders = implode(',', array_fill(0, count($productIds), '?'));
     $productsStmt = $pdo->prepare("SELECT id, supplier_id, target_stock_level FROM products WHERE id IN ({$placeholders})");
     $productsStmt->execute($productIds);
