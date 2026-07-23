@@ -61,6 +61,52 @@ function ship_request_process(PDO $pdo, int $shipRequestId, ?string $carrier = n
     return $shipmentId;
 }
 
+/**
+ * Total quantity already committed to an OPEN (not yet shipped) ship request for one
+ * customer_storage lot - the pre-shipment mirror of shipment_item_committed_quantity()
+ * (includes/shipments.php), which only sees a commitment once a real shipment exists. 'Open'
+ * means ship_requests.status IN ('pending', 'processing') - the two statuses before
+ * ship_request_process() actually creates+ships a shipment and consumes the lot for real
+ * (see modules/ship-my-box/view.php). A 'shipped'/'completed' ship request has already
+ * decremented customer_storage.quantity directly via shipment_mark_shipped(), so counting it
+ * here too would double-subtract the same units.
+ */
+function ship_request_lot_committed_quantity(PDO $pdo, int $customerStorageId): int
+{
+    $stmt = $pdo->prepare("
+        SELECT COALESCE(SUM(sri.quantity), 0)
+        FROM ship_request_items sri
+        INNER JOIN ship_requests sr ON sr.id = sri.ship_request_id
+        WHERE sri.customer_storage_id = ? AND sr.status IN ('pending', 'processing')
+    ");
+    $stmt->execute([$customerStorageId]);
+
+    return (int) $stmt->fetchColumn();
+}
+
+/**
+ * How much of one customer_storage lot is still free to commit to a NEW ship request (or to
+ * remove via customer_storage_remove()) - the lot's own quantity minus whatever other open
+ * ship requests already have a claim on it. Same pattern as
+ * shipment_storage_lot_available_to_ship() (includes/shipments.php), one stage earlier in
+ * the pipeline, before a shipment exists at all. Returns 0 for a lot that no longer exists or
+ * isn't 'stored' - same convention as shipment_storage_lot_available_to_ship().
+ */
+function ship_request_storage_lot_available(PDO $pdo, int $customerStorageId): int
+{
+    $stmt = $pdo->prepare('SELECT quantity, status FROM customer_storage WHERE id = ?');
+    $stmt->execute([$customerStorageId]);
+    $lot = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$lot || $lot['status'] !== 'stored') {
+        return 0;
+    }
+
+    $committed = ship_request_lot_committed_quantity($pdo, $customerStorageId);
+
+    return max(0, (int) $lot['quantity'] - $committed);
+}
+
 function ship_request_status_label(string $status): string
 {
     $labels = [

@@ -3,6 +3,7 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/customer_storage.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
 require_once __DIR__ . '/../../includes/order_fulfillment.php';
+require_once __DIR__ . '/../../includes/ship_my_box.php';
 app_require_permission('customer-storage.view');
 
 $appTitle = 'Customer Storage Detail';
@@ -99,6 +100,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->beginTransaction();
 
                 try {
+                    // Block a removal that would leave less than what's already committed to
+                    // an OPEN (not yet shipped) ship request on this lot - the same check now
+                    // applied at ship-request creation time (see
+                    // ship_request_storage_lot_available() in includes/ship_my_box.php).
+                    // Skipped when the lot isn't 'stored' - that's customer_storage_remove()'s
+                    // own, more specific "no longer active" error below, not a commitment
+                    // conflict, so this check must not shadow it.
+                    $lotStatusStmt = $pdo->prepare('SELECT status FROM customer_storage WHERE id = ?');
+                    $lotStatusStmt->execute([$storageId]);
+                    if ($lotStatusStmt->fetchColumn() === 'stored') {
+                        $availableToRemove = ship_request_storage_lot_available($pdo, $storageId);
+                        if ($quantity > $availableToRemove) {
+                            $committed = ship_request_lot_committed_quantity($pdo, $storageId);
+                            throw new RuntimeException('Cannot remove ' . $quantity . ' unit(s): ' . $committed . ' unit(s) of this lot are already committed to a pending ship request (only ' . $availableToRemove . ' available to remove).');
+                        }
+                    }
+
                     $orderItemLookupStmt = $pdo->prepare('
                         SELECT order_id FROM mewmii_order_items WHERE id = (SELECT order_item_id FROM customer_storage WHERE id = ?)
                     ');

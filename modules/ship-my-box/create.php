@@ -74,8 +74,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     throw new RuntimeException('Storage record #' . $storageId . ' is not available for this customer.');
                 }
 
-                if ($qty > (int) $storageRow['quantity']) {
-                    throw new RuntimeException('Requested quantity exceeds stored quantity for storage record #' . $storageId . '.');
+                // Nets out whatever's already committed to another OPEN (not yet shipped)
+                // ship request on this same lot - shipment_create() only catches this later,
+                // when this ship request is actually processed (see
+                // ship_request_storage_lot_available() in includes/ship_my_box.php) - checking
+                // it here instead gives an immediate, specific error at creation time.
+                $availableToShip = ship_request_storage_lot_available($pdo, $storageId);
+                if ($qty > $availableToShip) {
+                    throw new RuntimeException('Requested quantity (' . $qty . ') for storage record #' . $storageId . ' exceeds what is still available (' . $availableToShip . ') - some of it is already committed to another pending ship request.');
                 }
 
                 // order_id/order_item_id are denormalized from the storage lot's own
