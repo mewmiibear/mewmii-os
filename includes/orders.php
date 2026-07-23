@@ -52,6 +52,45 @@ function order_status_badge(string $status): string
 }
 
 /**
+ * Receipt visibility for a WooCommerce preorder order (see includes/wc_order_import.php) -
+ * purely informational display, entirely independent of payment_status/order_status. Returns
+ * null for a non-preorder order (is_preorder_request = 0), meaning there is nothing to show.
+ * Expects a row with at least is_preorder_request, receipt_url, receipt_status.
+ */
+function order_receipt_status_label(array $order): ?string
+{
+    if (empty($order['is_preorder_request'])) {
+        return null;
+    }
+
+    if ($order['receipt_status'] === 'approved') {
+        return 'Approved';
+    }
+    if ($order['receipt_status'] === 'rejected') {
+        return 'Rejected';
+    }
+
+    return !empty($order['receipt_url']) ? 'Receipt Submitted' : 'Awaiting Receipt Upload';
+}
+
+function order_receipt_status_badge(array $order): string
+{
+    $label = order_receipt_status_label($order);
+    if ($label === null) {
+        return '';
+    }
+
+    $colors = [
+        'Approved' => 'success',
+        'Rejected' => 'danger',
+        'Receipt Submitted' => 'info text-dark',
+        'Awaiting Receipt Upload' => 'secondary',
+    ];
+
+    return '<span class="badge bg-' . $colors[$label] . '">' . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . '</span>';
+}
+
+/**
  * Customer Status Message Generator (v1) - builds the full set of copy-paste message
  * templates for one order, keyed by message type, for the "Customer Status Message" card on
  * modules/orders/view.php. Pure string composition over data the caller already fetched

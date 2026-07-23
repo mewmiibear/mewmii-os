@@ -373,6 +373,17 @@ require_once __DIR__ . '/../../includes/header.php';
             <table class="table table-borderless mb-0">
                 <tr><th>Status</th><td><?php echo order_status_badge($order['order_status']); ?></td></tr>
                 <tr><th>Payment Status</th><td><?php echo app_escape($order['payment_status']); ?></td></tr>
+                <?php if (!empty($order['is_preorder_request'])): ?>
+                    <tr>
+                        <th>Receipt</th>
+                        <td>
+                            <?php echo order_receipt_status_badge($order); ?>
+                            <?php if ($order['receipt_status'] === 'rejected' && !empty($order['receipt_reject_reason'])): ?>
+                                <div class="text-muted small mt-1"><?php echo app_escape($order['receipt_reject_reason']); ?></div>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endif; ?>
                 <tr><th>Subtotal</th><td>RM <?php echo app_escape(number_format((float) $order['subtotal'], 2)); ?></td></tr>
                 <tr><th>Discount</th><td>RM <?php echo app_escape(number_format((float) $order['discount'], 2)); ?></td></tr>
                 <tr><th>Shipping Fee</th><td>RM <?php echo app_escape(number_format((float) $order['shipping_fee'], 2)); ?></td></tr>

@@ -25,6 +25,52 @@ require_once __DIR__ . '/product_variations.php';
 const WC_ORDER_IMPORT_SYNC_TYPE = 'woocommerce_order_import';
 
 /**
+ * Reads one key out of a WooCommerce REST order's meta_data array
+ * ([['id' => .., 'key' => .., 'value' => ..], ...]). Returns null if the key isn't present -
+ * covers both "WooCommerce never exposed it" and "this order genuinely has no value yet".
+ */
+function wc_order_import_get_meta(array $wcOrder, string $key): ?string
+{
+    foreach (($wcOrder['meta_data'] ?? []) as $meta) {
+        if (is_array($meta) && ($meta['key'] ?? null) === $key) {
+            $value = $meta['value'] ?? null;
+            return $value !== null && $value !== '' ? (string) $value : null;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Receipt visibility fields for the Mewmii Preorder WordPress plugin's workflow - purely
+ * informational display data, deliberately independent of payment_status/order_status (see
+ * wc_order_import_map_payment_status()'s docblock). Returns
+ * ['is_preorder_request', 'receipt_url', 'receipt_status', 'receipt_reject_reason'].
+ * receipt_status is only ever non-null for a preorder order, and defaults to 'pending' when
+ * WooCommerce didn't report receipt_upload_status at all (no receipt uploaded yet, or the
+ * field isn't exposed) - it is never left unset for a preorder order.
+ */
+function wc_order_import_extract_receipt_fields(array $wcOrder): array
+{
+    $isPreorder = wc_order_import_get_meta($wcOrder, '_mewmii_is_preorder') === 'yes';
+    $receiptUrl = wc_order_import_get_meta($wcOrder, '_pepro_receipt_url');
+    $rawStatus = wc_order_import_get_meta($wcOrder, 'receipt_upload_status');
+    $rejectReason = wc_order_import_get_meta($wcOrder, '_mewmii_reject_reason');
+
+    $receiptStatus = null;
+    if ($isPreorder) {
+        $receiptStatus = in_array($rawStatus, ['approved', 'rejected'], true) ? $rawStatus : 'pending';
+    }
+
+    return [
+        'is_preorder_request' => $isPreorder ? 1 : 0,
+        'receipt_url' => $isPreorder ? $receiptUrl : null,
+        'receipt_status' => $receiptStatus,
+        'receipt_reject_reason' => $isPreorder ? $rejectReason : null,
+    ];
+}
+
+/**
  * WooCommerce order status -> Mewmii payment_status. Any WooCommerce status not listed here
  * (cancelled, trash, checkout-draft, ...) means "do not import this order at all".
  *
@@ -219,6 +265,8 @@ function wc_order_import_single(PDO $pdo, array $wcOrder): array
     $totalAmount = round((float) ($wcOrder['total'] ?? 0), 2);
     $subtotal = round($totalAmount - $shippingFee + $discount, 2);
 
+    $receiptFields = wc_order_import_extract_receipt_fields($wcOrder);
+
     $existingStmt = $pdo->prepare('SELECT id, payment_status FROM mewmii_orders WHERE woocommerce_order_id = ?');
     $existingStmt->execute([$wcOrderId]);
     $existing = $existingStmt->fetch(PDO::FETCH_ASSOC);
@@ -228,9 +276,14 @@ function wc_order_import_single(PDO $pdo, array $wcOrder): array
 
         $pdo->prepare('
             UPDATE mewmii_orders
-            SET order_date = ?, subtotal = ?, discount = ?, shipping_fee = ?, total_amount = ?
+            SET order_date = ?, subtotal = ?, discount = ?, shipping_fee = ?, total_amount = ?,
+                is_preorder_request = ?, receipt_url = ?, receipt_status = ?, receipt_reject_reason = ?
             WHERE id = ?
-        ')->execute([$orderDate, $subtotal, $discount, $shippingFee, $totalAmount, $orderId]);
+        ')->execute([
+            $orderDate, $subtotal, $discount, $shippingFee, $totalAmount,
+            $receiptFields['is_preorder_request'], $receiptFields['receipt_url'], $receiptFields['receipt_status'], $receiptFields['receipt_reject_reason'],
+            $orderId,
+        ]);
 
         wc_order_import_apply_payment_upgrade($pdo, $orderId, (string) $existing['payment_status'], $mappedPaymentStatus);
 
@@ -240,10 +293,16 @@ function wc_order_import_single(PDO $pdo, array $wcOrder): array
     $customerId = wc_order_import_match_customer($pdo, $wcOrder);
 
     $orderStmt = $pdo->prepare('
-        INSERT INTO mewmii_orders (woocommerce_order_id, order_number, customer_id, subtotal, discount, shipping_fee, total_amount, order_date)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO mewmii_orders (
+            woocommerce_order_id, order_number, customer_id, subtotal, discount, shipping_fee, total_amount, order_date,
+            is_preorder_request, receipt_url, receipt_status, receipt_reject_reason
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ');
-    $orderStmt->execute([$wcOrderId, 'WC-' . $wcOrderId, $customerId, $subtotal, $discount, $shippingFee, $totalAmount, $orderDate]);
+    $orderStmt->execute([
+        $wcOrderId, 'WC-' . $wcOrderId, $customerId, $subtotal, $discount, $shippingFee, $totalAmount, $orderDate,
+        $receiptFields['is_preorder_request'], $receiptFields['receipt_url'], $receiptFields['receipt_status'], $receiptFields['receipt_reject_reason'],
+    ]);
     $orderId = (int) $pdo->lastInsertId();
 
     $itemStmt = $pdo->prepare('
