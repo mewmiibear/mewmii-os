@@ -84,8 +84,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
         } elseif ($action === 'mark_arrived') {
-            if ($order['status'] !== 'ordered') {
-                $error = 'Only an Ordered supplier order can be marked arrived.';
+            if (!in_array($order['status'], ['ordered', 'partially_received'], true)) {
+                $error = 'Only an Ordered or Partially Received supplier order can be marked arrived.';
             } else {
                 $pdo->beginTransaction();
 
