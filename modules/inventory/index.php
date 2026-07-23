@@ -336,6 +336,10 @@ if ($filterNeedsOrdering) {
 
 $sellableUnits = catalog_sellable_units($pdo);
 $canManage = app_has_permission('inventory.manage');
+// Separate from $canManage above: modules/purchase-planning/generate.php requires
+// supplier-orders.manage, not inventory.manage - a user with only the latter must not be
+// shown a button that leads straight to a 403.
+$canManageSupplierOrders = app_has_permission('supplier-orders.manage');
 $filterSuppliers = $pdo->query('SELECT id, name FROM suppliers ORDER BY name ASC')->fetchAll(PDO::FETCH_ASSOC);
 $filterCategories = catalog_list_categories_tree($pdo);
 
@@ -417,8 +421,10 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="d-flex gap-2">
         <a class="btn btn-outline-primary" href="/modules/inventory/allocation-center.php">Allocate Preorders</a>
         <a class="btn btn-outline-primary" href="/modules/inventory/reservation-center.php">Reservation Center</a>
-        <?php if ($canManage): ?>
+        <?php if ($canManageSupplierOrders): ?>
             <a class="btn btn-primary" href="/modules/purchase-planning/generate.php">Generate Supplier Order</a>
+        <?php endif; ?>
+        <?php if ($canManage): ?>
             <button type="button" class="btn btn-outline-primary" onclick="InventoryUI.openAdjustModal('')">Adjust Stock</button>
             <a class="btn btn-outline-secondary" href="/modules/inventory/import_opening_stock.php">Import Opening Stock</a>
         <?php endif; ?>

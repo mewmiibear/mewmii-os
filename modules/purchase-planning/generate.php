@@ -38,21 +38,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 continue;
             }
 
+            $rowCost = (string) ($costs[$key] ?? '');
+            // Same non-negative rule modules/supplier-orders/create.php and edit.php already
+            // enforce for supplier_price on every other path that creates supplier_order_items -
+            // this generation path was the one place it was missing.
+            if ($rowCost !== '' && (!is_numeric($rowCost) || (float) $rowCost < 0)) {
+                $error = 'Unit cost must be a valid non-negative number.';
+                break;
+            }
+
             $selectedLines[] = [
                 'product_id' => (int) $productIds[$key],
                 'variation_id' => ((string) ($variationIds[$key] ?? '')) !== '' ? (int) $variationIds[$key] : null,
                 'supplier_id' => ((string) ($supplierIds[$key] ?? '')) !== '' ? (int) $supplierIds[$key] : null,
                 'quantity' => $quantity,
-                'supplier_price' => (float) ($costs[$key] ?? 0),
+                'supplier_price' => (float) $rowCost,
                 'demand_basis' => (string) ($demandBases[$key] ?? 'topup'),
                 'demand_quantity' => (int) ($demandQuantities[$key] ?? 0),
                 'moq_top_up' => (int) ($moqTopUps[$key] ?? 0),
             ];
         }
 
-        if ($selectedLines === []) {
+        if ($error === '' && $selectedLines === []) {
             $error = 'Select at least one product with a quantity of at least 1.';
-        } else {
+        }
+
+        if ($error === '') {
             $pdo->beginTransaction();
 
             try {

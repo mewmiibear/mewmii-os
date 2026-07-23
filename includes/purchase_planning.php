@@ -93,18 +93,28 @@ function purchase_planning_needs(PDO $pdo): array
             continue;
         }
 
-        $invStmt = $pdo->prepare('SELECT available_quantity, incoming_quantity FROM mewmii_inventory WHERE product_id = ? AND variation_id <=> ?');
+        $invStmt = $pdo->prepare('SELECT available_quantity, incoming_quantity, arrived_quantity FROM mewmii_inventory WHERE product_id = ? AND variation_id <=> ?');
         $invStmt->execute([$productId, $variationId]);
-        $inv = $invStmt->fetch(PDO::FETCH_ASSOC) ?: ['available_quantity' => 0, 'incoming_quantity' => 0];
+        $inv = $invStmt->fetch(PDO::FETCH_ASSOC) ?: ['available_quantity' => 0, 'incoming_quantity' => 0, 'arrived_quantity' => 0];
         $available = (int) $inv['available_quantity'];
         $incoming = (int) $inv['incoming_quantity'];
+        $arrived = (int) $inv['arrived_quantity'];
 
         $isPreorder = in_array($unit['product_type'], ['preorder', 'early_bird'], true);
 
         if ($isPreorder) {
+            // arrived_quantity is supplier stock that HAS been received but is sitting
+            // unallocated pending a human action in the Allocation Center (see
+            // includes/customer_storage.php) - it is not yet in customer_storage, so
+            // purchase_planning_paid_demand() (which only nets against customer_storage)
+            // doesn't know about it. Without subtracting it here too, every preorder receiving
+            // event would make Purchase Planning briefly (and wrongly) show a bigger shortage
+            // than before that same stock arrived, since incoming_quantity drops but nothing
+            // offsets it until someone manually allocates. Subtracting it directly fixes that
+            // without touching the Allocation Center or any inventory-mutation logic.
             $paidDemand = purchase_planning_paid_demand($pdo, $productId, $variationId);
             $customerDemand = $paidDemand;
-            $rawNeed = $paidDemand - $incoming;
+            $rawNeed = $paidDemand - $incoming - $arrived;
             $demandBasis = 'customer';
         } else {
             if ($product['target_stock_level'] === null) {
