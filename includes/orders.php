@@ -52,6 +52,53 @@ function order_status_badge(string $status): string
 }
 
 /**
+ * Customer Status Message Generator (v1) - builds the full set of copy-paste message
+ * templates for one order, keyed by message type, for the "Customer Status Message" card on
+ * modules/orders/view.php. Pure string composition over data the caller already fetched
+ * (the order row, its items, its shipments) - no new queries, no writes, and no order/
+ * inventory/fulfillment logic of its own. Deliberately does NOT decide which template
+ * matches the order's actual current state - that stays an admin judgment call via the
+ * page's message-type selector, since a message that reads correctly is only useful if a
+ * human confirms it against the order before sending it anywhere. $items is the same
+ * per-item array modules/orders/view.php already builds (product_name/variation_label from
+ * mewmii_order_items); $orderShipments is the same shipments list already fetched there,
+ * newest first, so $orderShipments[0] is the most recent shipment for the Shipped template.
+ */
+function order_build_status_messages(array $order, array $items, array $orderShipments): array
+{
+    $customerName = $order['customer_name'] ?? 'there';
+    $orderNumber = $order['order_number'];
+
+    $productNames = [];
+    foreach ($items as $item) {
+        $label = $item['product_name'];
+        if (!empty($item['variation_label'])) {
+            $label .= ' (' . $item['variation_label'] . ')';
+        }
+        $productNames[] = $label;
+    }
+    $productList = $productNames !== [] ? implode(', ', $productNames) : 'your item(s)';
+
+    $latestShipment = $orderShipments[0] ?? null;
+    $trackingLine = '';
+    if ($latestShipment !== null && !empty($latestShipment['tracking_number'])) {
+        $trackingLine = ' Tracking: ' . $latestShipment['tracking_number'];
+        if (!empty($latestShipment['carrier'])) {
+            $trackingLine .= ' (' . $latestShipment['carrier'] . ')';
+        }
+        $trackingLine .= '.';
+    }
+
+    return [
+        'payment_confirmed' => "Hi {$customerName}, thank you! Your payment for order {$orderNumber} ({$productList}) has been confirmed and your preorder is now being processed.",
+        'waiting_supplier' => "Hi {$customerName}, a quick update on order {$orderNumber} ({$productList}) - your item(s) are still on order from our supplier. We'll keep you posted as soon as they arrive!",
+        'arrived_warehouse' => "Good news, {$customerName}! Your item(s) from order {$orderNumber} ({$productList}) have arrived at our warehouse and are being processed.",
+        'ready_for_shipment' => "Hi {$customerName}, your item(s) from order {$orderNumber} ({$productList}) are packed and ready to ship whenever you'd like - let us know if you'd like to combine with other preorders first!",
+        'shipped' => "Your order {$orderNumber} ({$productList}) has shipped!{$trackingLine}",
+    ];
+}
+
+/**
  * Best-effort push of tracking info to the linked WooCommerce order, if one exists.
  * Mewmii OS stays the source of truth either way - this never blocks or rolls back the
  * local save (see modules/orders/view.php's mark_shipped handler), it only logs success/

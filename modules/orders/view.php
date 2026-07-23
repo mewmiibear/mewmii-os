@@ -266,6 +266,11 @@ $shipmentsStmt = $pdo->prepare('
 $shipmentsStmt->execute([$orderId]);
 $orderShipments = $shipmentsStmt->fetchAll(PDO::FETCH_ASSOC);
 
+// Customer Status Message (v1) - pure display, built entirely from $order/$items/
+// $orderShipments already fetched above. See order_build_status_messages()
+// (includes/orders.php) - no new queries, no writes.
+$statusMessages = order_build_status_messages($order, $items, $orderShipments);
+
 $eventsStmt = $pdo->prepare('
     SELECT e.id, e.event_type, e.description, e.created_at, u.name AS user_name
     FROM mewmii_order_events e
@@ -491,6 +496,24 @@ require_once __DIR__ . '/../../includes/header.php';
         <?php endif; ?>
 
         <div class="card p-4 mb-4">
+            <h5 class="mb-3">Customer Status Message</h5>
+            <p class="text-muted small mb-2">Current order status: <?php echo app_escape(order_status_label($order['order_status'])); ?>. Pick the message that matches, review it, then copy and send it yourself (Instagram/WhatsApp/etc.) - nothing here is sent automatically.</p>
+
+            <select class="form-select form-select-sm mb-2" id="statusMessageType">
+                <option value="payment_confirmed">Payment Confirmed</option>
+                <option value="waiting_supplier">Waiting Supplier</option>
+                <option value="arrived_warehouse">Arrived Warehouse</option>
+                <option value="ready_for_shipment">Ready for Shipment</option>
+                <option value="shipped">Shipped</option>
+            </select>
+
+            <textarea class="form-control form-control-sm mb-2" id="statusMessageText" rows="5" readonly></textarea>
+
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="statusMessageCopyBtn">Copy Message</button>
+            <span class="text-success small ms-2 d-none" id="statusMessageCopied">Copied!</span>
+        </div>
+
+        <div class="card p-4 mb-4">
             <h5 class="mb-3">Inventory Activity</h5>
             <ul class="list-unstyled mb-0">
                 <?php foreach ($inventoryTx as $tx): ?>
@@ -571,5 +594,44 @@ require_once __DIR__ . '/../../includes/header.php';
         <?php endif; ?>
     </div>
 </div>
+
+<script>
+(function () {
+    var messages = <?php echo json_encode($statusMessages, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>;
+    var select = document.getElementById('statusMessageType');
+    var textarea = document.getElementById('statusMessageText');
+    var copyBtn = document.getElementById('statusMessageCopyBtn');
+    var copiedLabel = document.getElementById('statusMessageCopied');
+
+    function renderMessage() {
+        textarea.value = messages[select.value] || '';
+        copiedLabel.classList.add('d-none');
+    }
+
+    function showCopied() {
+        copiedLabel.classList.remove('d-none');
+        setTimeout(function () { copiedLabel.classList.add('d-none'); }, 2000);
+    }
+
+    select.addEventListener('change', renderMessage);
+
+    copyBtn.addEventListener('click', function () {
+        textarea.focus();
+        textarea.select();
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(textarea.value).then(showCopied, function () {
+                document.execCommand('copy');
+                showCopied();
+            });
+        } else {
+            document.execCommand('copy');
+            showCopied();
+        }
+    });
+
+    renderMessage();
+})();
+</script>
 
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
