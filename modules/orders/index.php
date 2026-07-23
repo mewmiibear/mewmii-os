@@ -15,11 +15,35 @@ $filterStatus = isset($_GET['status']) && in_array($_GET['status'], array_merge(
     ? $_GET['status']
     : null;
 
-$sql = 'SELECT o.id, o.order_number, o.payment_status, o.order_status, o.is_historical, o.tracking_number, c.name AS customer_name FROM mewmii_orders o LEFT JOIN customers c ON c.id = o.customer_id';
+// Optional ?product_id= filter - same read-only, additive pattern as ?status= above. Lets the
+// product Control Center link to "orders containing this product" without touching order
+// logic. DISTINCT guards against a product appearing via more than one variation on the same
+// order producing duplicate rows.
+$filterProductId = isset($_GET['product_id']) && ctype_digit((string) $_GET['product_id']) && (int) $_GET['product_id'] > 0
+    ? (int) $_GET['product_id']
+    : null;
+$filterProductLabel = null;
+if ($filterProductId !== null) {
+    $productLookupStmt = app_db()->prepare('SELECT name, sku FROM products WHERE id = ?');
+    $productLookupStmt->execute([$filterProductId]);
+    $productLookupRow = $productLookupStmt->fetch(PDO::FETCH_ASSOC);
+    $filterProductLabel = $productLookupRow !== false ? ($productLookupRow['sku'] . ' - ' . $productLookupRow['name']) : null;
+}
+
+$sql = 'SELECT DISTINCT o.id, o.order_number, o.payment_status, o.order_status, o.is_historical, o.tracking_number, c.name AS customer_name FROM mewmii_orders o LEFT JOIN customers c ON c.id = o.customer_id';
+$conditions = [];
 $params = [];
+if ($filterProductId !== null) {
+    $sql .= ' INNER JOIN mewmii_order_items oi ON oi.order_id = o.id';
+    $conditions[] = 'oi.product_id = ?';
+    $params[] = $filterProductId;
+}
 if ($filterStatus !== null) {
-    $sql .= ' WHERE o.order_status = ?';
+    $conditions[] = 'o.order_status = ?';
     $params[] = $filterStatus;
+}
+if ($conditions !== []) {
+    $sql .= ' WHERE ' . implode(' AND ', $conditions);
 }
 $sql .= ' ORDER BY o.id DESC LIMIT 20';
 $stmt = app_db()->prepare($sql);
@@ -34,6 +58,10 @@ $canManage = app_has_permission('orders.manage');
             WooCommerce and internal order tracking foundation.
             <?php if ($filterStatus !== null): ?>
                 &middot; Filtered: <?php echo app_escape(order_status_label($filterStatus)); ?>
+                <a href="/modules/orders/index.php" class="ms-1">(clear)</a>
+            <?php endif; ?>
+            <?php if ($filterProductId !== null): ?>
+                &middot; Containing product: <strong><?php echo app_escape($filterProductLabel ?? ('#' . $filterProductId)); ?></strong>
                 <a href="/modules/orders/index.php" class="ms-1">(clear)</a>
             <?php endif; ?>
         </p>

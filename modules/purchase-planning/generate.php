@@ -87,6 +87,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $needs = purchase_planning_needs($pdo);
 
+// Optional ?highlight_product_id= - pure display highlight for deep-linking from the product
+// Control Center. Never filters or changes purchase_planning_needs() itself; if the product
+// isn't currently in $needs (nothing to reorder), nothing highlights, but the page still loads.
+$highlightProductId = isset($_GET['highlight_product_id']) && ctype_digit((string) $_GET['highlight_product_id'])
+    ? (int) $_GET['highlight_product_id']
+    : null;
+
 // Separate, standalone warning - see purchase_planning_untargeted_demand()
 // (includes/purchase_planning.php). Never merged into $needs and never fed into generation;
 // purely an admin-facing signal for a gap the main shortage list can't see by design.
@@ -249,7 +256,8 @@ require_once __DIR__ . '/../../includes/header.php';
                                 // live (same convention already used by the Total column below).
                                 $left = $need['moq_top_up'];
                                 ?>
-                                <tr id="need-<?php echo app_escape($safeRowKey); ?>">
+                                <?php $isHighlighted = $highlightProductId !== null && (int) $need['product_id'] === $highlightProductId; ?>
+                                <tr id="need-<?php echo app_escape($safeRowKey); ?>" <?php echo $isHighlighted ? 'class="table-warning"' : ''; ?>>
                                     <td>
                                         <input type="checkbox" class="form-check-input row-select" name="selected[]" value="<?php echo app_escape($rowKey); ?>" <?php echo $disabled ? 'disabled' : 'checked'; ?>>
                                         <input type="hidden" name="product_id[<?php echo app_escape($rowKey); ?>]" value="<?php echo (int) $need['product_id']; ?>">
@@ -298,5 +306,13 @@ require_once __DIR__ . '/../../includes/header.php';
 
         <button type="submit" class="btn btn-primary">Generate Supplier Order(s)</button>
     </form>
+<?php endif; ?>
+<?php if ($highlightProductId !== null): ?>
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var row = document.querySelector('tr.table-warning');
+        if (row) { row.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+    });
+    </script>
 <?php endif; ?>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

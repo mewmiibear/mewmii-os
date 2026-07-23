@@ -339,6 +339,61 @@ unset($variation);
 $mainImage = product_image_get_main($pdo, $productId);
 $galleryImages = product_image_list_gallery($pdo, $productId);
 
+// Product Control Center (Phase 1) - read-only operational summary. $currentStock above
+// already holds the available/reserved/incoming rollup from product_effective_stock(), no
+// new calculation. Everything else here is a single capped lookup, never a per-row loop.
+$controlCenterSupplier = null;
+if ($product['supplier_id'] !== null) {
+    $supplierLookupStmt = $pdo->prepare('SELECT id, name FROM suppliers WHERE id = ? LIMIT 1');
+    $supplierLookupStmt->execute([$product['supplier_id']]);
+    $controlCenterSupplier = $supplierLookupStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+}
+
+$lastSupplierOrderStmt = $pdo->prepare('
+    SELECT so.id, so.purchase_number, so.status, so.order_date
+    FROM supplier_order_items soi
+    INNER JOIN supplier_orders so ON so.id = soi.supplier_order_id
+    WHERE soi.product_id = ?
+    ORDER BY so.order_date DESC, so.id DESC
+    LIMIT 1
+');
+$lastSupplierOrderStmt->execute([$productId]);
+$lastSupplierOrder = $lastSupplierOrderStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
+$recentCustomerOrdersStmt = $pdo->prepare('
+    SELECT o.id, o.order_number, o.order_status, o.order_date, o.is_historical, oi.quantity
+    FROM mewmii_order_items oi
+    INNER JOIN mewmii_orders o ON o.id = oi.order_id
+    WHERE oi.product_id = ?
+    ORDER BY o.order_date DESC, o.id DESC
+    LIMIT 10
+');
+$recentCustomerOrdersStmt->execute([$productId]);
+$recentCustomerOrders = $recentCustomerOrdersStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$recentSupplierOrdersStmt = $pdo->prepare('
+    SELECT so.id, so.purchase_number, so.status, so.order_date, so.is_historical,
+           s.name AS supplier_name, soi.total_quantity
+    FROM supplier_order_items soi
+    INNER JOIN supplier_orders so ON so.id = soi.supplier_order_id
+    INNER JOIN suppliers s ON s.id = so.supplier_id
+    WHERE soi.product_id = ?
+    ORDER BY so.order_date DESC, so.id DESC
+    LIMIT 10
+');
+$recentSupplierOrdersStmt->execute([$productId]);
+$recentSupplierOrders = $recentSupplierOrdersStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Each Quick Navigation link is gated on the PERMISSION OF ITS DESTINATION, not this page's
+// own products.manage gate - a link only appears if the admin could actually open the page
+// it points to.
+$controlCenterPermissions = [
+    'inventory' => app_has_permission('inventory.view'),
+    'orders' => app_has_permission('orders.view'),
+    'supplierOrders' => app_has_permission('supplier-orders.view'),
+    'purchasePlanning' => app_has_permission('supplier-orders.manage'),
+];
+
 require_once __DIR__ . '/../../includes/header.php';
 require __DIR__ . '/_form.php';
 require_once __DIR__ . '/../../includes/footer.php';

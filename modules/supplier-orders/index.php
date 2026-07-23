@@ -6,13 +6,33 @@ app_require_permission('supplier-orders.view');
 $appTitle = 'Supplier Orders';
 $pdo = app_db();
 
-$stmt = $pdo->query('
-    SELECT so.id, so.purchase_number, so.status, so.payment_status, so.is_historical, so.estimated_cost, so.actual_cost, so.shipping_fee, so.order_date, s.name AS supplier_name
+// Optional ?product_id= filter - same read-only, additive pattern as orders/index.php's
+// ?product_id= filter. Lets the product Control Center link to "supplier orders containing
+// this product" without touching supplier-order logic. DISTINCT guards against a product
+// appearing via more than one variation on the same supplier order.
+$filterProductId = isset($_GET['product_id']) && ctype_digit((string) $_GET['product_id']) && (int) $_GET['product_id'] > 0
+    ? (int) $_GET['product_id']
+    : null;
+$filterProductLabel = null;
+
+$sql = '
+    SELECT DISTINCT so.id, so.purchase_number, so.status, so.payment_status, so.is_historical, so.estimated_cost, so.actual_cost, so.shipping_fee, so.order_date, s.name AS supplier_name
     FROM supplier_orders so
     INNER JOIN suppliers s ON s.id = so.supplier_id
-    ORDER BY so.id DESC
-    LIMIT 20
-');
+';
+$params = [];
+if ($filterProductId !== null) {
+    $sql .= ' INNER JOIN supplier_order_items soi ON soi.supplier_order_id = so.id AND soi.product_id = ?';
+    $params[] = $filterProductId;
+
+    $productLookupStmt = $pdo->prepare('SELECT name, sku FROM products WHERE id = ?');
+    $productLookupStmt->execute([$filterProductId]);
+    $productLookupRow = $productLookupStmt->fetch(PDO::FETCH_ASSOC);
+    $filterProductLabel = $productLookupRow !== false ? ($productLookupRow['sku'] . ' - ' . $productLookupRow['name']) : null;
+}
+$sql .= ' ORDER BY so.id DESC LIMIT 20';
+$stmt = $pdo->prepare($sql);
+$stmt->execute($params);
 $supplierOrders = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 $canManage = app_has_permission('supplier-orders.manage');
@@ -22,7 +42,13 @@ require_once __DIR__ . '/../../includes/header.php';
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <h2 class="mb-1">Supplier Orders</h2>
-        <p class="text-muted mb-0">Purchase orders sent to suppliers and inventory receiving.</p>
+        <p class="text-muted mb-0">
+            Purchase orders sent to suppliers and inventory receiving.
+            <?php if ($filterProductId !== null): ?>
+                &middot; Containing product: <strong><?php echo app_escape($filterProductLabel ?? ('#' . $filterProductId)); ?></strong>
+                <a href="/modules/supplier-orders/index.php" class="ms-1">(clear)</a>
+            <?php endif; ?>
+        </p>
     </div>
     <?php if ($canManage): ?>
         <div class="d-flex gap-2">
