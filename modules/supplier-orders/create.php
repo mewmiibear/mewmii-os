@@ -14,6 +14,7 @@ $form = [
     'purchase_number' => 'PO-' . date('Ymd') . '-' . strtoupper(substr(bin2hex(random_bytes(2)), 0, 4)),
     'notes' => '',
     'shipping_fee' => '0.00',
+    'payment_status' => 'unpaid',
 ];
 $existingItems = [];
 
@@ -28,6 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form['purchase_number'] = trim((string) ($_POST['purchase_number'] ?? ''));
     $form['notes'] = trim((string) ($_POST['notes'] ?? ''));
     $form['shipping_fee'] = trim((string) ($_POST['shipping_fee'] ?? ''));
+    $form['payment_status'] = in_array($_POST['payment_status'] ?? '', SUPPLIER_ORDER_PAYMENT_STATUSES, true) ? $_POST['payment_status'] : 'unpaid';
 
     $postedUnitKeys = $_POST['unit_key'] ?? [];
     $postedQuantities = $_POST['quantity'] ?? [];
@@ -125,10 +127,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         try {
             $orderStmt = $pdo->prepare("
-                INSERT INTO supplier_orders (supplier_id, purchase_number, status, estimated_cost, shipping_fee, order_date, notes)
-                VALUES (?, ?, 'draft', ?, ?, CURDATE(), ?)
+                INSERT INTO supplier_orders (supplier_id, purchase_number, status, payment_status, estimated_cost, shipping_fee, order_date, notes)
+                VALUES (?, ?, 'draft', ?, ?, ?, CURDATE(), ?)
             ");
-            $orderStmt->execute([$supplierId, $form['purchase_number'], round($estimatedCost, 2), $shippingFee, $form['notes'] !== '' ? $form['notes'] : null]);
+            $orderStmt->execute([$supplierId, $form['purchase_number'], $form['payment_status'], round($estimatedCost, 2), $shippingFee, $form['notes'] !== '' ? $form['notes'] : null]);
             $orderId = (int) $pdo->lastInsertId();
 
             $itemStmt = $pdo->prepare('
@@ -200,6 +202,17 @@ require_once __DIR__ . '/../../includes/header.php';
             <div class="col-md-6">
                 <label class="form-label">Shipping Fee (RM)</label>
                 <input type="number" step="0.01" min="0" class="form-control" id="supplier-order-shipping-fee" name="shipping_fee" value="<?php echo app_escape($form['shipping_fee']); ?>">
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label">Payment Status</label>
+                <select class="form-select" name="payment_status">
+                    <?php foreach (SUPPLIER_ORDER_PAYMENT_STATUSES as $statusValue): ?>
+                        <option value="<?php echo app_escape($statusValue); ?>" <?php echo $form['payment_status'] === $statusValue ? 'selected' : ''; ?>>
+                            <?php echo app_escape(supplier_order_payment_status_label($statusValue)); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
             </div>
 
             <div class="col-12">

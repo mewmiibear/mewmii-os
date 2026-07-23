@@ -785,6 +785,7 @@
             '<td>' + options.label + '</td>' +
             '<td><input type="text" class="form-control form-control-sm variation-sku"' + fieldName('variation_sku') + ' value="' + options.sku + '"' + readonlyAttr + '></td>' +
             '<td><input type="text" class="form-control form-control-sm variation-barcode"' + fieldName('variation_barcode') + ' value="' + (options.barcode || '') + '"' + readonlyAttr + '></td>' +
+            '<td><input type="text" class="form-control form-control-sm variation-supplier-sku"' + fieldName('variation_supplier_sku') + ' style="width:110px;" value="' + (options.supplierSku || '') + '"' + readonlyAttr + '></td>' +
             '<td><input type="number" step="0.001" min="0" class="form-control form-control-sm variation-weight"' + fieldName('variation_weight') + ' style="width:90px;" value="' + (options.weight || '') + '"' + readonlyAttr + '></td>' +
             '<td>' +
             '<select class="form-select form-select-sm variation-price-mode"' + fieldName('variation_price_mode') + disabledAttr + '>' +
@@ -909,6 +910,7 @@
             label: variation.label || '(no attributes)',
             sku: variation.sku,
             barcode: variation.barcode,
+            supplierSku: variation.supplier_sku,
             weight: variation.weight,
             priceMode: variation.price_mode,
             customPrice: variation.custom_price,
@@ -958,6 +960,7 @@
                 formData.append('variation_id', variationId);
                 formData.append('sku', row.querySelector('.variation-sku').value);
                 formData.append('barcode', row.querySelector('.variation-barcode').value);
+                formData.append('supplier_sku', row.querySelector('.variation-supplier-sku').value);
                 formData.append('weight', row.querySelector('.variation-weight').value);
                 formData.append('price_mode', row.querySelector('.variation-price-mode').value);
                 formData.append('custom_price', row.querySelector('.variation-custom-price').value);

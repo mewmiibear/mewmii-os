@@ -331,7 +331,7 @@ function order_unit_is_available(array $product, string $stage, string $override
  * surrounding transaction and for confirming order_status is in ORDER_EDITABLE_STATUSES
  * before calling this at all.
  */
-function order_apply_edit(PDO $pdo, int $orderId, int $customerId, array $newLines, float $shippingFee, string $notes): void
+function order_apply_edit(PDO $pdo, int $orderId, int $customerId, array $newLines, float $shippingFee, string $customerNote, string $internalNote): void
 {
     $orderStmt = $pdo->prepare('SELECT order_status FROM mewmii_orders WHERE id = ? FOR UPDATE');
     $orderStmt->execute([$orderId]);
@@ -438,6 +438,6 @@ function order_apply_edit(PDO $pdo, int $orderId, int $customerId, array $newLin
     $discountTotal = round((float) $totals['total_discount'], 2);
     $totalAmount = round($subtotal - $discountTotal + $shippingFee, 2);
 
-    $pdo->prepare('UPDATE mewmii_orders SET customer_id = ?, subtotal = ?, discount = ?, shipping_fee = ?, total_amount = ?, notes = ? WHERE id = ?')
-        ->execute([$customerId, $subtotal, $discountTotal, round($shippingFee, 2), $totalAmount, $notes !== '' ? $notes : null, $orderId]);
+    $pdo->prepare('UPDATE mewmii_orders SET customer_id = ?, subtotal = ?, discount = ?, shipping_fee = ?, total_amount = ?, customer_note = ?, internal_note = ? WHERE id = ?')
+        ->execute([$customerId, $subtotal, $discountTotal, round($shippingFee, 2), $totalAmount, $customerNote !== '' ? $customerNote : null, $internalNote !== '' ? $internalNote : null, $orderId]);
 }

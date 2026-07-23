@@ -7,7 +7,7 @@ $appTitle = 'Supplier Orders';
 $pdo = app_db();
 
 $stmt = $pdo->query('
-    SELECT so.id, so.purchase_number, so.status, so.estimated_cost, so.actual_cost, so.shipping_fee, so.order_date, s.name AS supplier_name
+    SELECT so.id, so.purchase_number, so.status, so.payment_status, so.estimated_cost, so.actual_cost, so.shipping_fee, so.order_date, s.name AS supplier_name
     FROM supplier_orders so
     INNER JOIN suppliers s ON s.id = so.supplier_id
     ORDER BY so.id DESC
@@ -43,6 +43,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 <th>Purchase #</th>
                 <th>Supplier</th>
                 <th>Status</th>
+                <th>Payment</th>
                 <th>Total Purchase Amount</th>
                 <th>Order Date</th>
                 <th></th>
@@ -54,6 +55,7 @@ require_once __DIR__ . '/../../includes/header.php';
                     <td><?php echo app_escape($order['purchase_number']); ?></td>
                     <td><?php echo app_escape($order['supplier_name']); ?></td>
                     <td><?php echo supplier_order_status_badge($order['status']); ?></td>
+                    <td><?php echo supplier_order_payment_status_badge((string) $order['payment_status']); ?></td>
                     <td>RM <?php echo app_escape(number_format((float) $order['estimated_cost'] + (float) $order['shipping_fee'], 2)); ?></td>
                     <td><?php echo app_escape($order['order_date'] ?? '-'); ?></td>
                     <td class="text-end">
@@ -74,7 +76,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 </tr>
             <?php endforeach; ?>
             <?php if ($supplierOrders === []): ?>
-                <tr><td colspan="6" class="text-muted">No supplier orders yet.</td></tr>
+                <tr><td colspan="7" class="text-muted">No supplier orders yet.</td></tr>
             <?php endif; ?>
         </tbody>
     </table>

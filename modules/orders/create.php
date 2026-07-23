@@ -14,7 +14,8 @@ $form = [
     'customer_id' => '',
     'order_number' => 'ORD-' . date('Ymd') . '-' . strtoupper(substr(bin2hex(random_bytes(2)), 0, 4)),
     'shipping_fee' => '0.00',
-    'notes' => '',
+    'customer_note' => '',
+    'internal_note' => '',
 ];
 $existingItems = [];
 
@@ -28,7 +29,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form['customer_id'] = trim((string) ($_POST['customer_id'] ?? ''));
     $form['order_number'] = trim((string) ($_POST['order_number'] ?? ''));
     $form['shipping_fee'] = trim((string) ($_POST['shipping_fee'] ?? ''));
-    $form['notes'] = trim((string) ($_POST['notes'] ?? ''));
+    $form['customer_note'] = trim((string) ($_POST['customer_note'] ?? ''));
+    $form['internal_note'] = trim((string) ($_POST['internal_note'] ?? ''));
 
     $postedUnitKeys = $_POST['unit_key'] ?? [];
     $postedQuantities = $_POST['quantity'] ?? [];
@@ -178,10 +180,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         try {
             $orderStmt = $pdo->prepare('
-                INSERT INTO mewmii_orders (order_number, customer_id, subtotal, discount, shipping_fee, total_amount, notes, order_date)
-                VALUES (?, ?, ?, ?, ?, ?, ?, CURDATE())
+                INSERT INTO mewmii_orders (order_number, customer_id, subtotal, discount, shipping_fee, total_amount, customer_note, internal_note, order_date)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURDATE())
             ');
-            $orderStmt->execute([$form['order_number'], $customerId, $subtotal, $discountTotal, $shippingFee, $totalAmount, $form['notes'] !== '' ? $form['notes'] : null]);
+            $orderStmt->execute([$form['order_number'], $customerId, $subtotal, $discountTotal, $shippingFee, $totalAmount, $form['customer_note'] !== '' ? $form['customer_note'] : null, $form['internal_note'] !== '' ? $form['internal_note'] : null]);
             $orderId = (int) $pdo->lastInsertId();
 
             $itemStmt = $pdo->prepare('
@@ -274,9 +276,13 @@ require_once __DIR__ . '/../../includes/header.php';
                 <input type="number" step="0.01" min="0" class="form-control" id="order-shipping-fee" name="shipping_fee" value="<?php echo app_escape($form['shipping_fee']); ?>">
             </div>
 
-            <div class="col-12">
-                <label class="form-label">Notes</label>
-                <textarea class="form-control" name="notes" rows="2" placeholder="e.g. Customer requested combine shipment."><?php echo app_escape($form['notes']); ?></textarea>
+            <div class="col-md-6">
+                <label class="form-label">Customer Note</label>
+                <textarea class="form-control" name="customer_note" rows="2" placeholder="Visible to the customer."><?php echo app_escape($form['customer_note']); ?></textarea>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Internal Note</label>
+                <textarea class="form-control" name="internal_note" rows="2" placeholder="e.g. Customer requested combine shipment. Admin/staff only."><?php echo app_escape($form['internal_note']); ?></textarea>
             </div>
         </div>
 

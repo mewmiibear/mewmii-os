@@ -33,6 +33,11 @@ $form = [
     'name' => $supplier['name'],
     'contact' => (string) $supplier['contact'],
     'country' => (string) $supplier['country'],
+    'contact_person' => (string) ($supplier['contact_person'] ?? ''),
+    'phone' => (string) ($supplier['phone'] ?? ''),
+    'email' => (string) ($supplier['email'] ?? ''),
+    'currency' => (string) ($supplier['currency'] ?? ''),
+    'payment_terms' => (string) ($supplier['payment_terms'] ?? ''),
     'notes' => (string) $supplier['notes'],
 ];
 
@@ -46,6 +51,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form['name'] = trim((string) ($_POST['name'] ?? ''));
     $form['contact'] = trim((string) ($_POST['contact'] ?? ''));
     $form['country'] = trim((string) ($_POST['country'] ?? ''));
+    $form['contact_person'] = trim((string) ($_POST['contact_person'] ?? ''));
+    $form['phone'] = trim((string) ($_POST['phone'] ?? ''));
+    $form['email'] = trim((string) ($_POST['email'] ?? ''));
+    $form['currency'] = trim((string) ($_POST['currency'] ?? ''));
+    $form['payment_terms'] = trim((string) ($_POST['payment_terms'] ?? ''));
     $form['notes'] = trim((string) ($_POST['notes'] ?? ''));
 
     if ($error === '') {
@@ -55,6 +65,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Contact must be 120 characters or fewer.';
         } elseif (strlen($form['country']) > 100) {
             $error = 'Country must be 100 characters or fewer.';
+        } elseif ($form['email'] !== '' && !filter_var($form['email'], FILTER_VALIDATE_EMAIL)) {
+            $error = 'Enter a valid email address, or leave it blank.';
         }
     }
 
@@ -72,13 +84,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $stmt = $pdo->prepare('
                 UPDATE suppliers
-                SET name = ?, contact = ?, country = ?, notes = ?
+                SET name = ?, contact = ?, country = ?, contact_person = ?, phone = ?, email = ?, currency = ?, payment_terms = ?, notes = ?
                 WHERE id = ?
             ');
             $stmt->execute([
                 $form['name'],
                 $form['contact'] !== '' ? $form['contact'] : null,
                 $form['country'] !== '' ? $form['country'] : null,
+                $form['contact_person'] !== '' ? $form['contact_person'] : null,
+                $form['phone'] !== '' ? $form['phone'] : null,
+                $form['email'] !== '' ? $form['email'] : null,
+                $form['currency'] !== '' ? $form['currency'] : null,
+                $form['payment_terms'] !== '' ? $form['payment_terms'] : null,
                 $form['notes'] !== '' ? $form['notes'] : null,
                 $supplierId,
             ]);
@@ -129,6 +146,29 @@ require_once __DIR__ . '/../../includes/header.php';
             <div class="col-md-6">
                 <label class="form-label">Country</label>
                 <input type="text" class="form-control" name="country" value="<?php echo app_escape($form['country']); ?>" maxlength="100">
+            </div>
+
+            <div class="col-12"><hr class="my-1"></div>
+
+            <div class="col-md-6">
+                <label class="form-label">Contact Person</label>
+                <input type="text" class="form-control" name="contact_person" value="<?php echo app_escape($form['contact_person']); ?>" maxlength="120">
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Phone</label>
+                <input type="text" class="form-control" name="phone" value="<?php echo app_escape($form['phone']); ?>" maxlength="50">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Email</label>
+                <input type="email" class="form-control" name="email" value="<?php echo app_escape($form['email']); ?>" maxlength="190">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Currency</label>
+                <input type="text" class="form-control" name="currency" value="<?php echo app_escape($form['currency']); ?>" maxlength="10" placeholder="e.g. RM, USD, CNY">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Payment Terms</label>
+                <input type="text" class="form-control" name="payment_terms" value="<?php echo app_escape($form['payment_terms']); ?>" maxlength="100" placeholder="e.g. Net 30, 50% deposit">
             </div>
 
             <div class="col-12">

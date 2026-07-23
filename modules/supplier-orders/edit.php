@@ -70,6 +70,7 @@ $form = [
     'purchase_number' => $order['purchase_number'],
     'notes' => (string) ($order['notes'] ?? ''),
     'shipping_fee' => (string) $order['shipping_fee'],
+    'payment_status' => (string) $order['payment_status'],
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -81,6 +82,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $form['notes'] = trim((string) ($_POST['notes'] ?? ''));
     $form['shipping_fee'] = trim((string) ($_POST['shipping_fee'] ?? ''));
+    $form['payment_status'] = in_array($_POST['payment_status'] ?? '', SUPPLIER_ORDER_PAYMENT_STATUSES, true) ? $_POST['payment_status'] : $form['payment_status'];
 
     // Shipping fee is purely a Supplier Order-level expense, never tied to
     // products/receiving history - it stays editable even once the order is Completed
@@ -95,15 +97,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($isCompleted) {
-        // Completed: notes + shipping fee only, nothing else can be posted from this form.
+        // Completed: notes + shipping fee + payment status only, nothing else can be posted
+        // from this form.
         if ($error === '') {
             $oldShippingFee = (float) $order['shipping_fee'];
             if (abs($oldShippingFee - $shippingFee) > 0.001) {
                 supplier_order_log_event($pdo, $orderId, 'Shipping fee changed RM' . number_format($oldShippingFee, 2) . ' -> RM' . number_format($shippingFee, 2));
             }
+            if ($form['payment_status'] !== $order['payment_status']) {
+                supplier_order_log_event($pdo, $orderId, 'Payment status changed ' . supplier_order_payment_status_label((string) $order['payment_status']) . ' -> ' . supplier_order_payment_status_label($form['payment_status']));
+            }
 
-            $pdo->prepare('UPDATE supplier_orders SET notes = ?, shipping_fee = ? WHERE id = ?')
-                ->execute([$form['notes'] !== '' ? $form['notes'] : null, $shippingFee, $orderId]);
+            $pdo->prepare('UPDATE supplier_orders SET notes = ?, shipping_fee = ?, payment_status = ? WHERE id = ?')
+                ->execute([$form['notes'] !== '' ? $form['notes'] : null, $shippingFee, $form['payment_status'], $orderId]);
+            activity_log($pdo, 'supplier_orders', 'edit', $orderId, 'Edited supplier order ' . $order['purchase_number']);
 
             app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1');
         }
@@ -178,7 +185,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->beginTransaction();
 
             try {
-                supplier_order_apply_edit($pdo, $orderId, $supplierId, $form['notes'], $validItems, $shippingFee);
+                supplier_order_apply_edit($pdo, $orderId, $supplierId, $form['notes'], $validItems, $shippingFee, $form['payment_status']);
 
                 $pdo->commit();
 
@@ -230,6 +237,16 @@ require_once __DIR__ . '/../../includes/header.php';
                     <label class="form-label">Shipping Fee (RM)</label>
                     <input type="number" step="0.01" min="0" class="form-control" name="shipping_fee" value="<?php echo app_escape($form['shipping_fee']); ?>">
                 </div>
+                <div class="col-md-6">
+                    <label class="form-label">Payment Status</label>
+                    <select class="form-select" name="payment_status">
+                        <?php foreach (SUPPLIER_ORDER_PAYMENT_STATUSES as $statusValue): ?>
+                            <option value="<?php echo app_escape($statusValue); ?>" <?php echo $form['payment_status'] === $statusValue ? 'selected' : ''; ?>>
+                                <?php echo app_escape(supplier_order_payment_status_label($statusValue)); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
                 <div class="col-12">
                     <label class="form-label">Notes</label>
                     <textarea class="form-control" name="notes" rows="3"><?php echo app_escape($form['notes']); ?></textarea>
@@ -264,6 +281,17 @@ require_once __DIR__ . '/../../includes/header.php';
                 <div class="col-md-6">
                     <label class="form-label">Shipping Fee (RM)</label>
                     <input type="number" step="0.01" min="0" class="form-control" id="supplier-order-shipping-fee" name="shipping_fee" value="<?php echo app_escape($form['shipping_fee']); ?>">
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">Payment Status</label>
+                    <select class="form-select" name="payment_status">
+                        <?php foreach (SUPPLIER_ORDER_PAYMENT_STATUSES as $statusValue): ?>
+                            <option value="<?php echo app_escape($statusValue); ?>" <?php echo $form['payment_status'] === $statusValue ? 'selected' : ''; ?>>
+                                <?php echo app_escape(supplier_order_payment_status_label($statusValue)); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
                 </div>
 
                 <div class="col-12">

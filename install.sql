@@ -90,6 +90,22 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   INDEX idx_audit_action (action)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Reusable, module-agnostic activity log for future auditing - separate from the
+-- pre-existing (currently unused) audit_logs table above, which this does not replace or
+-- touch. Append-only; nothing in this app ever updates or deletes a row here.
+CREATE TABLE IF NOT EXISTS activity_logs (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id INT UNSIGNED NULL,
+  module VARCHAR(50) NOT NULL,
+  action VARCHAR(50) NOT NULL,
+  record_id INT UNSIGNED NULL,
+  description VARCHAR(255) NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_activity_logs_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_activity_logs_module (module),
+  INDEX idx_activity_logs_record (module, record_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS customers (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   woocommerce_customer_id BIGINT UNSIGNED NULL,
@@ -121,6 +137,11 @@ CREATE TABLE IF NOT EXISTS suppliers (
   name VARCHAR(120) NOT NULL,
   contact VARCHAR(120) NULL,
   country VARCHAR(100) NULL,
+  contact_person VARCHAR(120) NULL,
+  phone VARCHAR(50) NULL,
+  email VARCHAR(190) NULL,
+  currency VARCHAR(10) NULL,
+  payment_terms VARCHAR(100) NULL,
   notes TEXT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -197,6 +218,8 @@ CREATE TABLE IF NOT EXISTS products (
   catalog_type VARCHAR(20) NOT NULL DEFAULT 'simple',
   brand_id INT UNSIGNED NULL,
   barcode VARCHAR(64) NULL,
+  supplier_sku VARCHAR(100) NULL,
+  internal_code VARCHAR(100) NULL,
   selling_price DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   product_cost DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   sale_enabled TINYINT(1) NOT NULL DEFAULT 0,
@@ -286,6 +309,7 @@ CREATE TABLE IF NOT EXISTS product_variations (
   product_id INT UNSIGNED NOT NULL,
   sku VARCHAR(100) NOT NULL UNIQUE,
   barcode VARCHAR(64) NULL,
+  supplier_sku VARCHAR(100) NULL,
   weight DECIMAL(10,3) NULL,
   price_mode VARCHAR(20) NOT NULL DEFAULT 'inherit',
   custom_price DECIMAL(12,2) NULL,
@@ -494,6 +518,8 @@ CREATE TABLE IF NOT EXISTS mewmii_orders (
   shipping_carrier VARCHAR(50) NULL,
   shipped_at DATETIME NULL,
   notes TEXT NULL,
+  customer_note TEXT NULL,
+  internal_note TEXT NULL,
   subtotal DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   discount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   shipping_fee DECIMAL(12,2) NOT NULL DEFAULT 0.00,
@@ -537,6 +563,7 @@ CREATE TABLE IF NOT EXISTS supplier_orders (
   supplier_id INT UNSIGNED NOT NULL,
   purchase_number VARCHAR(100) NOT NULL UNIQUE,
   status VARCHAR(30) NOT NULL DEFAULT 'draft',
+  payment_status VARCHAR(20) NOT NULL DEFAULT 'unpaid',
   estimated_cost DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   actual_cost DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   shipping_fee DECIMAL(10,2) NOT NULL DEFAULT 0.00,
@@ -574,6 +601,23 @@ CREATE TABLE IF NOT EXISTS supplier_order_items (
   CONSTRAINT fk_supplier_order_items_order FOREIGN KEY (supplier_order_id) REFERENCES supplier_orders(id) ON DELETE CASCADE,
   CONSTRAINT fk_supplier_order_items_product FOREIGN KEY (product_id) REFERENCES products(id),
   CONSTRAINT fk_supplier_order_items_variation FOREIGN KEY (variation_id) REFERENCES product_variations(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Payment history against a supplier order - purely additive (add/delete rows), never
+-- overwrites supplier_orders' own total. Paid Amount is always SUM(amount) over this table
+-- computed live, never a cached column, so it can never drift from the actual entries.
+CREATE TABLE IF NOT EXISTS supplier_order_payments (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  supplier_order_id INT UNSIGNED NOT NULL,
+  amount DECIMAL(12,2) NOT NULL,
+  payment_date DATE NULL,
+  payment_method VARCHAR(50) NULL,
+  notes VARCHAR(255) NULL,
+  created_by INT UNSIGNED NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_supplier_order_payments_order FOREIGN KEY (supplier_order_id) REFERENCES supplier_orders(id) ON DELETE CASCADE,
+  CONSTRAINT fk_supplier_order_payments_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_supplier_order_payments_order (supplier_order_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Simple product: inventory row has variation_id = NULL (one row per product).
@@ -624,6 +668,7 @@ CREATE TABLE IF NOT EXISTS customer_storage (
   quantity INT UNSIGNED NOT NULL DEFAULT 1,
   status VARCHAR(20) NOT NULL DEFAULT 'stored',
   arrival_date DATE NULL,
+  storage_location VARCHAR(100) NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_customer_storage_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
   CONSTRAINT fk_customer_storage_product FOREIGN KEY (product_id) REFERENCES products(id),

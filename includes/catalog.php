@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/activity_log.php';
+
 /**
  * Brand/Category/Collection/Tag/Attribute/Template helpers for the catalog overhaul.
  * Brand, Category and Collection are presented in the product form as plain text
@@ -583,7 +585,15 @@ function product_delete_if_unused(PDO $pdo, int $productId): void
         }
     }
 
+    $skuStmt = $pdo->prepare('SELECT sku, name FROM products WHERE id = ?');
+    $skuStmt->execute([$productId]);
+    $productRow = $skuStmt->fetch(PDO::FETCH_ASSOC);
+
     $pdo->prepare('DELETE FROM products WHERE id = ?')->execute([$productId]);
+
+    if ($productRow) {
+        activity_log($pdo, 'products', 'delete', $productId, 'Deleted product ' . $productRow['sku'] . ' (' . $productRow['name'] . ')');
+    }
 }
 
 /**

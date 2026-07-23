@@ -252,6 +252,7 @@ function variation_apply_preview_edits(PDO $pdo, int $productId, array $createdV
 {
     $skus = $_POST['variation_sku'] ?? [];
     $barcodes = $_POST['variation_barcode'] ?? [];
+    $supplierSkus = $_POST['variation_supplier_sku'] ?? [];
     $weights = $_POST['variation_weight'] ?? [];
     $priceModes = $_POST['variation_price_mode'] ?? [];
     $customPrices = $_POST['variation_custom_price'] ?? [];
@@ -283,6 +284,7 @@ function variation_apply_preview_edits(PDO $pdo, int $productId, array $createdV
         }
 
         $barcode = trim((string) ($barcodes[$signature] ?? ''));
+        $supplierSku = trim((string) ($supplierSkus[$signature] ?? ''));
         $weight = trim((string) ($weights[$signature] ?? ''));
         $priceMode = (string) ($priceModes[$signature] ?? 'inherit');
         if (!in_array($priceMode, ['inherit', 'custom'], true)) {
@@ -297,10 +299,11 @@ function variation_apply_preview_edits(PDO $pdo, int $productId, array $createdV
 
         $pdo->prepare('
             UPDATE product_variations
-            SET barcode = ?, weight = ?, price_mode = ?, custom_price = ?, cost_price = ?, status = ?, is_system_generated = 0
+            SET barcode = ?, supplier_sku = ?, weight = ?, price_mode = ?, custom_price = ?, cost_price = ?, status = ?, is_system_generated = 0
             WHERE id = ?
         ')->execute([
             $barcode !== '' ? $barcode : null,
+            $supplierSku !== '' ? $supplierSku : null,
             ($weight !== '' && is_numeric($weight)) ? round((float) $weight, 3) : null,
             $priceMode,
             ($priceMode === 'custom' && is_numeric($customPrice)) ? round((float) $customPrice, 2) : null,

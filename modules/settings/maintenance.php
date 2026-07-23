@@ -79,6 +79,11 @@ require_once __DIR__ . '/../../includes/header.php';
     </div>
 </div>
 
+<div class="d-flex gap-2 mb-4">
+    <a class="btn btn-secondary btn-sm" href="/modules/settings/maintenance.php">Data Cleanup</a>
+    <a class="btn btn-outline-secondary btn-sm" href="/modules/settings/export.php">Data Export</a>
+</div>
+
 <?php if ($error !== ''): ?>
     <div class="alert alert-danger"><?php echo app_escape($error); ?></div>
 <?php endif; ?>

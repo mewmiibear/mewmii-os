@@ -427,6 +427,71 @@ if (!migrate_column_exists($pdo, 'supplier_orders', 'shipping_fee')) {
     migrate_run($pdo, 'supplier_orders.shipping_fee', 'ALTER TABLE supplier_orders ADD COLUMN shipping_fee DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER actual_cost', $applied);
 }
 
+// --- Operations Stabilisation Improvements ---------------------------------------------
+// New tables (supplier_order_payments, activity_logs) don't need a migrate_run block here -
+// Step 1's CREATE TABLE IF NOT EXISTS pass over schema.sql already creates them on an
+// existing database. Only new COLUMNS on already-existing tables need guards below.
+
+// supplier_orders.payment_status: independent of the Draft->Ordered->Arrived->Completed
+// workflow status - tracks whether the supplier has actually been paid, set manually by an
+// admin (see modules/supplier-orders/create.php/edit.php). Paid Amount/Remaining Amount are
+// always derived live from supplier_order_payments, never stored.
+if (!migrate_column_exists($pdo, 'supplier_orders', 'payment_status')) {
+    migrate_run($pdo, 'supplier_orders.payment_status', "ALTER TABLE supplier_orders ADD COLUMN payment_status VARCHAR(20) NOT NULL DEFAULT 'unpaid' AFTER status", $applied);
+}
+
+// suppliers: additional contact/commercial-terms fields - country and notes already existed,
+// these are the remaining ones requested.
+if (!migrate_column_exists($pdo, 'suppliers', 'contact_person')) {
+    migrate_run($pdo, 'suppliers.contact_person', 'ALTER TABLE suppliers ADD COLUMN contact_person VARCHAR(120) NULL AFTER country', $applied);
+}
+if (!migrate_column_exists($pdo, 'suppliers', 'phone')) {
+    migrate_run($pdo, 'suppliers.phone', 'ALTER TABLE suppliers ADD COLUMN phone VARCHAR(50) NULL AFTER contact_person', $applied);
+}
+if (!migrate_column_exists($pdo, 'suppliers', 'email')) {
+    migrate_run($pdo, 'suppliers.email', 'ALTER TABLE suppliers ADD COLUMN email VARCHAR(190) NULL AFTER phone', $applied);
+}
+if (!migrate_column_exists($pdo, 'suppliers', 'currency')) {
+    migrate_run($pdo, 'suppliers.currency', 'ALTER TABLE suppliers ADD COLUMN currency VARCHAR(10) NULL AFTER email', $applied);
+}
+if (!migrate_column_exists($pdo, 'suppliers', 'payment_terms')) {
+    migrate_run($pdo, 'suppliers.payment_terms', 'ALTER TABLE suppliers ADD COLUMN payment_terms VARCHAR(100) NULL AFTER currency', $applied);
+}
+
+// products.supplier_sku / internal_code: additional identifiers alongside the existing
+// internal `sku` (never replacing it) - supplier_sku is what the supplier calls this product
+// on their own paperwork, internal_code is an optional free-form internal reference.
+if (!migrate_column_exists($pdo, 'products', 'supplier_sku')) {
+    migrate_run($pdo, 'products.supplier_sku', 'ALTER TABLE products ADD COLUMN supplier_sku VARCHAR(100) NULL AFTER barcode', $applied);
+}
+if (!migrate_column_exists($pdo, 'products', 'internal_code')) {
+    migrate_run($pdo, 'products.internal_code', 'ALTER TABLE products ADD COLUMN internal_code VARCHAR(100) NULL AFTER supplier_sku', $applied);
+}
+
+// product_variations.supplier_sku: same idea as products.supplier_sku, per-variation since a
+// supplier may use a different code per variation than the parent product.
+if (!migrate_column_exists($pdo, 'product_variations', 'supplier_sku')) {
+    migrate_run($pdo, 'product_variations.supplier_sku', 'ALTER TABLE product_variations ADD COLUMN supplier_sku VARCHAR(100) NULL AFTER barcode', $applied);
+}
+
+// mewmii_orders.customer_note/internal_note: splits the single `notes` field into a
+// customer-visible note and an admin/staff-only note. `notes` itself is left in place
+// (never dropped) but the app no longer reads/writes it once this migration has run -
+// every existing value is copied into internal_note so nothing is lost.
+if (!migrate_column_exists($pdo, 'mewmii_orders', 'customer_note')) {
+    migrate_run($pdo, 'mewmii_orders.customer_note', 'ALTER TABLE mewmii_orders ADD COLUMN customer_note TEXT NULL AFTER notes', $applied);
+}
+if (!migrate_column_exists($pdo, 'mewmii_orders', 'internal_note')) {
+    migrate_run($pdo, 'mewmii_orders.internal_note', 'ALTER TABLE mewmii_orders ADD COLUMN internal_note TEXT NULL AFTER customer_note', $applied);
+    migrate_run($pdo, 'mewmii_orders.backfill_internal_note', 'UPDATE mewmii_orders SET internal_note = notes WHERE internal_note IS NULL AND notes IS NOT NULL', $applied);
+}
+
+// customer_storage.storage_location: free-form physical location (e.g. "Shelf A3", "Box
+// 12") - display/editing only, never consulted by any inventory-quantity calculation.
+if (!migrate_column_exists($pdo, 'customer_storage', 'storage_location')) {
+    migrate_run($pdo, 'customer_storage.storage_location', 'ALTER TABLE customer_storage ADD COLUMN storage_location VARCHAR(100) NULL AFTER arrival_date', $applied);
+}
+
 echo count($applied) . ' migration statement(s) applied:' . PHP_EOL;
 foreach ($applied as $item) {
     echo '  - ' . $item . PHP_EOL;

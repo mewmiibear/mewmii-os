@@ -17,6 +17,7 @@ if ($productId < 1 || $variationId < 1) {
 
 $sku = trim((string) ($_POST['sku'] ?? ''));
 $barcode = trim((string) ($_POST['barcode'] ?? ''));
+$supplierSku = trim((string) ($_POST['supplier_sku'] ?? ''));
 $weight = trim((string) ($_POST['weight'] ?? ''));
 $priceMode = (string) ($_POST['price_mode'] ?? 'inherit');
 $customPrice = trim((string) ($_POST['custom_price'] ?? ''));
@@ -59,11 +60,12 @@ try {
 
     $pdo->prepare('
         UPDATE product_variations
-        SET sku = ?, barcode = ?, weight = ?, price_mode = ?, custom_price = ?, cost_price = ?, status = ?, is_system_generated = 0
+        SET sku = ?, barcode = ?, supplier_sku = ?, weight = ?, price_mode = ?, custom_price = ?, cost_price = ?, status = ?, is_system_generated = 0
         WHERE id = ? AND product_id = ?
     ')->execute([
         $sku,
         $barcode !== '' ? $barcode : null,
+        $supplierSku !== '' ? $supplierSku : null,
         ($weight !== '' && is_numeric($weight)) ? round((float) $weight, 3) : null,
         $priceMode,
         $priceMode === 'custom' ? round((float) $customPrice, 2) : null,

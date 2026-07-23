@@ -119,6 +119,15 @@
                 <label class="form-label">Barcode</label>
                 <input type="text" class="form-control" name="barcode" value="<?php echo app_escape($form['barcode']); ?>">
             </div>
+            <div class="col-md-4">
+                <label class="form-label">Supplier SKU</label>
+                <input type="text" class="form-control" name="supplier_sku" value="<?php echo app_escape($form['supplier_sku']); ?>" maxlength="100">
+                <div class="form-text">The supplier's own code for this product - kept alongside the internal SKU above, never replacing it.</div>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Internal Code</label>
+                <input type="text" class="form-control" name="internal_code" value="<?php echo app_escape($form['internal_code']); ?>" maxlength="100">
+            </div>
 
             <div class="col-12"><hr class="my-1"></div>
 
@@ -434,6 +443,7 @@
                         <th>Variation</th>
                         <th>SKU</th>
                         <th>Barcode</th>
+                        <th>Supplier SKU</th>
                         <th>Weight</th>
                         <th>Price Mode / Price</th>
                         <th>Cost Price</th>

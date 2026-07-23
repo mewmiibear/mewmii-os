@@ -72,6 +72,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $error = 'Failed to add item to customer storage.';
                 }
             }
+        } elseif ($action === 'update_location') {
+            $storageId = (int) ($_POST['storage_id'] ?? 0);
+            $storageLocation = trim((string) ($_POST['storage_location'] ?? ''));
+
+            if ($storageId < 1) {
+                $error = 'Invalid storage record.';
+            } else {
+                // Display/editing only - never consulted by any inventory-quantity
+                // calculation, so a plain UPDATE with no ledger entry is correct here.
+                $pdo->prepare('UPDATE customer_storage SET storage_location = ? WHERE id = ? AND customer_id = ?')
+                    ->execute([$storageLocation !== '' ? $storageLocation : null, $storageId, $customerId]);
+
+                app_redirect('/modules/customer-storage/view.php?customer_id=' . $customerId . '&updated=1');
+            }
         } elseif ($action === 'remove') {
             $storageId = (int) ($_POST['storage_id'] ?? 0);
             $quantity = (int) ($_POST['quantity'] ?? 0);
@@ -103,7 +117,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $storedStmt = $pdo->prepare("
-    SELECT cs.id, cs.quantity, cs.arrival_date, cs.created_at, cs.variation_id,
+    SELECT cs.id, cs.quantity, cs.arrival_date, cs.storage_location, cs.created_at, cs.variation_id,
            COALESCE(pv.sku, p.sku) AS sku, p.name AS product_name
     FROM customer_storage cs
     INNER JOIN products p ON p.id = cs.product_id
@@ -178,6 +192,7 @@ require_once __DIR__ . '/../../includes/header.php';
                         <th>Product</th>
                         <th>Qty</th>
                         <th>Arrival</th>
+                        <th>Location</th>
                         <?php if ($canManage): ?><th></th><?php endif; ?>
                     </tr>
                 </thead>
@@ -193,6 +208,19 @@ require_once __DIR__ . '/../../includes/header.php';
                             </td>
                             <td><?php echo app_escape((string) $item['quantity']); ?></td>
                             <td><?php echo app_escape($item['arrival_date'] ?? '-'); ?></td>
+                            <td>
+                                <?php if ($canManage): ?>
+                                    <form method="post" class="d-flex gap-1">
+                                        <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                                        <input type="hidden" name="action" value="update_location">
+                                        <input type="hidden" name="storage_id" value="<?php echo (int) $item['id']; ?>">
+                                        <input type="text" class="form-control form-control-sm" style="width: 110px;" name="storage_location" value="<?php echo app_escape($item['storage_location'] ?? ''); ?>" placeholder="e.g. Shelf A3">
+                                        <button class="btn btn-sm btn-outline-secondary" type="submit">Save</button>
+                                    </form>
+                                <?php else: ?>
+                                    <?php echo $item['storage_location'] !== null ? app_escape($item['storage_location']) : '&mdash;'; ?>
+                                <?php endif; ?>
+                            </td>
                             <?php if ($canManage): ?>
                                 <td class="text-end">
                                     <form method="post" class="d-flex gap-1 justify-content-end">
@@ -207,7 +235,7 @@ require_once __DIR__ . '/../../includes/header.php';
                         </tr>
                     <?php endforeach; ?>
                     <?php if ($storedItems === []): ?>
-                        <tr><td colspan="<?php echo $canManage ? 5 : 4; ?>" class="text-muted">No items currently stored for this customer.</td></tr>
+                        <tr><td colspan="<?php echo $canManage ? 6 : 5; ?>" class="text-muted">No items currently stored for this customer.</td></tr>
                     <?php endif; ?>
                 </tbody>
             </table>

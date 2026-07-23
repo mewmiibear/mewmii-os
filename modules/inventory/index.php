@@ -4,13 +4,14 @@ require_once __DIR__ . '/../../includes/inventory.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
 require_once __DIR__ . '/../../includes/product_images.php';
 require_once __DIR__ . '/../../includes/catalog.php';
+require_once __DIR__ . '/../../includes/activity_log.php';
 app_require_permission('inventory.view');
 
 $appTitle = 'Inventory';
 $error = '';
 $pdo = app_db();
 
-$adjustmentReasons = ['Damaged', 'Recount / Stock Take', 'Correction', 'Other'];
+$adjustmentReasons = ['Damaged', 'Lost', 'Stock Correction', 'Sample', 'Giveaway', 'Other'];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
@@ -70,6 +71,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ')->execute([$delta, $productId, $variationId]);
 
                 inventory_log_transaction($pdo, $productId, 'adjustment', $delta, 'manual_adjustment', (int) ($_SESSION['user_id'] ?? 0), $variationId, $reason, $notes !== '' ? $notes : null);
+                activity_log($pdo, 'inventory', 'adjustment', $productId, 'Stock adjustment (' . $reason . ') on product #' . $productId . ($variationId !== null ? (' variation #' . $variationId) : '') . ': ' . ($delta > 0 ? '+' : '') . $delta);
 
                 $pdo->commit();
 

@@ -27,6 +27,8 @@ $form = [
     'name' => '',
     'sku' => '',
     'barcode' => '',
+    'supplier_sku' => '',
+    'internal_code' => '',
     'short_description' => '',
     'description' => '',
     'brand_id' => '',
@@ -63,6 +65,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form['name'] = trim((string) ($_POST['name'] ?? ''));
     $form['sku'] = trim((string) ($_POST['sku'] ?? ''));
     $form['barcode'] = trim((string) ($_POST['barcode'] ?? ''));
+    $form['supplier_sku'] = trim((string) ($_POST['supplier_sku'] ?? ''));
+    $form['internal_code'] = trim((string) ($_POST['internal_code'] ?? ''));
     $form['short_description'] = trim((string) ($_POST['short_description'] ?? ''));
     $form['description'] = trim((string) ($_POST['description'] ?? ''));
     $form['brand_id'] = trim((string) ($_POST['brand_id'] ?? ''));
@@ -188,10 +192,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $pdo->prepare('
                 INSERT INTO products (
                     sku, name, short_description, description, product_type, catalog_type, brand_id, barcode,
+                    supplier_sku, internal_code,
                     supplier_id, product_cost, selling_price, sale_enabled, sale_price,
                     min_stock_threshold, sale_start_date, estimated_arrival_date, estimated_release_month,
                     preorder_closing_date, expiry_date, moq, status, availability_override
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ');
             $stmt->execute([
                 $form['sku'],
@@ -202,6 +207,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $form['catalog_type'],
                 $brandId,
                 $form['barcode'] !== '' ? $form['barcode'] : null,
+                $form['supplier_sku'] !== '' ? $form['supplier_sku'] : null,
+                $form['internal_code'] !== '' ? $form['internal_code'] : null,
                 $supplierId,
                 round((float) $form['product_cost'], 2),
                 round((float) $form['selling_price'], 2),

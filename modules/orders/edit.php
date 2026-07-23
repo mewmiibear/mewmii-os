@@ -68,7 +68,8 @@ $form = [
     'customer_id' => (string) $order['customer_id'],
     'order_number' => $order['order_number'],
     'shipping_fee' => (string) $order['shipping_fee'],
-    'notes' => (string) ($order['notes'] ?? ''),
+    'customer_note' => (string) ($order['customer_note'] ?? ''),
+    'internal_note' => (string) ($order['internal_note'] ?? ''),
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -78,13 +79,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = $exception->getMessage();
     }
 
-    $form['notes'] = trim((string) ($_POST['notes'] ?? ''));
+    $form['customer_note'] = trim((string) ($_POST['customer_note'] ?? ''));
+    $form['internal_note'] = trim((string) ($_POST['internal_note'] ?? ''));
 
     if (!$isEditable) {
         // Locked: notes only, nothing else can be posted from this form at all.
         if ($error === '') {
-            $pdo->prepare('UPDATE mewmii_orders SET notes = ? WHERE id = ?')
-                ->execute([$form['notes'] !== '' ? $form['notes'] : null, $orderId]);
+            $pdo->prepare('UPDATE mewmii_orders SET customer_note = ?, internal_note = ? WHERE id = ?')
+                ->execute([$form['customer_note'] !== '' ? $form['customer_note'] : null, $form['internal_note'] !== '' ? $form['internal_note'] : null, $orderId]);
 
             app_redirect('/modules/orders/view.php?id=' . $orderId . '&updated=1');
         }
@@ -175,7 +177,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->beginTransaction();
 
             try {
-                order_apply_edit($pdo, $orderId, $customerId, $validItems, $shippingFee, $form['notes']);
+                order_apply_edit($pdo, $orderId, $customerId, $validItems, $shippingFee, $form['customer_note'], $form['internal_note']);
 
                 $pdo->commit();
 
@@ -220,8 +222,14 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="card p-4">
         <form method="post">
             <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
-            <label class="form-label">Notes</label>
-            <textarea class="form-control" name="notes" rows="3"><?php echo app_escape($form['notes']); ?></textarea>
+            <div class="mb-3">
+                <label class="form-label">Customer Note</label>
+                <textarea class="form-control" name="customer_note" rows="3" placeholder="Visible to the customer."><?php echo app_escape($form['customer_note']); ?></textarea>
+            </div>
+            <div class="mb-0">
+                <label class="form-label">Internal Note</label>
+                <textarea class="form-control" name="internal_note" rows="3" placeholder="Admin/staff only."><?php echo app_escape($form['internal_note']); ?></textarea>
+            </div>
             <button class="btn btn-primary mt-3" type="submit">Save Notes</button>
         </form>
     </div>
@@ -256,9 +264,13 @@ require_once __DIR__ . '/../../includes/header.php';
                     <input type="number" step="0.01" min="0" class="form-control" id="order-shipping-fee" name="shipping_fee" value="<?php echo app_escape($form['shipping_fee']); ?>">
                 </div>
 
-                <div class="col-12">
-                    <label class="form-label">Notes</label>
-                    <textarea class="form-control" name="notes" rows="2" placeholder="e.g. Customer requested combine shipment."><?php echo app_escape($form['notes']); ?></textarea>
+                <div class="col-md-6">
+                    <label class="form-label">Customer Note</label>
+                    <textarea class="form-control" name="customer_note" rows="2" placeholder="Visible to the customer."><?php echo app_escape($form['customer_note']); ?></textarea>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Internal Note</label>
+                    <textarea class="form-control" name="internal_note" rows="2" placeholder="e.g. Customer requested combine shipment. Admin/staff only."><?php echo app_escape($form['internal_note']); ?></textarea>
                 </div>
             </div>
 

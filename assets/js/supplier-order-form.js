@@ -201,8 +201,11 @@
                 return;
             }
 
+            var productUnit = product.units[0] || {};
             html += '<div class="border rounded p-2 mb-2">';
-            html += '<div class="fw-semibold">' + escapeHtml(product.sku) + ' &mdash; ' + escapeHtml(product.name) + '</div>';
+            html += '<div class="fw-semibold">' + escapeHtml(product.sku) + ' &mdash; ' + escapeHtml(product.name) +
+                (product.catalog_type !== 'variable' && productUnit.supplier_sku ? ' <span class="text-muted small fw-normal">(Supplier SKU: ' + escapeHtml(productUnit.supplier_sku) + ')</span>' : '') +
+                '</div>';
 
             if (product.catalog_type === 'variable') {
                 html += '<div class="ms-3 mt-1">';
@@ -217,7 +220,8 @@
                         '" data-sku="' + escapeHtml(unit.sku) +
                         '" data-cost="' + escapeHtml(formatMoney(unit.cost_price || 0)) +
                         '" data-moq="' + escapeHtml(unit.moq || '') + '"' + (checked ? ' checked disabled' : '') + '> ' +
-                        escapeHtml(unit.label || '(no attributes)') + ' <span class="text-muted small">' + escapeHtml(unit.sku) + '</span>' +
+                        escapeHtml(unit.label || '(no attributes)') + ' <span class="text-muted small">' + escapeHtml(unit.sku) +
+                        (unit.supplier_sku ? ' &middot; Supplier SKU: ' + escapeHtml(unit.supplier_sku) : '') + '</span>' +
                         (checked ? ' <span class="badge bg-secondary">Added</span>' : '') +
                         '</label>';
                 });

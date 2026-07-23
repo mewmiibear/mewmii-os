@@ -398,10 +398,16 @@ require_once __DIR__ . '/../../includes/header.php';
             </table>
         </div>
 
-        <?php if (!empty($order['notes'])): ?>
+        <?php if (!empty($order['customer_note'])): ?>
             <div class="card p-4 mb-4">
-                <h5 class="mb-3">Notes</h5>
-                <p class="mb-0"><?php echo nl2br(app_escape($order['notes'])); ?></p>
+                <h5 class="mb-3">Customer Note</h5>
+                <p class="mb-0"><?php echo nl2br(app_escape($order['customer_note'])); ?></p>
+            </div>
+        <?php endif; ?>
+        <?php if ($canManage && !empty($order['internal_note'])): ?>
+            <div class="card p-4 mb-4">
+                <h5 class="mb-3">Internal Note <span class="badge bg-secondary">Staff Only</span></h5>
+                <p class="mb-0"><?php echo nl2br(app_escape($order['internal_note'])); ?></p>
             </div>
         <?php endif; ?>
 

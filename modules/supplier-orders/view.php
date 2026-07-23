@@ -116,6 +116,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $error = 'Failed to update status.';
                 }
             }
+        } elseif ($action === 'add_payment') {
+            $amount = (float) ($_POST['amount'] ?? 0);
+            $paymentDate = trim((string) ($_POST['payment_date'] ?? ''));
+            $paymentMethod = trim((string) ($_POST['payment_method'] ?? ''));
+            $paymentNotes = trim((string) ($_POST['notes'] ?? ''));
+
+            if ($amount <= 0) {
+                $error = 'Enter a payment amount greater than zero.';
+            } else {
+                $pdo->beginTransaction();
+
+                try {
+                    supplier_order_add_payment(
+                        $pdo,
+                        $orderId,
+                        $amount,
+                        $paymentDate !== '' ? $paymentDate : null,
+                        $paymentMethod !== '' ? $paymentMethod : null,
+                        $paymentNotes !== '' ? $paymentNotes : null
+                    );
+                    activity_log($pdo, 'supplier_orders', 'payment_added', $orderId, 'Added payment of RM' . number_format($amount, 2) . ' to ' . $order['purchase_number']);
+                    $pdo->commit();
+
+                    app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1');
+                } catch (RuntimeException $exception) {
+                    $pdo->rollBack();
+                    $error = $exception->getMessage();
+                } catch (Exception $exception) {
+                    $pdo->rollBack();
+                    $error = 'Failed to record payment.';
+                }
+            }
+        } elseif ($action === 'delete_payment') {
+            $paymentId = (int) ($_POST['payment_id'] ?? 0);
+
+            if ($paymentId < 1) {
+                $error = 'Invalid payment record.';
+            } else {
+                $pdo->beginTransaction();
+
+                try {
+                    supplier_order_delete_payment($pdo, $paymentId);
+                    activity_log($pdo, 'supplier_orders', 'payment_deleted', $orderId, 'Deleted a payment from ' . $order['purchase_number']);
+                    $pdo->commit();
+
+                    app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1');
+                } catch (Exception $exception) {
+                    $pdo->rollBack();
+                    $error = 'Failed to delete payment.';
+                }
+            }
         } else {
             $error = 'Unknown action.';
         }
@@ -169,6 +220,11 @@ $editHistoryStmt = $pdo->prepare('
 $editHistoryStmt->execute([$orderId]);
 $editHistory = $editHistoryStmt->fetchAll(PDO::FETCH_ASSOC);
 
+$totalPurchaseAmount = $orderTotal + (float) $order['shipping_fee'];
+$paidAmount = supplier_order_paid_amount($pdo, $orderId);
+$remainingAmount = $totalPurchaseAmount - $paidAmount;
+$payments = supplier_order_list_payments($pdo, $orderId);
+
 $canManage = app_has_permission('supplier-orders.manage');
 $nextStatus = supplier_order_status_next((string) $order['status']);
 
@@ -213,11 +269,14 @@ require_once __DIR__ . '/../../includes/header.php';
             <h5 class="mb-3">Order Summary</h5>
             <table class="table table-borderless mb-0">
                 <tr><th>Status</th><td><?php echo supplier_order_status_badge($order['status']); ?></td></tr>
+                <tr><th>Payment Status</th><td><?php echo supplier_order_payment_status_badge((string) $order['payment_status']); ?></td></tr>
                 <tr><th>Supplier</th><td><?php echo app_escape($order['supplier_name']); ?></td></tr>
                 <tr><th>Created Date</th><td><?php echo app_escape($order['order_date'] ?? '-'); ?></td></tr>
                 <tr><th>Product Subtotal</th><td>RM <?php echo app_escape(number_format($orderTotal, 2)); ?></td></tr>
                 <tr><th>Shipping Fee</th><td>RM <?php echo app_escape(number_format((float) $order['shipping_fee'], 2)); ?></td></tr>
-                <tr><th>Total Purchase Amount</th><td>RM <?php echo app_escape(number_format($orderTotal + (float) $order['shipping_fee'], 2)); ?></td></tr>
+                <tr><th>Total Purchase Amount</th><td>RM <?php echo app_escape(number_format($totalPurchaseAmount, 2)); ?></td></tr>
+                <tr><th>Paid Amount</th><td>RM <?php echo app_escape(number_format($paidAmount, 2)); ?></td></tr>
+                <tr><th>Remaining Amount</th><td>RM <?php echo app_escape(number_format($remainingAmount, 2)); ?></td></tr>
                 <tr><th>Received Date</th><td><?php echo app_escape($order['received_date'] ?? '-'); ?></td></tr>
                 <?php if (!empty($order['notes'])): ?>
                     <tr><th>Notes</th><td><?php echo nl2br(app_escape($order['notes'])); ?></td></tr>
@@ -303,6 +362,70 @@ require_once __DIR__ . '/../../includes/header.php';
                 <?php endif; ?>
             </div>
         <?php endif; ?>
+
+        <div class="card p-4 mb-4">
+            <h5 class="mb-3">Payments</h5>
+            <ul class="list-unstyled mb-3">
+                <?php foreach ($payments as $payment): ?>
+                    <li class="mb-3">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <div class="fw-semibold">RM <?php echo app_escape(number_format((float) $payment['amount'], 2)); ?></div>
+                                <div class="text-muted small">
+                                    <?php echo $payment['payment_date'] !== null ? app_escape($payment['payment_date']) : app_escape(date('Y-m-d', strtotime($payment['created_at']))); ?>
+                                    <?php if (!empty($payment['payment_method'])): ?>
+                                        &middot; <?php echo app_escape($payment['payment_method']); ?>
+                                    <?php endif; ?>
+                                    <?php if (!empty($payment['user_name'])): ?>
+                                        &middot; <?php echo app_escape($payment['user_name']); ?>
+                                    <?php endif; ?>
+                                </div>
+                                <?php if (!empty($payment['notes'])): ?>
+                                    <div class="small"><?php echo app_escape($payment['notes']); ?></div>
+                                <?php endif; ?>
+                            </div>
+                            <?php if ($canManage): ?>
+                                <form method="post" onsubmit="return confirm('Delete this payment record?');">
+                                    <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                                    <input type="hidden" name="action" value="delete_payment">
+                                    <input type="hidden" name="payment_id" value="<?php echo (int) $payment['id']; ?>">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                                </form>
+                            <?php endif; ?>
+                        </div>
+                    </li>
+                <?php endforeach; ?>
+                <?php if ($payments === []): ?>
+                    <li class="text-muted">No payments recorded yet.</li>
+                <?php endif; ?>
+            </ul>
+
+            <?php if ($canManage): ?>
+                <form method="post" class="row g-2 align-items-end border-top pt-3">
+                    <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                    <input type="hidden" name="action" value="add_payment">
+                    <div class="col-md-3">
+                        <label class="form-label small mb-1">Amount (RM)</label>
+                        <input type="number" step="0.01" min="0.01" class="form-control form-control-sm" name="amount" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small mb-1">Payment Date</label>
+                        <input type="date" class="form-control form-control-sm" name="payment_date" value="<?php echo date('Y-m-d'); ?>">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small mb-1">Method</label>
+                        <input type="text" class="form-control form-control-sm" name="payment_method" placeholder="e.g. Bank Transfer">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small mb-1">Notes</label>
+                        <input type="text" class="form-control form-control-sm" name="notes">
+                    </div>
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-primary btn-sm">Add Payment</button>
+                    </div>
+                </form>
+            <?php endif; ?>
+        </div>
 
         <div class="card p-4 mb-4">
             <h5 class="mb-3">Receiving History</h5>

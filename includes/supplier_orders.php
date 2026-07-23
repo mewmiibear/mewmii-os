@@ -4,6 +4,7 @@ require_once __DIR__ . '/inventory.php';
 require_once __DIR__ . '/customer_storage.php';
 require_once __DIR__ . '/product_variations.php';
 require_once __DIR__ . '/catalog.php';
+require_once __DIR__ . '/activity_log.php';
 
 // --- Workflow: Draft -> Ordered -> Arrived -> Completed --------------------------------
 // "Arrived" is a display label for the existing status = 'received' value (set
@@ -66,6 +67,93 @@ function supplier_order_status_next_action_label(string $status): ?string
     ];
 
     return $labels[$status] ?? null;
+}
+
+// --- Payment tracking: independent of the Draft->Ordered->Arrived->Completed status ------
+// workflow above - a Completed order can still be unpaid, a Draft order could in theory be
+// prepaid. payment_status is a plain admin-set field (see modules/supplier-orders/create.php/
+// edit.php); Paid/Remaining Amount are always derived live from supplier_order_payments,
+// never a stored/cached total, so they can never drift from the actual payment entries.
+
+const SUPPLIER_ORDER_PAYMENT_STATUSES = ['unpaid', 'partial', 'paid'];
+
+function supplier_order_payment_status_label(string $status): string
+{
+    $labels = [
+        'unpaid' => 'Unpaid',
+        'partial' => 'Partially Paid',
+        'paid' => 'Paid',
+    ];
+
+    return $labels[$status] ?? ucfirst($status);
+}
+
+function supplier_order_payment_status_badge(string $status): string
+{
+    $colors = [
+        'unpaid' => 'danger',
+        'partial' => 'warning text-dark',
+        'paid' => 'success',
+    ];
+    $color = $colors[$status] ?? 'secondary';
+
+    return '<span class="badge bg-' . $color . '">' . htmlspecialchars(supplier_order_payment_status_label($status), ENT_QUOTES, 'UTF-8') . '</span>';
+}
+
+/**
+ * Total ever recorded against this order in supplier_order_payments - computed live (never
+ * cached) so Paid Amount/Remaining Amount can never drift from the actual add/delete history.
+ */
+function supplier_order_paid_amount(PDO $pdo, int $orderId): float
+{
+    $stmt = $pdo->prepare('SELECT COALESCE(SUM(amount), 0) FROM supplier_order_payments WHERE supplier_order_id = ?');
+    $stmt->execute([$orderId]);
+
+    return (float) $stmt->fetchColumn();
+}
+
+/**
+ * Every payment recorded against this order, newest first - for the Payments card on
+ * modules/supplier-orders/view.php.
+ */
+function supplier_order_list_payments(PDO $pdo, int $orderId): array
+{
+    $stmt = $pdo->prepare('
+        SELECT sop.id, sop.amount, sop.payment_date, sop.payment_method, sop.notes, sop.created_at, u.name AS user_name
+        FROM supplier_order_payments sop
+        LEFT JOIN users u ON u.id = sop.created_by
+        WHERE sop.supplier_order_id = ?
+        ORDER BY sop.payment_date DESC, sop.id DESC
+    ');
+    $stmt->execute([$orderId]);
+
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Records one payment against a supplier order - purely additive, never touches/overwrites
+ * supplier_orders' own total (estimated_cost/shipping_fee). Caller is responsible for the
+ * surrounding transaction.
+ */
+function supplier_order_add_payment(PDO $pdo, int $orderId, float $amount, ?string $paymentDate, ?string $paymentMethod, ?string $notes): void
+{
+    if ($amount <= 0) {
+        throw new RuntimeException('Payment amount must be greater than zero.');
+    }
+
+    $pdo->prepare('
+        INSERT INTO supplier_order_payments (supplier_order_id, amount, payment_date, payment_method, notes, created_by)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ')->execute([$orderId, round($amount, 2), $paymentDate, $paymentMethod, $notes, $_SESSION['user_id'] ?? null]);
+}
+
+/**
+ * Deletes one payment record. This only removes a bookkeeping entry - it never touches
+ * inventory/receiving/ledger data, so no reversal logic is needed here.
+ */
+function supplier_order_delete_payment(PDO $pdo, int $paymentId): void
+{
+    $pdo->prepare('DELETE FROM supplier_order_payments WHERE id = ?')->execute([$paymentId]);
 }
 
 /**
@@ -332,11 +420,16 @@ function supplier_order_log_event(PDO $pdo, int $orderId, string $description): 
  * supplier_order_events. Caller is responsible for the surrounding transaction and for
  * blocking this entirely once the order is 'completed' (see modules/supplier-orders/edit.php).
  */
-function supplier_order_apply_edit(PDO $pdo, int $orderId, int $supplierId, string $notes, array $newLines, float $shippingFee = 0.00): void
+function supplier_order_apply_edit(PDO $pdo, int $orderId, int $supplierId, string $notes, array $newLines, float $shippingFee = 0.00, ?string $paymentStatus = null): void
 {
-    $oldShippingFeeStmt = $pdo->prepare('SELECT shipping_fee FROM supplier_orders WHERE id = ?');
-    $oldShippingFeeStmt->execute([$orderId]);
-    $oldShippingFee = (float) $oldShippingFeeStmt->fetchColumn();
+    $oldRowStmt = $pdo->prepare('SELECT shipping_fee, payment_status, purchase_number FROM supplier_orders WHERE id = ?');
+    $oldRowStmt->execute([$orderId]);
+    $oldRow = $oldRowStmt->fetch(PDO::FETCH_ASSOC);
+    $oldShippingFee = (float) $oldRow['shipping_fee'];
+    $oldPaymentStatus = (string) $oldRow['payment_status'];
+    if ($paymentStatus === null || !in_array($paymentStatus, SUPPLIER_ORDER_PAYMENT_STATUSES, true)) {
+        $paymentStatus = $oldPaymentStatus;
+    }
 
     $existingStmt = $pdo->prepare('SELECT id, product_id, variation_id, total_quantity, supplier_price FROM supplier_order_items WHERE supplier_order_id = ?');
     $existingStmt->execute([$orderId]);
@@ -426,6 +519,9 @@ function supplier_order_apply_edit(PDO $pdo, int $orderId, int $supplierId, stri
     if (abs($oldShippingFee - $shippingFee) > 0.001) {
         supplier_order_log_event($pdo, $orderId, 'Shipping fee changed RM' . number_format($oldShippingFee, 2) . ' -> RM' . number_format($shippingFee, 2));
     }
+    if ($paymentStatus !== $oldPaymentStatus) {
+        supplier_order_log_event($pdo, $orderId, 'Payment status changed ' . supplier_order_payment_status_label($oldPaymentStatus) . ' -> ' . supplier_order_payment_status_label($paymentStatus));
+    }
 
     // Totals + supplier/notes always refreshed, even if nothing else changed this pass.
     // estimated_cost stays the pure product subtotal (SUM of line subtotals) - shipping is
@@ -436,8 +532,10 @@ function supplier_order_apply_edit(PDO $pdo, int $orderId, int $supplierId, stri
     $totalStmt->execute([$orderId]);
     $estimatedCost = round((float) $totalStmt->fetchColumn(), 2);
 
-    $pdo->prepare('UPDATE supplier_orders SET supplier_id = ?, estimated_cost = ?, shipping_fee = ?, notes = ? WHERE id = ?')
-        ->execute([$supplierId, $estimatedCost, round($shippingFee, 2), $notes !== '' ? $notes : null, $orderId]);
+    $pdo->prepare('UPDATE supplier_orders SET supplier_id = ?, estimated_cost = ?, shipping_fee = ?, payment_status = ?, notes = ? WHERE id = ?')
+        ->execute([$supplierId, $estimatedCost, round($shippingFee, 2), $paymentStatus, $notes !== '' ? $notes : null, $orderId]);
+
+    activity_log($pdo, 'supplier_orders', 'edit', $orderId, 'Edited supplier order ' . $oldRow['purchase_number']);
 }
 
 /**
@@ -505,7 +603,7 @@ function supplier_order_list_deletable(PDO $pdo): array
 function supplier_order_picker_products(PDO $pdo): array
 {
     $productsStmt = $pdo->query("
-        SELECT p.id, p.sku, p.name, p.catalog_type, p.product_type, p.product_cost, p.moq,
+        SELECT p.id, p.sku, p.name, p.supplier_sku, p.catalog_type, p.product_type, p.product_cost, p.moq,
                p.supplier_id, s.name AS supplier_name,
                (SELECT cat.id FROM product_category_relationships pcr
                    INNER JOIN categories cat ON cat.id = pcr.category_id
@@ -532,7 +630,7 @@ function supplier_order_picker_products(PDO $pdo): array
     if ($variableIds !== []) {
         $placeholders = implode(',', array_fill(0, count($variableIds), '?'));
         $stmt = $pdo->prepare("
-            SELECT id, product_id, sku, cost_price
+            SELECT id, product_id, sku, supplier_sku, cost_price
             FROM product_variations
             WHERE product_id IN ({$placeholders}) AND status <> 'archived'
             ORDER BY id ASC
@@ -561,6 +659,7 @@ function supplier_order_picker_products(PDO $pdo): array
                 $units[] = [
                     'key' => $productId . ':' . $variationId,
                     'sku' => $variation['sku'],
+                    'supplier_sku' => $variation['supplier_sku'],
                     'label' => variation_build_label($pdo, $variationId),
                     'cost_price' => variation_effective_cost($variation['cost_price'], $product['product_cost']),
                     'moq' => $product['moq'] !== null ? (int) $product['moq'] : null,
@@ -570,6 +669,7 @@ function supplier_order_picker_products(PDO $pdo): array
             $units[] = [
                 'key' => $productId . ':0',
                 'sku' => $product['sku'],
+                'supplier_sku' => $product['supplier_sku'],
                 'label' => null,
                 'cost_price' => (float) $product['product_cost'],
                 'moq' => $product['moq'] !== null ? (int) $product['moq'] : null,
