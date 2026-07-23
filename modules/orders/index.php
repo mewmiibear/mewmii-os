@@ -30,7 +30,7 @@ if ($filterProductId !== null) {
     $filterProductLabel = $productLookupRow !== false ? ($productLookupRow['sku'] . ' - ' . $productLookupRow['name']) : null;
 }
 
-$sql = 'SELECT DISTINCT o.id, o.order_number, o.payment_status, o.order_status, o.is_historical, o.tracking_number, c.name AS customer_name FROM mewmii_orders o LEFT JOIN customers c ON c.id = o.customer_id';
+$sql = 'SELECT DISTINCT o.id, o.order_number, o.payment_status, o.order_status, o.is_historical, o.tracking_number, o.customer_id, c.name AS customer_name FROM mewmii_orders o LEFT JOIN customers c ON c.id = o.customer_id';
 $conditions = [];
 $params = [];
 if ($filterProductId !== null) {
@@ -50,6 +50,9 @@ $stmt = app_db()->prepare($sql);
 $stmt->execute($params);
 $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
 $canManage = app_has_permission('orders.manage');
+// Customer name below links to modules/customers/view.php, which requires customers.view -
+// the destination controls permission, not this page's own orders.view gate.
+$canViewCustomers = app_has_permission('customers.view');
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
@@ -102,7 +105,15 @@ $canManage = app_has_permission('orders.manage');
                             <span class="badge bg-secondary">Historical</span>
                         <?php endif; ?>
                     </td>
-                    <td><?php echo app_escape($order['customer_name'] ?? 'Unknown'); ?></td>
+                    <td>
+                        <?php if ($order['customer_name'] === null): ?>
+                            Unknown
+                        <?php elseif ($canViewCustomers && $order['customer_id'] !== null): ?>
+                            <a href="/modules/customers/view.php?id=<?php echo (int) $order['customer_id']; ?>"><?php echo app_escape($order['customer_name']); ?></a>
+                        <?php else: ?>
+                            <?php echo app_escape($order['customer_name']); ?>
+                        <?php endif; ?>
+                    </td>
                     <td><?php echo app_escape($order['payment_status']); ?></td>
                     <td><?php echo order_status_badge($order['order_status']); ?></td>
                     <td><?php echo $order['tracking_number'] !== null ? app_escape($order['tracking_number']) : '&mdash;'; ?></td>

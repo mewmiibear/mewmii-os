@@ -340,6 +340,9 @@ $canManage = app_has_permission('inventory.manage');
 // supplier-orders.manage, not inventory.manage - a user with only the latter must not be
 // shown a button that leads straight to a 403.
 $canManageSupplierOrders = app_has_permission('supplier-orders.manage');
+// Same reasoning as $canManageSupplierOrders above: the "Edit Product" links below go to
+// modules/products/edit.php, which requires products.manage - not inventory.manage.
+$canManageProducts = app_has_permission('products.manage');
 $filterSuppliers = $pdo->query('SELECT id, name FROM suppliers ORDER BY name ASC')->fetchAll(PDO::FETCH_ASSOC);
 $filterCategories = catalog_list_categories_tree($pdo);
 
@@ -604,7 +607,9 @@ require_once __DIR__ . '/../../includes/header.php';
                                 <?php endif; ?>
                                 <button type="button" class="btn btn-sm btn-outline-secondary" title="View History" onclick="InventoryUI.openHistoryModal(<?php echo (int) $product['id']; ?>, 0, '<?php echo app_escape(addslashes($product['sku'])); ?>')">&#128337;</button>
                             <?php endif; ?>
-                            <a class="btn btn-sm btn-outline-secondary" href="/modules/products/edit.php?id=<?php echo (int) $product['id']; ?>" title="Edit Product">&#9998;</a>
+                            <?php if ($canManageProducts): ?>
+                                <a class="btn btn-sm btn-outline-secondary" href="/modules/products/edit.php?id=<?php echo (int) $product['id']; ?>" title="Edit Product">&#9998;</a>
+                            <?php endif; ?>
                             <?php if (!$isVariable && (int) $product['arrived_stock'] > 0): ?>
                                 <a class="btn btn-sm btn-outline-primary" href="/modules/inventory/allocate.php?product_id=<?php echo (int) $product['id']; ?>">Allocate</a>
                             <?php endif; ?>
@@ -650,7 +655,9 @@ require_once __DIR__ . '/../../includes/header.php';
                                         <button type="button" class="btn btn-sm btn-outline-primary" title="Adjust Stock" onclick="InventoryUI.openAdjustModal('<?php echo app_escape($unitKey); ?>')">&plusmn;</button>
                                     <?php endif; ?>
                                     <button type="button" class="btn btn-sm btn-outline-secondary" title="View History" onclick="InventoryUI.openHistoryModal(<?php echo (int) $product['id']; ?>, <?php echo (int) $variation['variation_id']; ?>, '<?php echo app_escape(addslashes($variation['sku'])); ?>')">&#128337;</button>
-                                    <a class="btn btn-sm btn-outline-secondary" href="/modules/products/edit.php?id=<?php echo (int) $product['id']; ?>" title="Edit Product">&#9998;</a>
+                                    <?php if ($canManageProducts): ?>
+                                        <a class="btn btn-sm btn-outline-secondary" href="/modules/products/edit.php?id=<?php echo (int) $product['id']; ?>" title="Edit Product">&#9998;</a>
+                                    <?php endif; ?>
                                     <?php if ((int) $variation['arrived_stock'] > 0): ?>
                                         <a class="btn btn-sm btn-outline-primary" href="/modules/inventory/allocate.php?product_id=<?php echo (int) $product['id']; ?>&variation_id=<?php echo (int) $variation['variation_id']; ?>">Allocate</a>
                                     <?php endif; ?>

@@ -39,6 +39,11 @@ if (!$customer) {
     exit;
 }
 
+// This page only requires customers.view - the order links below go to
+// modules/orders/view.php, which requires orders.view. The destination controls
+// permission, so each link is gated on that, not this page's own gate.
+$canViewOrders = app_has_permission('orders.view');
+
 // Section 1: Orders
 $ordersStmt = $pdo->prepare('
     SELECT id, order_number, order_date, order_status, payment_status, total_amount, is_historical
@@ -100,7 +105,11 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php foreach ($orders as $order): ?>
                 <tr>
                     <td>
-                        <a href="/modules/orders/view.php?id=<?php echo (int) $order['id']; ?>"><?php echo app_escape($order['order_number']); ?></a>
+                        <?php if ($canViewOrders): ?>
+                            <a href="/modules/orders/view.php?id=<?php echo (int) $order['id']; ?>"><?php echo app_escape($order['order_number']); ?></a>
+                        <?php else: ?>
+                            <?php echo app_escape($order['order_number']); ?>
+                        <?php endif; ?>
                         <?php if (!empty($order['is_historical'])): ?>
                             <span class="badge bg-secondary">Historical</span>
                         <?php endif; ?>
@@ -180,7 +189,13 @@ require_once __DIR__ . '/../../includes/header.php';
                     <td><a href="/modules/shipments/view.php?id=<?php echo (int) $shipment['id']; ?>"><?php echo app_escape($shipment['shipment_number']); ?></a></td>
                     <td>
                         <?php foreach ($shipment['orders'] as $shipmentOrder): ?>
-                            <div><a href="/modules/orders/view.php?id=<?php echo (int) $shipmentOrder['id']; ?>"><?php echo app_escape($shipmentOrder['order_number']); ?></a></div>
+                            <div>
+                                <?php if ($canViewOrders): ?>
+                                    <a href="/modules/orders/view.php?id=<?php echo (int) $shipmentOrder['id']; ?>"><?php echo app_escape($shipmentOrder['order_number']); ?></a>
+                                <?php else: ?>
+                                    <?php echo app_escape($shipmentOrder['order_number']); ?>
+                                <?php endif; ?>
+                            </div>
                         <?php endforeach; ?>
                         <?php if ($shipment['orders'] === []): ?>&mdash;<?php endif; ?>
                     </td>

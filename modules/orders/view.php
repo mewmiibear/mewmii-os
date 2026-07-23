@@ -298,6 +298,14 @@ $inventoryTxStmt->execute([$orderId]);
 $inventoryTx = $inventoryTxStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $canManage = app_has_permission('orders.manage');
+// Separate from $canManage above: modules/shipments/create.php requires shipments.manage
+// and modules/shipments/view.php requires shipments.view - the destination controls
+// permission, not this page's own orders.manage/orders.view gate.
+$canCreateShipments = app_has_permission('shipments.manage');
+$canViewShipments = app_has_permission('shipments.view');
+// Same reasoning: the customer link in the page header goes to modules/customers/view.php,
+// which requires customers.view.
+$canViewCustomers = app_has_permission('customers.view');
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
@@ -309,7 +317,15 @@ require_once __DIR__ . '/../../includes/header.php';
                 <span class="badge bg-secondary">Historical</span>
             <?php endif; ?>
         </h2>
-        <p class="text-muted mb-0"><?php echo app_escape($order['customer_name'] ?? 'Unknown customer'); ?></p>
+        <p class="text-muted mb-0">
+            <?php if ($order['customer_name'] === null): ?>
+                Unknown customer
+            <?php elseif ($canViewCustomers && $order['customer_id'] !== null): ?>
+                <a href="/modules/customers/view.php?id=<?php echo (int) $order['customer_id']; ?>"><?php echo app_escape($order['customer_name']); ?></a>
+            <?php else: ?>
+                <?php echo app_escape($order['customer_name']); ?>
+            <?php endif; ?>
+        </p>
     </div>
     <div class="d-flex gap-2">
         <?php
@@ -428,7 +444,11 @@ require_once __DIR__ . '/../../includes/header.php';
                                 <?php endif; ?>
                                 <?php foreach ($fulfillment['shipments'] as $itemShipment): ?>
                                     <div class="text-muted small">
-                                        <a href="/modules/shipments/view.php?id=<?php echo (int) $itemShipment['id']; ?>"><?php echo app_escape($itemShipment['shipment_number']); ?></a>
+                                        <?php if ($canViewShipments): ?>
+                                            <a href="/modules/shipments/view.php?id=<?php echo (int) $itemShipment['id']; ?>"><?php echo app_escape($itemShipment['shipment_number']); ?></a>
+                                        <?php else: ?>
+                                            <?php echo app_escape($itemShipment['shipment_number']); ?>
+                                        <?php endif; ?>
                                         <?php if (!empty($itemShipment['tracking_number'])): ?>
                                             &middot; <?php echo app_escape($itemShipment['tracking_number']); ?>
                                         <?php endif; ?>
@@ -554,7 +574,11 @@ require_once __DIR__ . '/../../includes/header.php';
                 <?php foreach ($orderShipments as $shipment): ?>
                     <li class="mb-3">
                         <div class="fw-semibold">
-                            <a href="/modules/shipments/view.php?id=<?php echo (int) $shipment['id']; ?>"><?php echo app_escape($shipment['shipment_number']); ?></a>
+                            <?php if ($canViewShipments): ?>
+                                <a href="/modules/shipments/view.php?id=<?php echo (int) $shipment['id']; ?>"><?php echo app_escape($shipment['shipment_number']); ?></a>
+                            <?php else: ?>
+                                <?php echo app_escape($shipment['shipment_number']); ?>
+                            <?php endif; ?>
                             <?php echo shipment_status_badge($shipment['shipping_status']); ?>
                         </div>
                         <?php if (!empty($shipment['tracking_number'])): ?>
@@ -569,7 +593,7 @@ require_once __DIR__ . '/../../includes/header.php';
                     <li class="text-muted">No shipments created for this order yet.</li>
                 <?php endif; ?>
             </ul>
-            <?php if ($canManage && empty($order['is_historical'])): ?>
+            <?php if ($canCreateShipments && empty($order['is_historical'])): ?>
                 <a class="small" href="/modules/shipments/create.php?order_id=<?php echo (int) $orderId; ?>">Create Shipment &rarr;</a>
             <?php endif; ?>
         </div>

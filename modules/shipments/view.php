@@ -28,6 +28,10 @@ if (!$shipment) {
 }
 
 $canManage = app_has_permission('shipments.manage');
+// Separate from $canManage above: the order links in the items table below go to
+// modules/orders/view.php, which requires orders.view - the destination controls
+// permission, not this page's own shipments.view/manage gate.
+$canViewOrders = app_has_permission('orders.view');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
@@ -156,8 +160,10 @@ require_once __DIR__ . '/../../includes/header.php';
                                 <?php endif; ?>
                             </td>
                             <td>
-                                <?php if (!empty($item['order_number'])): ?>
+                                <?php if (!empty($item['order_number']) && $canViewOrders): ?>
                                     <a href="/modules/orders/view.php?id=<?php echo (int) $item['order_id']; ?>"><?php echo app_escape($item['order_number']); ?></a>
+                                <?php elseif (!empty($item['order_number'])): ?>
+                                    <?php echo app_escape($item['order_number']); ?>
                                 <?php else: ?>
                                     &mdash;
                                 <?php endif; ?>
