@@ -55,14 +55,19 @@ Manage customer purchases.
 Goal:
 Manage Japan supplier purchasing.
 
-- [ ] Supplier Orders
-- [ ] Supplier Order Items
-- [ ] Product MOQ Calculation
-- [ ] Customer Quantity Tracking
-- [ ] Top Up Quantity
+- [x] Supplier Orders
+- [x] Supplier Order Items
+- [x] Product MOQ Calculation
+- [x] Customer Quantity Tracking
+- [x] Top Up Quantity
 - [ ] Estimated Supplier Payment
 - [ ] Actual Supplier Payment
 - [ ] Shipment Tracking
+- [x] Purchase Planning (paid preorder demand + ready-stock target-level replenishment calculation, grouped by supplier)
+- [x] Supplier Order Generation (one-click generation of supplier orders from Purchase Planning)
+- [x] Supplier Order Workflow Improvements (Draft -> Ordered -> Partially Received -> Received/"Arrived" -> Completed, plus Cancel)
+- [x] Historical Data Foundation (`is_historical` on customer orders and supplier orders, bypassing reservation/shipping/incoming/receiving)
+- [x] Import Foundation (CSV import for customers, suppliers, historical customer orders, historical supplier orders, inventory opening stock - all-or-nothing validation)
 
 ---
 
@@ -71,12 +76,12 @@ Manage Japan supplier purchasing.
 Goal:
 Manage incoming and outgoing products.
 
-- [ ] Inventory System
-- [ ] Incoming Stock
-- [ ] Reserved Stock
-- [ ] Available Stock
-- [ ] Inventory Transactions
-- [ ] Warehouse Receiving
+- [x] Inventory System
+- [x] Incoming Stock
+- [x] Reserved Stock
+- [x] Available Stock
+- [x] Inventory Transactions (every quantity-changing write is ledger-paired, including a new opening_stock transaction type for historical baselines)
+- [x] Warehouse Receiving
 - [ ] Packing System
 - [ ] Parcel Photos
 - [ ] Shipping Status
