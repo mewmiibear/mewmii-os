@@ -60,3 +60,78 @@ function ship_request_process(PDO $pdo, int $shipRequestId, ?string $carrier = n
 
     return $shipmentId;
 }
+
+function ship_request_status_label(string $status): string
+{
+    $labels = [
+        'pending' => 'Pending',
+        'processing' => 'Processing',
+        'shipped' => 'Shipped',
+        'completed' => 'Completed',
+    ];
+
+    return $labels[$status] ?? ucfirst($status);
+}
+
+function ship_request_status_emoji(string $status): string
+{
+    $emoji = [
+        'pending' => '🟡',
+        'processing' => '🔵',
+        'shipped' => '🟢',
+        'completed' => '✅',
+    ];
+
+    return $emoji[$status] ?? '⚪';
+}
+
+/**
+ * The single next status-changing action available from $status - drives the one-button
+ * workflow on modules/ship-my-box/view.php so the system controls the transition instead of
+ * an admin picking freely from a dropdown. Returns null once there's nothing left to change
+ * (a terminal/unrecognised status). 'needs_tracking' marks the one transition
+ * (processing -> shipped) that requires carrier/tracking number - matches the validation
+ * already enforced in view.php/ship_request_process(), not a new rule.
+ */
+function ship_request_next_action(string $status): ?array
+{
+    $actions = [
+        'pending' => ['label' => 'Review Request', 'target_status' => 'processing', 'needs_tracking' => false],
+        'processing' => ['label' => 'Create Shipment', 'target_status' => 'shipped', 'needs_tracking' => true],
+        'shipped' => ['label' => 'Mark Completed', 'target_status' => 'completed', 'needs_tracking' => false],
+    ];
+
+    return $actions[$status] ?? null;
+}
+
+/**
+ * Chronological "what already happened" entries for the Shipment Timeline section on
+ * modules/ship-my-box/view.php - built entirely from data that already exists
+ * (ship_requests.created_at and the linked shipment's own columns), never a new log of its
+ * own. Only lists steps that have actually happened - there is no separate "pending future
+ * step" concept here since the ship_requests status model doesn't track granular sub-stages
+ * beyond pending/processing/shipped/completed.
+ */
+function ship_request_timeline(PDO $pdo, array $shipRequest, ?array $linkedShipment): array
+{
+    $timeline = [
+        ['label' => 'Ship request created', 'detail' => date('d M Y H:i', strtotime((string) $shipRequest['created_at']))],
+        ['label' => 'Items allocated from customer storage', 'detail' => null],
+    ];
+
+    if ($linkedShipment === null) {
+        return $timeline;
+    }
+
+    $timeline[] = ['label' => 'Shipment created', 'detail' => $linkedShipment['shipment_number']];
+
+    if ($linkedShipment['tracking_number'] !== null && $linkedShipment['tracking_number'] !== '') {
+        $trackingDetail = $linkedShipment['tracking_number'];
+        if (!empty($linkedShipment['carrier'])) {
+            $trackingDetail = $linkedShipment['carrier'] . ' ' . $trackingDetail;
+        }
+        $timeline[] = ['label' => 'Tracking added', 'detail' => $trackingDetail];
+    }
+
+    return $timeline;
+}

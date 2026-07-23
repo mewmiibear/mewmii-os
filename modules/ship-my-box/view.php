@@ -116,17 +116,6 @@ foreach ($items as &$item) {
 }
 unset($item);
 
-$activityStmt = $pdo->prepare("
-    SELECT it.quantity, it.created_at, p.sku, p.name AS product_name
-    FROM inventory_transactions it
-    INNER JOIN ship_request_items sri ON sri.id = it.reference_id AND it.reference_type = 'ship_request_item'
-    INNER JOIN products p ON p.id = it.product_id
-    WHERE sri.ship_request_id = ? AND it.transaction_type = 'ship_my_box'
-    ORDER BY it.created_at DESC, it.id DESC
-");
-$activityStmt->execute([$shipRequestId]);
-$activity = $activityStmt->fetchAll(PDO::FETCH_ASSOC);
-
 $shipmentStmt = $pdo->prepare("
     SELECT id, shipment_number, carrier, tracking_number, shipping_status, shipped_at
     FROM shipments
@@ -135,6 +124,25 @@ $shipmentStmt = $pdo->prepare("
 ");
 $shipmentStmt->execute([$shipRequestId]);
 $linkedShipment = $shipmentStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
+// Reads the SAME transaction shipment_mark_shipped() writes (reference_type = 'shipment_item',
+// reference_id = a shipment_items row) - scoped to the shipment this ship request produced,
+// since inventory_transactions is never written against ship_request_items directly.
+$activity = [];
+if ($linkedShipment !== null) {
+    $activityStmt = $pdo->prepare("
+        SELECT it.quantity, it.created_at, p.sku, p.name AS product_name
+        FROM inventory_transactions it
+        INNER JOIN shipment_items si ON si.id = it.reference_id AND it.reference_type = 'shipment_item'
+        INNER JOIN products p ON p.id = it.product_id
+        WHERE si.shipment_id = ? AND it.transaction_type = 'ship_my_box'
+        ORDER BY it.created_at DESC, it.id DESC
+    ");
+    $activityStmt->execute([(int) $linkedShipment['id']]);
+    $activity = $activityStmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+$timeline = ship_request_timeline($pdo, $shipRequest, $linkedShipment);
 
 $canManage = app_has_permission('ship-my-box.manage');
 
@@ -165,13 +173,23 @@ require_once __DIR__ . '/../../includes/header.php';
         <div class="card p-4 mb-4">
             <h5 class="mb-3">Shipment Status</h5>
             <table class="table table-borderless mb-0">
-                <tr><th>Status</th><td><?php echo app_escape($shipRequest['status']); ?></td></tr>
-                <tr><th>Shipping Fee</th><td><?php echo app_escape((string) $shipRequest['shipping_fee']); ?></td></tr>
-                <tr><th>Weight</th><td><?php echo app_escape($shipRequest['weight'] !== null ? (string) $shipRequest['weight'] : '-'); ?></td></tr>
+                <tr>
+                    <th>Status</th>
+                    <td><?php echo app_escape(ship_request_status_emoji($shipRequest['status'])); ?> <?php echo app_escape(ship_request_status_label($shipRequest['status'])); ?></td>
+                </tr>
+                <?php if ($linkedShipment !== null && !empty($linkedShipment['carrier'])): ?>
+                    <tr><th>Courier</th><td><?php echo app_escape($linkedShipment['carrier']); ?></td></tr>
+                <?php endif; ?>
+                <?php if ($linkedShipment !== null && !empty($linkedShipment['tracking_number'])): ?>
+                    <tr><th>Tracking Number</th><td><?php echo app_escape($linkedShipment['tracking_number']); ?></td></tr>
+                <?php endif; ?>
+                <tr><th>Shipping Fee</th><td>RM <?php echo app_escape(number_format((float) $shipRequest['shipping_fee'], 2)); ?></td></tr>
+                <?php if ($shipRequest['weight'] !== null): ?>
+                    <tr><th>Weight</th><td><?php echo app_escape(number_format((float) $shipRequest['weight'], 1)); ?> KG</td></tr>
+                <?php endif; ?>
                 <tr><th>Requested</th><td><?php echo app_escape($shipRequest['created_at']); ?></td></tr>
                 <?php if ($linkedShipment !== null): ?>
-                    <tr><th>Shipment</th><td><a href="/modules/shipments/view.php?id=<?php echo (int) $linkedShipment['id']; ?>"><?php echo app_escape($linkedShipment['shipment_number']); ?></a></td></tr>
-                    <tr><th>Tracking</th><td><?php echo $linkedShipment['tracking_number'] !== null ? app_escape($linkedShipment['tracking_number']) . ($linkedShipment['carrier'] !== null ? ' (' . app_escape($linkedShipment['carrier']) . ')' : '') : '&mdash;'; ?></td></tr>
+                    <tr><th>Shipment ID</th><td><a href="/modules/shipments/view.php?id=<?php echo (int) $linkedShipment['id']; ?>"><?php echo app_escape($linkedShipment['shipment_number']); ?></a></td></tr>
                 <?php endif; ?>
             </table>
         </div>
@@ -184,7 +202,7 @@ require_once __DIR__ . '/../../includes/header.php';
                         <th>SKU</th>
                         <th>Product</th>
                         <th>Qty Requested</th>
-                        <th>Storage Source</th>
+                        <th>Customer Storage</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -199,10 +217,10 @@ require_once __DIR__ . '/../../includes/header.php';
                             </td>
                             <td><?php echo app_escape((string) $item['quantity']); ?></td>
                             <td>
-                                Lot #<?php echo (int) $item['storage_id']; ?>
-                                (<?php echo app_escape($item['storage_status']); ?>,
-                                <?php echo app_escape((string) $item['storage_remaining_quantity']); ?> left,
-                                arrived <?php echo app_escape($item['arrival_date'] ?? '-'); ?>)
+                                <div class="fw-semibold">Customer Storage #<?php echo (int) $item['storage_id']; ?></div>
+                                <div class="text-muted small">Status: <?php echo app_escape(ucfirst($item['storage_status'])); ?></div>
+                                <div class="text-muted small">Remaining: <?php echo app_escape((string) $item['storage_remaining_quantity']); ?></div>
+                                <div class="text-muted small">Arrival: <?php echo app_escape($item['arrival_date'] ?? 'Pending'); ?></div>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -217,29 +235,49 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="col-lg-5">
         <?php if ($canManage): ?>
             <div class="card p-4 mb-4">
-                <h5 class="mb-3">Change Status</h5>
+                <h5 class="mb-3">Actions</h5>
                 <?php if (in_array($shipRequest['status'], $terminalStatuses, true)): ?>
                     <span class="badge bg-secondary">Final</span>
                 <?php else: ?>
-                    <form method="post" class="d-flex gap-2 flex-wrap align-items-start">
-                        <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                    <?php $nextAction = ship_request_next_action($shipRequest['status']); ?>
 
-                        <select class="form-select form-select-sm w-auto" name="new_status" required>
-                            <?php foreach ($statuses as $statusOption): ?>
-                                <?php if ($statusOption === $shipRequest['status']) { continue; } ?>
-                                <option value="<?php echo app_escape($statusOption); ?>"><?php echo app_escape($statusOption); ?></option>
-                            <?php endforeach; ?>
-                        </select>
+                    <?php if ($shipRequest['status'] === 'shipped' && $linkedShipment !== null): ?>
+                        <a class="btn btn-primary btn-sm mb-2" href="/modules/shipments/view.php?id=<?php echo (int) $linkedShipment['id']; ?>">View Tracking</a>
+                    <?php endif; ?>
 
-                        <input type="text" class="form-control form-control-sm" style="max-width: 160px;" name="carrier" placeholder="Carrier (if shipping)">
-                        <input type="text" class="form-control form-control-sm" style="max-width: 160px;" name="tracking_number" placeholder="Tracking # (if shipping)">
+                    <?php if ($nextAction !== null): ?>
+                        <form method="post" class="d-flex gap-2 flex-wrap align-items-start">
+                            <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                            <input type="hidden" name="new_status" value="<?php echo app_escape($nextAction['target_status']); ?>">
 
-                        <button class="btn btn-primary btn-sm" type="submit">Update</button>
-                    </form>
-                    <p class="text-muted small mt-2 mb-0">Moving to "shipped" requires carrier + tracking number, creates a shipment record, deducts the items from customer storage, and logs inventory activity.</p>
+                            <?php if ($nextAction['needs_tracking']): ?>
+                                <input type="text" class="form-control form-control-sm" style="max-width: 160px;" name="carrier" placeholder="Carrier" required>
+                                <input type="text" class="form-control form-control-sm" style="max-width: 160px;" name="tracking_number" placeholder="Tracking #" required>
+                            <?php endif; ?>
+
+                            <button class="btn <?php echo $shipRequest['status'] === 'shipped' ? 'btn-outline-secondary' : 'btn-primary'; ?> btn-sm" type="submit"><?php echo app_escape($nextAction['label']); ?></button>
+                        </form>
+                        <?php if ($nextAction['needs_tracking']): ?>
+                            <p class="text-muted small mt-2 mb-0">Creates a shipment record, deducts the items from customer storage, and logs inventory activity.</p>
+                        <?php endif; ?>
+                    <?php endif; ?>
                 <?php endif; ?>
             </div>
         <?php endif; ?>
+
+        <div class="card p-4 mb-4">
+            <h5 class="mb-3">Shipment Timeline</h5>
+            <ul class="list-unstyled mb-0">
+                <?php foreach ($timeline as $step): ?>
+                    <li class="mb-3">
+                        <div>✓ <?php echo app_escape($step['label']); ?></div>
+                        <?php if ($step['detail'] !== null): ?>
+                            <div class="text-muted small ps-3"><?php echo app_escape($step['detail']); ?></div>
+                        <?php endif; ?>
+                    </li>
+                <?php endforeach; ?>
+            </ul>
+        </div>
 
         <div class="card p-4">
             <h5 class="mb-3">Inventory Activity</h5>
