@@ -98,13 +98,51 @@ if ($supplierIds !== []) {
     }
 }
 
+// Earliest expected delivery date already on file for a unit's incoming stock - purely
+// informational context for the existing incoming_quantity number, read from the existing
+// supplier_orders.expected_delivery_date column (nullable, admin-entered). Only queried for
+// units that actually have incoming stock, batched by product_id in one query rather than
+// per-row, then looked up per unit by the same "productId:variationId" key
+// purchase_planning_needs() already uses. Never affects the shortage/demand calculation.
+$incomingProductIds = [];
+foreach ($needs as $need) {
+    if ((int) $need['incoming_quantity'] > 0) {
+        $incomingProductIds[] = $need['product_id'];
+    }
+}
+$incomingProductIds = array_values(array_unique($incomingProductIds));
+
+$earliestDeliveryByKey = [];
+if ($incomingProductIds !== []) {
+    $productPlaceholders = implode(',', array_fill(0, count($incomingProductIds), '?'));
+    $deliveryStmt = $pdo->prepare("
+        SELECT soi.product_id, soi.variation_id, MIN(so.expected_delivery_date) AS earliest_expected
+        FROM supplier_order_items soi
+        INNER JOIN supplier_orders so ON so.id = soi.supplier_order_id
+        WHERE so.status NOT IN ('received', 'cancelled')
+          AND so.expected_delivery_date IS NOT NULL
+          AND soi.product_id IN ({$productPlaceholders})
+        GROUP BY soi.product_id, soi.variation_id
+    ");
+    $deliveryStmt->execute($incomingProductIds);
+    foreach ($deliveryStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $key = $row['product_id'] . ':' . (int) ($row['variation_id'] ?? 0);
+        $earliestDeliveryByKey[$key] = $row['earliest_expected'];
+    }
+}
+
 // Group for display: one section per supplier, plus a "No Supplier Assigned" section for
 // products that can't be included in generation until a supplier is set on the product.
+// product_count/total_value are the per-supplier running total shown in the group header -
+// summed from the same suggested_quantity * cost_price figure already shown per line in the
+// Total column, so it never drifts from what's displayed below it.
 $groups = [];
 foreach ($needs as $need) {
     $groupKey = $need['supplier_id'] ?? 0;
     $groups[$groupKey]['supplier_name'] = $need['supplier_id'] !== null ? ($suppliersById[$need['supplier_id']] ?? 'Unknown Supplier') : 'No Supplier Assigned';
     $groups[$groupKey]['items'][] = $need;
+    $groups[$groupKey]['product_count'] = ($groups[$groupKey]['product_count'] ?? 0) + 1;
+    $groups[$groupKey]['total_value'] = ($groups[$groupKey]['total_value'] ?? 0.0) + ((int) $need['suggested_quantity'] * (float) $need['cost_price']);
 }
 uasort($groups, static fn (array $a, array $b): int => strcmp($a['supplier_name'], $b['supplier_name']));
 
@@ -132,12 +170,16 @@ require_once __DIR__ . '/../../includes/header.php';
 
         <?php foreach ($groups as $groupKey => $group): ?>
             <div class="card p-4 mb-4">
-                <h5 class="mb-3">
+                <h5 class="mb-1">
                     <?php echo app_escape($group['supplier_name']); ?>
                     <?php if ((int) $groupKey === 0): ?>
                         <span class="badge bg-warning text-dark">Set a supplier on these products to include them</span>
                     <?php endif; ?>
                 </h5>
+                <p class="text-muted small mb-3">
+                    <?php echo (int) $group['product_count']; ?> product<?php echo (int) $group['product_count'] === 1 ? '' : 's'; ?>
+                    &middot; Total Order Value: RM <?php echo app_escape(number_format($group['total_value'], 2)); ?>
+                </p>
                 <div class="table-responsive">
                     <table class="table align-middle">
                         <thead>
@@ -148,6 +190,7 @@ require_once __DIR__ . '/../../includes/header.php';
                                 <th>Demand</th>
                                 <th>Stock</th>
                                 <th>Incoming</th>
+                                <th>Expected Delivery</th>
                                 <th>MOQ</th>
                                 <th>Order Qty</th>
                                 <th>Left</th>
@@ -186,6 +229,9 @@ require_once __DIR__ . '/../../includes/header.php';
                                     <td><?php echo app_escape((string) $need['customer_demand']); ?></td>
                                     <td><?php echo app_escape((string) $need['available_quantity']); ?></td>
                                     <td><?php echo app_escape((string) $need['incoming_quantity']); ?></td>
+                                    <td class="text-muted">
+                                        <?php echo isset($earliestDeliveryByKey[$rowKey]) ? app_escape($earliestDeliveryByKey[$rowKey]) : '&mdash;'; ?>
+                                    </td>
                                     <td><?php echo app_escape((string) $need['moq']); ?></td>
                                     <td>
                                         <input type="number" class="form-control form-control-sm" style="width:90px;" name="quantity[<?php echo app_escape($rowKey); ?>]" min="1" value="<?php echo (int) $need['suggested_quantity']; ?>" <?php echo $disabled ? 'disabled' : ''; ?>>
@@ -200,7 +246,7 @@ require_once __DIR__ . '/../../includes/header.php';
                                     </td>
                                 </tr>
                                 <tr class="collapse" id="detail-<?php echo app_escape($safeRowKey); ?>">
-                                    <td colspan="12" class="text-muted small py-2">
+                                    <td colspan="13" class="text-muted small py-2">
                                         Type: <?php echo app_escape($productTypeLabels[$need['product_type']] ?? $need['product_type']); ?>
                                         &nbsp;&middot;&nbsp; Need / Shortage: <?php echo app_escape((string) $need['raw_need']); ?>
                                         &nbsp;&middot;&nbsp; MOQ top-up: <?php echo app_escape((string) $need['moq_top_up']); ?>
