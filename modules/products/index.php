@@ -327,6 +327,7 @@ require_once __DIR__ . '/../../includes/header.php';
                     <?php if ($canManage): ?>
                         <td class="text-end">
                             <a class="btn btn-sm btn-outline-primary" href="/modules/products/edit.php?id=<?php echo (int) $product['id']; ?>">Edit</a>
+                            <a class="btn btn-sm btn-outline-secondary" href="/modules/products/control-center.php?id=<?php echo (int) $product['id']; ?>">Control Center</a>
                             <form method="post" action="/modules/products/duplicate.php" class="d-inline">
                                 <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                                 <input type="hidden" name="product_id" value="<?php echo (int) $product['id']; ?>">

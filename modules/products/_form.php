@@ -49,6 +49,9 @@
                 <button type="submit" class="btn btn-outline-danger btn-sm">Delete</button>
             </form>
         <?php endif; ?>
+        <?php if ($isEdit): ?>
+            <a class="btn btn-outline-primary btn-sm" href="/modules/products/control-center.php?id=<?php echo (int) $productId; ?>">Open Product Control Center</a>
+        <?php endif; ?>
         <a class="btn btn-outline-secondary btn-sm" href="/modules/products/index.php">Back to Products</a>
     </div>
 </div>
@@ -73,134 +76,6 @@
 <?php endif; ?>
 <?php if ($error !== ''): ?>
     <div class="alert alert-danger"><?php echo app_escape($error); ?></div>
-<?php endif; ?>
-
-<?php if ($isEdit): ?>
-<div class="card p-4 mb-4 border-info">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h5 class="mb-0">Product Control Center</h5>
-        <span class="text-muted small">Read-only operational summary</span>
-    </div>
-    <div class="row g-4">
-        <div class="col-md-6 col-lg-4">
-            <h6 class="text-muted text-uppercase small mb-2">Inventory</h6>
-            <div class="d-flex justify-content-between"><span>Available</span><strong><?php echo (int) $currentStock['available_quantity']; ?></strong></div>
-            <div class="d-flex justify-content-between"><span>Reserved</span><strong><?php echo (int) $currentStock['reserved_quantity']; ?></strong></div>
-            <div class="d-flex justify-content-between"><span>Incoming</span><strong><?php echo (int) $currentStock['incoming_quantity']; ?></strong></div>
-        </div>
-
-        <div class="col-md-6 col-lg-4">
-            <h6 class="text-muted text-uppercase small mb-2">Supplier</h6>
-            <?php if ($controlCenterSupplier !== null): ?>
-                <div>Current supplier: <strong><?php echo app_escape($controlCenterSupplier['name']); ?></strong></div>
-            <?php else: ?>
-                <div class="text-muted">No supplier assigned</div>
-            <?php endif; ?>
-            <?php if ($form['supplier_sku'] !== ''): ?>
-                <div>Supplier SKU: <strong><?php echo app_escape($form['supplier_sku']); ?></strong></div>
-            <?php endif; ?>
-            <?php if ($lastSupplierOrder !== null): ?>
-                <div class="mt-1 small">
-                    Last order:
-                    <?php if ($controlCenterPermissions['supplierOrders']): ?>
-                        <a href="/modules/supplier-orders/view.php?id=<?php echo (int) $lastSupplierOrder['id']; ?>"><?php echo app_escape($lastSupplierOrder['purchase_number']); ?></a>
-                    <?php else: ?>
-                        <?php echo app_escape($lastSupplierOrder['purchase_number']); ?>
-                    <?php endif; ?>
-                    &middot; <?php echo app_escape($lastSupplierOrder['order_date'] ?? '-'); ?>
-                    &middot; <?php echo supplier_order_status_badge($lastSupplierOrder['status']); ?>
-                </div>
-            <?php else: ?>
-                <div class="text-muted small mt-1">No supplier orders yet.</div>
-            <?php endif; ?>
-        </div>
-
-        <div class="col-md-6 col-lg-4">
-            <h6 class="text-muted text-uppercase small mb-2">Quick Navigation</h6>
-            <div class="d-grid gap-1">
-                <?php if ($controlCenterPermissions['inventory']): ?>
-                    <a class="btn btn-sm btn-outline-secondary text-start" href="/modules/inventory/index.php?q=<?php echo urlencode($form['sku']); ?>">View Inventory</a>
-                <?php endif; ?>
-                <?php if ($controlCenterPermissions['orders']): ?>
-                    <a class="btn btn-sm btn-outline-secondary text-start" href="/modules/orders/index.php?product_id=<?php echo (int) $productId; ?>">View Orders containing this product</a>
-                <?php endif; ?>
-                <?php if ($controlCenterPermissions['supplierOrders']): ?>
-                    <a class="btn btn-sm btn-outline-secondary text-start" href="/modules/supplier-orders/index.php?product_id=<?php echo (int) $productId; ?>">View Supplier Orders for this product</a>
-                <?php endif; ?>
-                <?php if ($controlCenterPermissions['purchasePlanning']): ?>
-                    <a class="btn btn-sm btn-outline-secondary text-start" href="/modules/purchase-planning/generate.php?highlight_product_id=<?php echo (int) $productId; ?>">View Purchase Planning for this product</a>
-                <?php endif; ?>
-                <?php if (!in_array(true, $controlCenterPermissions, true)): ?>
-                    <p class="text-muted small mb-0">No linked modules available for your permissions.</p>
-                <?php endif; ?>
-            </div>
-        </div>
-    </div>
-
-    <div class="row g-4 mt-1">
-        <div class="col-lg-6">
-            <h6 class="text-muted text-uppercase small mb-1">Sales History</h6>
-            <p class="text-muted small mb-2">Last <?php echo count($recentCustomerOrders); ?> customer order(s) containing this product.</p>
-            <?php if ($recentCustomerOrders === []): ?>
-                <p class="text-muted small mb-0">No customer orders yet.</p>
-            <?php else: ?>
-                <div class="table-responsive">
-                    <table class="table table-sm align-middle mb-0">
-                        <thead><tr><th>Order</th><th>Date</th><th>Qty</th><th>Status</th></tr></thead>
-                        <tbody>
-                            <?php foreach ($recentCustomerOrders as $historyOrder): ?>
-                                <tr>
-                                    <td>
-                                        <?php if ($controlCenterPermissions['orders']): ?>
-                                            <a href="/modules/orders/view.php?id=<?php echo (int) $historyOrder['id']; ?>"><?php echo app_escape($historyOrder['order_number']); ?></a>
-                                        <?php else: ?>
-                                            <?php echo app_escape($historyOrder['order_number']); ?>
-                                        <?php endif; ?>
-                                        <?php if (!empty($historyOrder['is_historical'])): ?><span class="badge bg-secondary">Historical</span><?php endif; ?>
-                                    </td>
-                                    <td><?php echo app_escape($historyOrder['order_date'] ?? '-'); ?></td>
-                                    <td><?php echo (int) $historyOrder['quantity']; ?></td>
-                                    <td><?php echo order_status_badge($historyOrder['order_status']); ?></td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-            <?php endif; ?>
-        </div>
-        <div class="col-lg-6">
-            <h6 class="text-muted text-uppercase small mb-1">Purchase History</h6>
-            <p class="text-muted small mb-2">Last <?php echo count($recentSupplierOrders); ?> supplier order(s) containing this product.</p>
-            <?php if ($recentSupplierOrders === []): ?>
-                <p class="text-muted small mb-0">No supplier orders yet.</p>
-            <?php else: ?>
-                <div class="table-responsive">
-                    <table class="table table-sm align-middle mb-0">
-                        <thead><tr><th>Purchase #</th><th>Supplier</th><th>Date</th><th>Qty</th><th>Status</th></tr></thead>
-                        <tbody>
-                            <?php foreach ($recentSupplierOrders as $historyOrder): ?>
-                                <tr>
-                                    <td>
-                                        <?php if ($controlCenterPermissions['supplierOrders']): ?>
-                                            <a href="/modules/supplier-orders/view.php?id=<?php echo (int) $historyOrder['id']; ?>"><?php echo app_escape($historyOrder['purchase_number']); ?></a>
-                                        <?php else: ?>
-                                            <?php echo app_escape($historyOrder['purchase_number']); ?>
-                                        <?php endif; ?>
-                                        <?php if (!empty($historyOrder['is_historical'])): ?><span class="badge bg-secondary">Historical</span><?php endif; ?>
-                                    </td>
-                                    <td><?php echo app_escape($historyOrder['supplier_name']); ?></td>
-                                    <td><?php echo app_escape($historyOrder['order_date'] ?? '-'); ?></td>
-                                    <td><?php echo (int) $historyOrder['total_quantity']; ?></td>
-                                    <td><?php echo supplier_order_status_badge($historyOrder['status']); ?></td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-            <?php endif; ?>
-        </div>
-    </div>
-</div>
 <?php endif; ?>
 
 <form method="post" enctype="multipart/form-data" id="product-form">
