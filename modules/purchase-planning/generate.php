@@ -102,7 +102,7 @@ require_once __DIR__ . '/../../includes/header.php';
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <h2 class="mb-1">Generate Supplier Order</h2>
-        <p class="text-muted mb-0">Products where Need To Order &gt; 0, grouped by supplier - review and adjust before generating.</p>
+        <p class="text-muted mb-0">Products where Shortage &gt; 0, grouped by supplier. Recommended Order Qty rounds the shortage up to the nearest MOQ multiple - review and adjust before generating.</p>
     </div>
     <a class="btn btn-outline-secondary btn-sm" href="/modules/inventory/index.php">Back to Inventory</a>
 </div>
@@ -135,9 +135,12 @@ require_once __DIR__ . '/../../includes/header.php';
                                 <th>Product</th>
                                 <th>SKU</th>
                                 <th>Type</th>
+                                <th>Customer Demand</th>
                                 <th>Available</th>
                                 <th>Incoming</th>
-                                <th>Need To Order</th>
+                                <th>Shortage</th>
+                                <th>MOQ</th>
+                                <th>Recommended Order Qty</th>
                                 <th>Quantity</th>
                                 <th>Unit Cost (RM)</th>
                                 <th>Subtotal (RM)</th>
@@ -147,7 +150,6 @@ require_once __DIR__ . '/../../includes/header.php';
                             <?php foreach ($group['items'] as $need): ?>
                                 <?php
                                 $rowKey = $need['key'];
-                                $belowMoq = $need['moq'] > 0 && $need['suggested_quantity'] < $need['moq'];
                                 $disabled = (int) $groupKey === 0;
                                 ?>
                                 <tr>
@@ -165,14 +167,14 @@ require_once __DIR__ . '/../../includes/header.php';
                                     </td>
                                     <td><?php echo app_escape($need['sku']); ?></td>
                                     <td><?php echo app_escape($productTypeLabels[$need['product_type']] ?? $need['product_type']); ?></td>
+                                    <td><?php echo app_escape((string) $need['customer_demand']); ?></td>
                                     <td><?php echo app_escape((string) $need['available_quantity']); ?></td>
                                     <td><?php echo app_escape((string) $need['incoming_quantity']); ?></td>
                                     <td><?php echo app_escape((string) $need['raw_need']); ?></td>
+                                    <td><?php echo app_escape((string) $need['moq']); ?></td>
+                                    <td><?php echo app_escape((string) $need['suggested_quantity']); ?></td>
                                     <td>
                                         <input type="number" class="form-control form-control-sm" style="width:90px;" name="quantity[<?php echo app_escape($rowKey); ?>]" min="1" value="<?php echo (int) $need['suggested_quantity']; ?>" <?php echo $disabled ? 'disabled' : ''; ?>>
-                                        <?php if ($belowMoq): ?>
-                                            <div class="text-muted small">MOQ: <?php echo (int) $need['moq']; ?></div>
-                                        <?php endif; ?>
                                     </td>
                                     <td>
                                         <input type="number" step="0.01" min="0" class="form-control form-control-sm" style="width:100px;" name="unit_cost[<?php echo app_escape($rowKey); ?>]" value="<?php echo app_escape(number_format((float) $need['cost_price'], 2, '.', '')); ?>" <?php echo $disabled ? 'disabled' : ''; ?>>

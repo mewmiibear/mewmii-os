@@ -54,9 +54,16 @@ function purchase_planning_paid_demand(PDO $pdo, int $productId, ?int $variation
  *   (skipped entirely if target_stock_level is NULL - "not planned" is not the same as
  *   "target is 0")
  *
- * Whichever raw quantity is calculated, the DEFAULT suggested order quantity is bumped up
- * to the product's MOQ if it's below it (same non-blocking convention already used by the
- * Supplier Order picker/create page - the admin can still edit it down before generating).
+ * Whichever raw quantity (shortage) is calculated, the DEFAULT suggested order quantity is
+ * rounded UP to the next whole multiple of the product's MOQ - not just bumped up to MOQ
+ * itself - so a supplier order is never placed below their minimum lot size for any shortage
+ * beyond one lot (shortage=7, MOQ=3 -> 9, not 7). This rounding is purely a supplier-order-
+ * generation concern: the shortage itself (raw_need/demand_quantity) is left exactly as
+ * calculated, unrounded, so anything reading "how much is actually needed" (this function's
+ * own return value included) still sees the true customer-demand-driven shortage; only the
+ * suggested_quantity fed into supplier order generation is MOQ-rounded. The admin can still
+ * edit it down before generating, same non-blocking convention as the Supplier Order
+ * picker/create page.
  * Every row is tagged with its product's supplier_id so purchase_planning_generate() can
  * group by supplier without re-querying.
  */
@@ -96,13 +103,15 @@ function purchase_planning_needs(PDO $pdo): array
 
         if ($isPreorder) {
             $paidDemand = purchase_planning_paid_demand($pdo, $productId, $variationId);
+            $customerDemand = $paidDemand;
             $rawNeed = $paidDemand - $incoming;
             $demandBasis = 'customer';
         } else {
             if ($product['target_stock_level'] === null) {
                 continue;
             }
-            $rawNeed = (int) $product['target_stock_level'] - $available - $incoming;
+            $customerDemand = (int) $product['target_stock_level'];
+            $rawNeed = $customerDemand - $available - $incoming;
             $demandBasis = 'topup';
         }
 
@@ -110,8 +119,11 @@ function purchase_planning_needs(PDO $pdo): array
             continue;
         }
 
+        // Recommended Order Qty: shortage rounded UP to the next whole multiple of MOQ (see
+        // function docblock). $moq <= 0 (unset) means no lot-size constraint, so the
+        // recommendation is just the shortage itself.
         $moq = $unit['moq'] !== null ? (int) $unit['moq'] : 0;
-        $suggestedQty = max($rawNeed, $moq);
+        $suggestedQty = $moq > 0 ? (int) (ceil($rawNeed / $moq) * $moq) : $rawNeed;
         $moqTopUp = $suggestedQty - $rawNeed;
 
         $needs[] = [
@@ -122,6 +134,7 @@ function purchase_planning_needs(PDO $pdo): array
             'label' => $unit['label'],
             'product_type' => $unit['product_type'],
             'supplier_id' => $product['supplier_id'] !== null ? (int) $product['supplier_id'] : null,
+            'customer_demand' => $customerDemand,
             'available_quantity' => $available,
             'incoming_quantity' => $incoming,
             'raw_need' => $rawNeed,
