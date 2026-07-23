@@ -104,6 +104,12 @@ $appTitle = 'Mewmii OS';
                     <div class="d-grid gap-2">
                         <a class="btn btn-light text-start" href="/index.php">Dashboard</a>
                         <a class="btn btn-light text-start" href="/modules/products/index.php">Products</a>
+                        <?php if (app_has_permission('products.view')): ?>
+                            <a class="btn btn-light btn-sm text-start ms-3" href="/modules/categories/index.php">Categories</a>
+                            <a class="btn btn-light btn-sm text-start ms-3" href="/modules/brands/index.php">Brands</a>
+                            <a class="btn btn-light btn-sm text-start ms-3" href="/modules/collections/index.php">Collections</a>
+                            <a class="btn btn-light btn-sm text-start ms-3" href="/modules/tags/index.php">Tags</a>
+                        <?php endif; ?>
                         <a class="btn btn-light text-start" href="/modules/orders/index.php">Orders</a>
                         <a class="btn btn-light text-start" href="/modules/suppliers/index.php">Suppliers</a>
                         <a class="btn btn-light text-start" href="/modules/supplier-orders/index.php">Supplier Orders</a>

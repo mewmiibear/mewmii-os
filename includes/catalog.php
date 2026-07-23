@@ -367,6 +367,302 @@ function catalog_sync_product_tag_ids(PDO $pdo, int $productId, array $tagIds): 
     }
 }
 
+// --- Taxonomy Management: list-with-counts, safe delete, move/merge --------------------
+// One efficient (non-N+1) list query per taxonomy for modules/{categories,brands,
+// collections,tags}/index.php, plus the safe-delete and move/merge operations their Delete/
+// Move/Merge actions use. Every move/merge function only validates and runs its own bulk
+// SQL - it never begins/commits a transaction itself, matching every other mutation
+// function in this codebase (e.g. supplier_order_apply_edit()); the calling module page is
+// responsible for the surrounding transaction. None of this touches how the product form
+// itself manages these relationships (catalog_sync_product_category() etc., above) - those
+// are untouched.
+
+/**
+ * One products.brand_id count per brand, one query (LEFT JOIN + GROUP BY), not a
+ * per-brand COUNT(*) loop.
+ */
+function catalog_list_brands_with_counts(PDO $pdo): array
+{
+    return $pdo->query("
+        SELECT b.id, b.name, b.slug, b.created_at, COALESCE(counts.cnt, 0) AS product_count
+        FROM brands b
+        LEFT JOIN (
+            SELECT brand_id, COUNT(*) AS cnt FROM products WHERE brand_id IS NOT NULL GROUP BY brand_id
+        ) counts ON counts.brand_id = b.id
+        ORDER BY b.name ASC
+    ")->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/** Same shape as catalog_list_brands_with_counts(), via product_category_relationships. */
+function catalog_list_categories_with_counts(PDO $pdo): array
+{
+    return $pdo->query("
+        SELECT c.id, c.name, c.slug, c.parent_id, c.created_at, COALESCE(counts.cnt, 0) AS product_count
+        FROM categories c
+        LEFT JOIN (
+            SELECT category_id, COUNT(*) AS cnt FROM product_category_relationships GROUP BY category_id
+        ) counts ON counts.category_id = c.id
+        ORDER BY c.name ASC
+    ")->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/** Same shape again, via product_collection_relationships. */
+function catalog_list_collections_with_counts(PDO $pdo): array
+{
+    return $pdo->query("
+        SELECT co.id, co.name, co.slug, co.created_at, COALESCE(counts.cnt, 0) AS product_count
+        FROM collections co
+        LEFT JOIN (
+            SELECT collection_id, COUNT(*) AS cnt FROM product_collection_relationships GROUP BY collection_id
+        ) counts ON counts.collection_id = co.id
+        ORDER BY co.name ASC
+    ")->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Same shape again, via product_tag_relationships - note product_tags has no created_at
+ * column at all (see database/schema.sql), so this never selects one; the Tags index page
+ * simply has no Date Created column, per "Date created (if available)".
+ */
+function catalog_list_tags_with_counts(PDO $pdo): array
+{
+    return $pdo->query("
+        SELECT t.id, t.name, COALESCE(counts.cnt, 0) AS product_count
+        FROM product_tags t
+        LEFT JOIN (
+            SELECT tag_id, COUNT(*) AS cnt FROM product_tag_relationships GROUP BY tag_id
+        ) counts ON counts.tag_id = t.id
+        ORDER BY t.name ASC
+    ")->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function catalog_category_product_count(PDO $pdo, int $categoryId): int
+{
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM product_category_relationships WHERE category_id = ?');
+    $stmt->execute([$categoryId]);
+
+    return (int) $stmt->fetchColumn();
+}
+
+function catalog_collection_product_count(PDO $pdo, int $collectionId): int
+{
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM product_collection_relationships WHERE collection_id = ?');
+    $stmt->execute([$collectionId]);
+
+    return (int) $stmt->fetchColumn();
+}
+
+function catalog_brand_product_count(PDO $pdo, int $brandId): int
+{
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM products WHERE brand_id = ?');
+    $stmt->execute([$brandId]);
+
+    return (int) $stmt->fetchColumn();
+}
+
+/**
+ * Deletes a category, but only if it has no products assigned AND no child categories -
+ * otherwise throws the admin-facing message instead of a raw FK error, same convention as
+ * product_delete_if_unused() below. Checking children separately (rather than relying on
+ * fk_categories_parent's ON DELETE SET NULL) avoids silently orphaning subcategories to
+ * top-level.
+ */
+function catalog_category_delete_if_unused(PDO $pdo, int $categoryId): void
+{
+    $productCount = catalog_category_product_count($pdo, $categoryId);
+    if ($productCount > 0) {
+        throw new RuntimeException('This category is assigned to ' . $productCount . ' product(s). Please move the products to another category before deleting.');
+    }
+
+    $childStmt = $pdo->prepare('SELECT COUNT(*) FROM categories WHERE parent_id = ?');
+    $childStmt->execute([$categoryId]);
+    $childCount = (int) $childStmt->fetchColumn();
+    if ($childCount > 0) {
+        throw new RuntimeException('This category has ' . $childCount . ' subcategory(ies). Please move or delete them first.');
+    }
+
+    $pdo->prepare('DELETE FROM categories WHERE id = ?')->execute([$categoryId]);
+    activity_log($pdo, 'categories', 'delete', $categoryId, 'Deleted category #' . $categoryId);
+}
+
+function catalog_brand_delete_if_unused(PDO $pdo, int $brandId): void
+{
+    $productCount = catalog_brand_product_count($pdo, $brandId);
+    if ($productCount > 0) {
+        throw new RuntimeException('This brand is assigned to ' . $productCount . ' product(s). Please move the products to another brand before deleting.');
+    }
+
+    $pdo->prepare('DELETE FROM brands WHERE id = ?')->execute([$brandId]);
+    activity_log($pdo, 'brands', 'delete', $brandId, 'Deleted brand #' . $brandId);
+}
+
+function catalog_collection_delete_if_unused(PDO $pdo, int $collectionId): void
+{
+    $productCount = catalog_collection_product_count($pdo, $collectionId);
+    if ($productCount > 0) {
+        throw new RuntimeException('This collection is assigned to ' . $productCount . ' product(s). Please move the products to another collection before deleting.');
+    }
+
+    $pdo->prepare('DELETE FROM collections WHERE id = ?')->execute([$collectionId]);
+    activity_log($pdo, 'collections', 'delete', $collectionId, 'Deleted collection #' . $collectionId);
+}
+
+function catalog_tag_delete_if_unused(PDO $pdo, int $tagId): void
+{
+    $productCount = catalog_tag_product_count($pdo, $tagId);
+    if ($productCount > 0) {
+        throw new RuntimeException('This tag is assigned to ' . $productCount . ' product(s). Please merge it into another tag before deleting.');
+    }
+
+    $pdo->prepare('DELETE FROM product_tags WHERE id = ?')->execute([$tagId]);
+    activity_log($pdo, 'tags', 'delete', $tagId, 'Deleted tag #' . $tagId);
+}
+
+/**
+ * Reassigns every product currently in $sourceId to $destId in bulk - never a per-product
+ * loop. First removes any source pivot row for a product that's already ALSO linked to the
+ * destination (would otherwise violate the (product_id, category_id) unique key), then
+ * bulk-updates every remaining source row to the destination in one statement. Returns how
+ * many products were affected (the source's product count at the time of the move).
+ * Throws if source === destination or either id doesn't exist. Caller is responsible for
+ * the transaction.
+ */
+function catalog_category_move_products(PDO $pdo, int $sourceId, int $destId): int
+{
+    if ($sourceId === $destId) {
+        throw new RuntimeException('Source and destination category cannot be the same.');
+    }
+
+    $existsStmt = $pdo->prepare('SELECT id FROM categories WHERE id IN (?, ?)');
+    $existsStmt->execute([$sourceId, $destId]);
+    if (count($existsStmt->fetchAll(PDO::FETCH_COLUMN)) < 2) {
+        throw new RuntimeException('Source or destination category not found.');
+    }
+
+    $affected = catalog_category_product_count($pdo, $sourceId);
+    if ($affected === 0) {
+        return 0;
+    }
+
+    $pdo->prepare('
+        DELETE pcr_source FROM product_category_relationships pcr_source
+        INNER JOIN product_category_relationships pcr_dest
+            ON pcr_dest.product_id = pcr_source.product_id AND pcr_dest.category_id = ?
+        WHERE pcr_source.category_id = ?
+    ')->execute([$destId, $sourceId]);
+
+    $pdo->prepare('UPDATE product_category_relationships SET category_id = ? WHERE category_id = ?')
+        ->execute([$destId, $sourceId]);
+
+    activity_log($pdo, 'categories', 'move', $sourceId, 'Moved ' . $affected . ' product(s) from category #' . $sourceId . ' to #' . $destId);
+
+    return $affected;
+}
+
+/** Same bulk delete-then-update pattern as catalog_category_move_products(), for collections. */
+function catalog_collection_move_products(PDO $pdo, int $sourceId, int $destId): int
+{
+    if ($sourceId === $destId) {
+        throw new RuntimeException('Source and destination collection cannot be the same.');
+    }
+
+    $existsStmt = $pdo->prepare('SELECT id FROM collections WHERE id IN (?, ?)');
+    $existsStmt->execute([$sourceId, $destId]);
+    if (count($existsStmt->fetchAll(PDO::FETCH_COLUMN)) < 2) {
+        throw new RuntimeException('Source or destination collection not found.');
+    }
+
+    $affected = catalog_collection_product_count($pdo, $sourceId);
+    if ($affected === 0) {
+        return 0;
+    }
+
+    $pdo->prepare('
+        DELETE pcr_source FROM product_collection_relationships pcr_source
+        INNER JOIN product_collection_relationships pcr_dest
+            ON pcr_dest.product_id = pcr_source.product_id AND pcr_dest.collection_id = ?
+        WHERE pcr_source.collection_id = ?
+    ')->execute([$destId, $sourceId]);
+
+    $pdo->prepare('UPDATE product_collection_relationships SET collection_id = ? WHERE collection_id = ?')
+        ->execute([$destId, $sourceId]);
+
+    activity_log($pdo, 'collections', 'move', $sourceId, 'Moved ' . $affected . ' product(s) from collection #' . $sourceId . ' to #' . $destId);
+
+    return $affected;
+}
+
+/**
+ * Brand reassignment is simpler than category/collection: products.brand_id is a single
+ * direct column, not a pivot table, so there's no unique-key collision to guard against -
+ * one bulk UPDATE is sufficient and safe on its own.
+ */
+function catalog_brand_move_products(PDO $pdo, int $sourceId, int $destId): int
+{
+    if ($sourceId === $destId) {
+        throw new RuntimeException('Source and destination brand cannot be the same.');
+    }
+
+    $existsStmt = $pdo->prepare('SELECT id FROM brands WHERE id IN (?, ?)');
+    $existsStmt->execute([$sourceId, $destId]);
+    if (count($existsStmt->fetchAll(PDO::FETCH_COLUMN)) < 2) {
+        throw new RuntimeException('Source or destination brand not found.');
+    }
+
+    $updateStmt = $pdo->prepare('UPDATE products SET brand_id = ? WHERE brand_id = ?');
+    $updateStmt->execute([$destId, $sourceId]);
+    $affected = $updateStmt->rowCount();
+
+    activity_log($pdo, 'brands', 'move', $sourceId, 'Moved ' . $affected . ' product(s) from brand #' . $sourceId . ' to #' . $destId);
+
+    return $affected;
+}
+
+/**
+ * Merges $sourceId into $destId: every product tagged with the source is retagged with the
+ * destination, duplicates skipped (a product already carrying both tags simply loses the
+ * source relationship rather than producing two rows for the same pair - the exact
+ * (product_id, tag_id) unique key catalog_sync_product_tag_ids() already relies on), then
+ * the now-empty source tag itself is deleted. Two bulk statements plus one delete, never a
+ * per-product loop. Returns how many products carried the source tag before the merge.
+ * Caller is responsible for the transaction.
+ */
+function catalog_tag_merge(PDO $pdo, int $sourceId, int $destId): int
+{
+    if ($sourceId === $destId) {
+        throw new RuntimeException('Source and destination tag cannot be the same.');
+    }
+
+    $existsStmt = $pdo->prepare('SELECT id FROM product_tags WHERE id IN (?, ?)');
+    $existsStmt->execute([$sourceId, $destId]);
+    if (count($existsStmt->fetchAll(PDO::FETCH_COLUMN)) < 2) {
+        throw new RuntimeException('Source or destination tag not found.');
+    }
+
+    $affected = catalog_tag_product_count($pdo, $sourceId);
+    if ($affected === 0) {
+        $pdo->prepare('DELETE FROM product_tags WHERE id = ?')->execute([$sourceId]);
+
+        return 0;
+    }
+
+    $pdo->prepare('
+        DELETE ptr_source FROM product_tag_relationships ptr_source
+        INNER JOIN product_tag_relationships ptr_dest
+            ON ptr_dest.product_id = ptr_source.product_id AND ptr_dest.tag_id = ?
+        WHERE ptr_source.tag_id = ?
+    ')->execute([$destId, $sourceId]);
+
+    $pdo->prepare('UPDATE product_tag_relationships SET tag_id = ? WHERE tag_id = ?')
+        ->execute([$destId, $sourceId]);
+
+    $pdo->prepare('DELETE FROM product_tags WHERE id = ?')->execute([$sourceId]);
+
+    activity_log($pdo, 'tags', 'merge', $sourceId, 'Merged ' . $affected . ' product(s) from tag #' . $sourceId . ' into #' . $destId);
+
+    return $affected;
+}
+
 // --- Attributes: Character, Color, Size, ... (global, reusable across products) -------
 
 function catalog_list_attributes(PDO $pdo): array

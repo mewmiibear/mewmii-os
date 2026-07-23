@@ -3,7 +3,7 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/catalog.php';
 app_require_permission('products.view');
 
-$appTitle = 'Brands';
+$appTitle = 'Collections';
 $error = '';
 $pdo = app_db();
 
@@ -18,7 +18,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($error === '' && !$canManage) {
         http_response_code(403);
-        $error = 'You do not have permission to manage brands.';
+        $error = 'You do not have permission to manage collections.';
     }
 
     if ($error === '') {
@@ -28,18 +28,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $name = trim((string) ($_POST['name'] ?? ''));
 
             if ($name === '') {
-                $error = 'Enter a brand name.';
+                $error = 'Enter a collection name.';
             } else {
                 $pdo->beginTransaction();
 
                 try {
-                    catalog_get_or_create_brand($pdo, $name);
+                    catalog_get_or_create_collection($pdo, $name);
                     $pdo->commit();
 
-                    app_redirect('/modules/brands/index.php?created=1');
+                    app_redirect('/modules/collections/index.php?created=1');
                 } catch (Exception $exception) {
                     $pdo->rollBack();
-                    $error = 'Failed to create brand.';
+                    $error = 'Failed to create collection.';
                 }
             }
         } elseif ($action === 'move') {
@@ -47,15 +47,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $destinationId = (int) ($_POST['destination_id'] ?? 0);
 
             if ($sourceId < 1 || $destinationId < 1) {
-                $error = 'Select a destination brand.';
+                $error = 'Select a destination collection.';
             } else {
                 $pdo->beginTransaction();
 
                 try {
-                    $moved = catalog_brand_move_products($pdo, $sourceId, $destinationId);
+                    $moved = catalog_collection_move_products($pdo, $sourceId, $destinationId);
                     $pdo->commit();
 
-                    app_redirect('/modules/brands/index.php?moved=' . $moved);
+                    app_redirect('/modules/collections/index.php?moved=' . $moved);
                 } catch (RuntimeException $exception) {
                     $pdo->rollBack();
                     $error = $exception->getMessage();
@@ -65,24 +65,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
         } elseif ($action === 'delete') {
-            $brandId = (int) ($_POST['brand_id'] ?? 0);
+            $collectionId = (int) ($_POST['collection_id'] ?? 0);
 
-            if ($brandId < 1) {
-                $error = 'Invalid brand.';
+            if ($collectionId < 1) {
+                $error = 'Invalid collection.';
             } else {
                 $pdo->beginTransaction();
 
                 try {
-                    catalog_brand_delete_if_unused($pdo, $brandId);
+                    catalog_collection_delete_if_unused($pdo, $collectionId);
                     $pdo->commit();
 
-                    app_redirect('/modules/brands/index.php?deleted=1');
+                    app_redirect('/modules/collections/index.php?deleted=1');
                 } catch (RuntimeException $exception) {
                     $pdo->rollBack();
                     $error = $exception->getMessage();
                 } catch (Exception $exception) {
                     $pdo->rollBack();
-                    $error = 'Failed to delete brand.';
+                    $error = 'Failed to delete collection.';
                 }
             }
         } else {
@@ -91,29 +91,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$brands = catalog_list_brands_with_counts($pdo);
+$collections = catalog_list_collections_with_counts($pdo);
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1">Brands</h2>
-        <p class="text-muted mb-0">Brand management - edit, move products between brands, or delete unused ones.</p>
+        <h2 class="mb-1">Collections</h2>
+        <p class="text-muted mb-0">Collection management - edit, move products between collections, or delete unused ones.</p>
     </div>
     <a class="btn btn-outline-secondary btn-sm" href="/modules/products/index.php">Back to Products</a>
 </div>
 
 <?php if (isset($_GET['created'])): ?>
-    <div class="alert alert-success">Brand created.</div>
+    <div class="alert alert-success">Collection created.</div>
 <?php endif; ?>
 <?php if (isset($_GET['updated'])): ?>
-    <div class="alert alert-success">Brand updated.</div>
+    <div class="alert alert-success">Collection updated.</div>
 <?php endif; ?>
 <?php if (isset($_GET['moved'])): ?>
     <div class="alert alert-success"><?php echo (int) $_GET['moved']; ?> product(s) moved.</div>
 <?php endif; ?>
 <?php if (isset($_GET['deleted'])): ?>
-    <div class="alert alert-success">Brand deleted.</div>
+    <div class="alert alert-success">Collection deleted.</div>
 <?php endif; ?>
 <?php if ($error !== ''): ?>
     <div class="alert alert-danger"><?php echo nl2br(app_escape($error)); ?></div>
@@ -121,7 +121,7 @@ require_once __DIR__ . '/../../includes/header.php';
 
 <?php if ($canManage): ?>
     <div class="card p-4 mb-4">
-        <h5 class="mb-3">Add Brand</h5>
+        <h5 class="mb-3">Add Collection</h5>
         <form method="post" class="row g-2 align-items-end">
             <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
             <input type="hidden" name="action" value="add">
@@ -147,23 +147,23 @@ require_once __DIR__ . '/../../includes/header.php';
             </tr>
         </thead>
         <tbody>
-            <?php foreach ($brands as $brand): ?>
+            <?php foreach ($collections as $collection): ?>
                 <tr>
-                    <td><?php echo app_escape($brand['name']); ?></td>
-                    <td><?php echo (int) $brand['product_count']; ?></td>
-                    <td><?php echo $brand['created_at'] !== null ? app_escape($brand['created_at']) : '-'; ?></td>
+                    <td><?php echo app_escape($collection['name']); ?></td>
+                    <td><?php echo (int) $collection['product_count']; ?></td>
+                    <td><?php echo $collection['created_at'] !== null ? app_escape($collection['created_at']) : '-'; ?></td>
                     <td class="text-end">
                         <?php if ($canManage): ?>
                             <div class="d-flex gap-1 justify-content-end">
-                                <a class="btn btn-sm btn-outline-secondary" href="/modules/brands/edit.php?id=<?php echo (int) $brand['id']; ?>">Edit</a>
+                                <a class="btn btn-sm btn-outline-secondary" href="/modules/collections/edit.php?id=<?php echo (int) $collection['id']; ?>">Edit</a>
                                 <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#moveModal"
-                                    data-source-id="<?php echo (int) $brand['id']; ?>"
-                                    data-source-name="<?php echo app_escape($brand['name']); ?>"
-                                    data-product-count="<?php echo (int) $brand['product_count']; ?>">Move</button>
-                                <form method="post" class="d-inline" onsubmit="return confirm('Delete this brand?');">
+                                    data-source-id="<?php echo (int) $collection['id']; ?>"
+                                    data-source-name="<?php echo app_escape($collection['name']); ?>"
+                                    data-product-count="<?php echo (int) $collection['product_count']; ?>">Move</button>
+                                <form method="post" class="d-inline" onsubmit="return confirm('Delete this collection?');">
                                     <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                                     <input type="hidden" name="action" value="delete">
-                                    <input type="hidden" name="brand_id" value="<?php echo (int) $brand['id']; ?>">
+                                    <input type="hidden" name="collection_id" value="<?php echo (int) $collection['id']; ?>">
                                     <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
                                 </form>
                             </div>
@@ -171,8 +171,8 @@ require_once __DIR__ . '/../../includes/header.php';
                     </td>
                 </tr>
             <?php endforeach; ?>
-            <?php if ($brands === []): ?>
-                <tr><td colspan="4" class="text-muted">No brands yet.</td></tr>
+            <?php if ($collections === []): ?>
+                <tr><td colspan="4" class="text-muted">No collections yet.</td></tr>
             <?php endif; ?>
         </tbody>
     </table>
@@ -187,7 +187,7 @@ require_once __DIR__ . '/../../includes/header.php';
                     <input type="hidden" name="action" value="move">
                     <input type="hidden" name="source_id" id="moveSourceId">
                     <div class="modal-header">
-                        <h5 class="modal-title">Move Brand</h5>
+                        <h5 class="modal-title">Move Collection</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
                     <div class="modal-body">
@@ -195,9 +195,9 @@ require_once __DIR__ . '/../../includes/header.php';
                         <p class="mb-3">Products affected: <strong id="moveProductCount"></strong></p>
                         <label class="form-label">Destination</label>
                         <select class="form-select" name="destination_id" id="moveDestinationSelect" required>
-                            <option value="">Select a destination brand&hellip;</option>
-                            <?php foreach ($brands as $brand): ?>
-                                <option value="<?php echo (int) $brand['id']; ?>"><?php echo app_escape($brand['name']); ?></option>
+                            <option value="">Select a destination collection&hellip;</option>
+                            <?php foreach ($collections as $collection): ?>
+                                <option value="<?php echo (int) $collection['id']; ?>"><?php echo app_escape($collection['name']); ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
