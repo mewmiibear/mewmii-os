@@ -44,7 +44,7 @@ return [
         'url' => 'https://mewmiibear.com',
         'consumer_key' => 'ck_424dc98501df5ccad492f7ad3b332b1e551c3f00',
         'consumer_secret' => 'cs_acd5163f0111ea2cca74992cf17801b6724d94ee',
-        'webhook_secret' => '',
+        'webhook_secret' => '3d41e506bf4484296e2773955bb3832f896a1b011be38b3d7448c67e4efa7ffd',
     ],
 
 ];
