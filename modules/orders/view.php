@@ -1,4 +1,5 @@
 <?php
+die('DEPLOYMENT CHECK: this exact file is at ' . __FILE__); // TEMPORARY - remove after verifying deployment
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/inventory.php';
 require_once __DIR__ . '/../../includes/orders.php';
