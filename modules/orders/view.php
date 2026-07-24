@@ -378,6 +378,14 @@ require_once __DIR__ . '/../../includes/header.php';
                         <th>Receipt</th>
                         <td>
                             <?php echo order_receipt_status_badge($order); ?>
+                            <?php if (!empty($order['receipt_url'])): ?>
+                                <div class="mt-2">
+                                    <a href="<?php echo app_escape($order['receipt_url']); ?>" target="_blank" rel="noopener" title="Open full receipt">
+                                        <img src="<?php echo app_escape($order['receipt_url']); ?>" alt="Receipt preview" class="receipt-preview-thumb">
+                                    </a>
+                                    <a href="<?php echo app_escape($order['receipt_url']); ?>" target="_blank" rel="noopener" class="d-block small mt-1">View Receipt</a>
+                                </div>
+                            <?php endif; ?>
                             <?php if ($order['receipt_status'] === 'rejected' && !empty($order['receipt_reject_reason'])): ?>
                                 <div class="text-muted small mt-1"><?php echo app_escape($order['receipt_reject_reason']); ?></div>
                             <?php endif; ?>

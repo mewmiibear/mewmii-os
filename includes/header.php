@@ -193,6 +193,21 @@ $appTitle = 'Mewmii OS';
             margin-top: 0.3rem;
         }
 
+        /* --- Receipt preview thumbnail (order view Receipt row) - object-fit: contain so a
+           tall/wide receipt photo is never stretched to fill the box; wrapped in a link to the
+           original receipt_url so clicking it (thumbnail or "View Receipt" text) opens the
+           full-size original in a new tab. */
+        .receipt-preview-thumb {
+            display: block;
+            width: 160px;
+            height: 160px;
+            object-fit: contain;
+            background: var(--bs-tertiary-bg, #f5f5f5);
+            border: 1px solid var(--border-color, #dee2e6);
+            border-radius: 8px;
+            cursor: zoom-in;
+        }
+
         /* --- Empty state card - replaces plain "No X yet." text rows with a calmer, centred
            message + optional single call-to-action, used inside an existing table's empty
            <tr>/<td> or in place of a table entirely. */
