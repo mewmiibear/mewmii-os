@@ -376,6 +376,39 @@ function wc_order_import_run(PDO $pdo, int $limit = 20): array
 
         $wcOrderId = (int) ($wcOrder['id'] ?? 0);
 
+        // =====================================================================================
+        // TEMPORARY DEBUG LOGGING - added to diagnose why is_preorder_request/receipt_status/
+        // receipt_url are coming back empty despite a successful import. Logs exactly what
+        // WooCommerce's REST API returned for this order, before any Mewmii-side processing
+        // touches it. Remove this whole block once the cause is confirmed - it is not part of
+        // the import logic and does not affect it.
+        // =====================================================================================
+        $debugMetaFlat = [];
+        foreach (($wcOrder['meta_data'] ?? []) as $debugMetaEntry) {
+            if (is_array($debugMetaEntry) && isset($debugMetaEntry['key'])) {
+                $debugMetaFlat[$debugMetaEntry['key']] = $debugMetaEntry['value'] ?? null;
+            }
+        }
+        $debugMewmiiKeys = [];
+        $debugPeproKeys = [];
+        foreach ($debugMetaFlat as $debugKey => $debugValue) {
+            if (strpos($debugKey, '_mewmii') === 0) {
+                $debugMewmiiKeys[$debugKey] = $debugValue;
+            }
+            if (strpos($debugKey, '_pepro') === 0 || strpos($debugKey, 'pepro') === 0 || strpos($debugKey, 'peprodev') === 0) {
+                $debugPeproKeys[$debugKey] = $debugValue;
+            }
+        }
+
+        error_log('[Mewmii WC Import DEBUG] ===== Order #' . $wcOrderId . ' =====');
+        error_log('[Mewmii WC Import DEBUG] Order #' . $wcOrderId . ' meta_data key count: ' . count($debugMetaFlat) . ' | keys: ' . implode(', ', array_keys($debugMetaFlat)));
+        error_log('[Mewmii WC Import DEBUG] Order #' . $wcOrderId . ' _mewmii_* keys: ' . json_encode($debugMewmiiKeys));
+        error_log('[Mewmii WC Import DEBUG] Order #' . $wcOrderId . ' pepro/_pepro/peprodev keys: ' . json_encode($debugPeproKeys));
+        error_log('[Mewmii WC Import DEBUG] Order #' . $wcOrderId . ' receipt_upload_status: ' . (array_key_exists('receipt_upload_status', $debugMetaFlat) ? json_encode($debugMetaFlat['receipt_upload_status']) : '(key not present in meta_data)'));
+        error_log('[Mewmii WC Import DEBUG] Order #' . $wcOrderId . ' full meta_data: ' . json_encode($debugMetaFlat));
+        error_log('[Mewmii WC Import DEBUG] Order #' . $wcOrderId . ' full raw order payload: ' . json_encode($wcOrder));
+        // ===================================================== END TEMPORARY DEBUG LOGGING ====
+
         $pdo->beginTransaction();
         try {
             $result = wc_order_import_single($pdo, $wcOrder);
