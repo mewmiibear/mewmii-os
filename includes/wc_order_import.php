@@ -397,11 +397,22 @@ function wc_order_import_run(PDO $pdo, int $limit = 20): array
             }
         }
 
-        $debugKeysOfInterest = ['_mewmii_is_preorder', '_pepro_receipt_url', '_pepro_receipt', 'receipt_upload_status', '_mewmii_reject_reason', '_receipt_file_name', '_receipt_file_url', '_receipt_attachment', '_receipt_id'];
+        $debugKeysOfInterest = [
+            '_mewmii_is_preorder', 'receipt_upload_status', '_mewmii_reject_reason', '_receipt_id',
+            '_receipt_file_name', '_receipt_file_path', '_receipt_file_url',
+            '_receipt_url', 'receipt_url',
+            '_receipt_attachment_id', '_receipt_attachment',
+            '_pepro_receipt', '_pepro_receipt_url',
+        ];
         $debug_output = 'DEBUG ORDER ' . $wcOrderId . PHP_EOL
             . 'META KEYS: ' . implode(', ', array_keys($debugMetaFlat)) . PHP_EOL;
         foreach ($debugKeysOfInterest as $debugKey) {
-            $debug_output .= $debugKey . ' = ' . (array_key_exists($debugKey, $debugMetaFlat) ? json_encode($debugMetaFlat[$debugKey]) : '(not present)') . PHP_EOL;
+            if (array_key_exists($debugKey, $debugMetaFlat)) {
+                $debug_output .= $debugKey . ' = ' . json_encode($debugMetaFlat[$debugKey])
+                    . ' (type: ' . gettype($debugMetaFlat[$debugKey]) . ')' . PHP_EOL;
+            } else {
+                $debug_output .= $debugKey . ' = (not present)' . PHP_EOL;
+            }
         }
 
         sync_log_write($pdo, WC_ORDER_IMPORT_SYNC_TYPE, 'debug', null, $debug_output);
