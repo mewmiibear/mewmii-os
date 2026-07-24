@@ -591,7 +591,20 @@ require_once __DIR__ . '/../../includes/header.php';
                         <input type="hidden" name="approve_receipt" value="1">
                         <button type="submit" class="btn btn-success btn-sm">Approve Receipt</button>
                     </form>
-                    <button type="button" class="btn btn-danger btn-sm" data-bs-toggle="modal" data-bs-target="#rejectReceiptModal">Reject Receipt&hellip;</button>
+                    <button type="button" class="btn btn-danger btn-sm" id="rejectReceiptToggleBtn" onclick="document.getElementById('rejectReceiptPanel').style.display='block'; this.style.display='none';">Reject Receipt&hellip;</button>
+                </div>
+
+                <div id="rejectReceiptPanel" class="mt-3 p-3 border border-danger-subtle rounded bg-danger-subtle bg-opacity-10" style="display:none;">
+                    <form method="post" onsubmit="return confirm('Reject this receipt and delete the uploaded file? The customer will be asked to upload a replacement.');">
+                        <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                        <input type="hidden" name="reject_receipt" value="1">
+                        <label for="receipt_reject_reason" class="form-label small fw-semibold mb-1">Rejection reason</label>
+                        <textarea class="form-control form-control-sm mb-2" id="receipt_reject_reason" name="receipt_reject_reason" rows="3" required placeholder="e.g. Amount transferred does not match order total."></textarea>
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-danger btn-sm">Confirm Reject</button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('rejectReceiptPanel').style.display='none'; document.getElementById('rejectReceiptToggleBtn').style.display='inline-block';">Cancel</button>
+                        </div>
+                    </form>
                 </div>
             </div>
         <?php endif; ?>
@@ -808,31 +821,5 @@ require_once __DIR__ . '/../../includes/header.php';
     renderMessage();
 })();
 </script>
-
-<?php if ($canManage && empty($order['is_historical']) && !empty($order['is_preorder_request']) && (string) $order['receipt_status'] === 'pending' && !empty($order['receipt_url'])): ?>
-<div class="modal fade" id="rejectReceiptModal" tabindex="-1" aria-labelledby="rejectReceiptModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <form method="post">
-                <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
-                <input type="hidden" name="reject_receipt" value="1">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="rejectReceiptModalLabel">Reject Receipt</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <label for="receipt_reject_reason" class="form-label">Rejection reason</label>
-                    <textarea class="form-control" id="receipt_reject_reason" name="receipt_reject_reason" rows="3" required placeholder="e.g. Amount transferred does not match order total."></textarea>
-                    <div class="form-text">Sent to the customer, who will be able to upload a replacement receipt.</div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-danger btn-sm">Confirm Reject &amp; Notify Customer</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-<?php endif; ?>
 
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
