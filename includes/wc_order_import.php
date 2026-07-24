@@ -409,8 +409,13 @@ function wc_order_import_run(PDO $pdo, int $limit = 20): array
             . 'full raw order payload: ' . json_encode($wcOrder) . PHP_EOL
             . PHP_EOL;
 
+        $debugLogDir = __DIR__ . '/../logs';
+        if (! is_dir($debugLogDir)) {
+            mkdir($debugLogDir, 0755, true);
+        }
+
         file_put_contents(
-            WP_CONTENT_DIR . '/mewmii-wc-debug.log',
+            $debugLogDir . '/mewmii-wc-debug.log',
             $debug_output,
             FILE_APPEND
         );
