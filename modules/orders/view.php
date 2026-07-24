@@ -574,27 +574,32 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php endif; ?>
 
             <?php if (!empty($order['is_preorder_request'])): ?>
-                <div class="text-muted small mb-2">Receipt Status: <?php echo order_receipt_status_badge($order); ?></div>
+                <div class="text-muted small mb-0">Receipt Status: <?php echo order_receipt_status_badge($order); ?></div>
                 <?php if ((string) $order['receipt_status'] === 'rejected' && !empty($order['receipt_reject_reason'])): ?>
-                    <div class="alert alert-danger small py-2 px-3 mb-3"><?php echo app_escape($order['receipt_reject_reason']); ?></div>
-                <?php endif; ?>
-                <?php if ($canManage && empty($order['is_historical']) && (string) $order['receipt_status'] === 'pending' && !empty($order['receipt_url'])): ?>
-                    <div class="d-flex gap-2 mb-3">
-                        <form method="post" onsubmit="return confirm('Approve this receipt? The customer will be notified.');">
-                            <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
-                            <input type="hidden" name="approve_receipt" value="1">
-                            <button type="submit" class="btn btn-success btn-sm">Approve Receipt</button>
-                        </form>
-                        <button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#rejectReceiptModal">Reject Receipt</button>
-                    </div>
+                    <div class="alert alert-danger small py-2 px-3 mt-2 mb-0"><?php echo app_escape($order['receipt_reject_reason']); ?></div>
                 <?php endif; ?>
             <?php endif; ?>
+        </div>
 
-            <?php if ($canManage && empty($order['is_historical']) && $order['payment_status'] === 'pending'): ?>
-                <?php if (!empty($order['is_preorder_request'])): ?>
-                    <hr class="my-3">
-                    <div class="text-muted small mb-2">Manual payment review (separate from receipt review above)</div>
-                <?php endif; ?>
+        <?php if (!empty($order['is_preorder_request']) && $canManage && empty($order['is_historical']) && (string) $order['receipt_status'] === 'pending' && !empty($order['receipt_url'])): ?>
+            <div class="card p-4 mb-4 border-primary-subtle">
+                <h5 class="mb-1">Receipt Verification</h5>
+                <p class="text-muted small mb-3">Confirms whether the uploaded bank transfer / QR receipt is genuine. Independent of the manual payment review below.</p>
+                <div class="d-flex gap-2">
+                    <form method="post" onsubmit="return confirm('Approve this receipt? The customer will be notified.');">
+                        <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                        <input type="hidden" name="approve_receipt" value="1">
+                        <button type="submit" class="btn btn-success btn-sm">Approve Receipt</button>
+                    </form>
+                    <button type="button" class="btn btn-danger btn-sm" data-bs-toggle="modal" data-bs-target="#rejectReceiptModal">Reject Receipt&hellip;</button>
+                </div>
+            </div>
+        <?php endif; ?>
+
+        <?php if ($canManage && empty($order['is_historical']) && $order['payment_status'] === 'pending'): ?>
+            <div class="card p-4 mb-4">
+                <h5 class="mb-1">Manual Payment Status</h5>
+                <p class="text-muted small mb-3">Directly sets this order's payment status. Not tied to the WooCommerce receipt above.</p>
                 <div class="d-flex gap-2">
                     <form method="post" onsubmit="return confirm('Approve this payment? Ready-stock items will be reserved where possible and the order status will update automatically.');">
                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
@@ -604,11 +609,11 @@ require_once __DIR__ . '/../../includes/header.php';
                     <form method="post" onsubmit="return confirm('Reject this payment receipt? The order will remain pending.');">
                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                         <input type="hidden" name="reject_payment" value="1">
-                        <button type="submit" class="btn btn-outline-danger btn-sm">Reject Payment</button>
+                        <button type="submit" class="btn btn-outline-secondary btn-sm">Reject Payment</button>
                     </form>
                 </div>
-            <?php endif; ?>
-        </div>
+            </div>
+        <?php endif; ?>
 
         <?php if ($canManage && empty($order['is_historical'])): ?>
             <div class="card p-4 mb-4">
