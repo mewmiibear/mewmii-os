@@ -144,7 +144,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->beginTransaction();
 
                 try {
-                    $pdo->prepare("UPDATE mewmii_orders SET payment_status = 'pending', receipt_url = NULL WHERE id = ?")
+                    // NOTE: this used to also set receipt_url = NULL here. That made sense back
+                    // when receipt_url had no real producer anywhere in the app - it was inert
+                    // cleanup. It is no longer inert: receipt_url is now populated by the
+                    // WooCommerce receipt importer and is the actual image this order's Receipt
+                    // card displays. Clearing it here was silently wiping a real, unrelated
+                    // WooCommerce receipt every time this (payment-status-only) button was used,
+                    // which is what was actually happening in the "receipt disappears after
+                    // reject" report - this button, not Reject Receipt, was the cause.
+                    $pdo->prepare("UPDATE mewmii_orders SET payment_status = 'pending' WHERE id = ?")
                         ->execute([$orderId]);
 
                     $eventStmt = $pdo->prepare('
@@ -578,6 +586,10 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php endif; ?>
 
             <?php if ($canManage && empty($order['is_historical']) && $order['payment_status'] === 'pending'): ?>
+                <?php if (!empty($order['is_preorder_request'])): ?>
+                    <hr class="my-3">
+                    <div class="text-muted small mb-2">Manual payment review (separate from receipt review above)</div>
+                <?php endif; ?>
                 <div class="d-flex gap-2">
                     <form method="post" onsubmit="return confirm('Approve this payment? Ready-stock items will be reserved where possible and the order status will update automatically.');">
                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
