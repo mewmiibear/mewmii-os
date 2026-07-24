@@ -3,6 +3,7 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/shipments.php';
 require_once __DIR__ . '/../../includes/catalog.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
+require_once __DIR__ . '/../../includes/orders.php';
 app_require_permission('shipments.manage');
 
 /**
@@ -187,7 +188,7 @@ require_once __DIR__ . '/../../includes/header.php';
         <h2 class="mb-1">Create Shipment</h2>
         <p class="text-muted mb-0">
             <?php if ($order !== null): ?>
-                From order <?php echo app_escape($order['order_number']); ?> (<?php echo app_escape($order['customer_name']); ?>) - only reserved/stored, not-yet-shipped items are shown.
+                From order <?php echo app_escape(order_display_number($order['order_number'])); ?> (<?php echo app_escape($order['customer_name']); ?>) - only reserved/stored, not-yet-shipped items are shown.
             <?php else: ?>
                 Manual shipment - not tied to any existing order (replacement/warranty).
             <?php endif; ?>

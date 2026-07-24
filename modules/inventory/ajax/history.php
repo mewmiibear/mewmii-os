@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../../../includes/bootstrap.php';
 require_once __DIR__ . '/../../../includes/ajax_helpers.php';
 require_once __DIR__ . '/../../../includes/product_variations.php';
+require_once __DIR__ . '/../../../includes/orders.php';
 
 ajax_require_permission('inventory.view');
 
@@ -87,7 +88,7 @@ foreach ($rows as $row) {
     $referenceUrl = null;
 
     if ($row['reference_type'] === 'order' && isset($orderNumbers[(int) $row['reference_id']])) {
-        $referenceLabel = 'Order ' . $orderNumbers[(int) $row['reference_id']];
+        $referenceLabel = 'Order ' . order_display_number($orderNumbers[(int) $row['reference_id']]);
         $referenceUrl = '/modules/orders/view.php?id=' . (int) $row['reference_id'];
     } elseif (in_array($row['reference_type'], ['manual_adjustment', 'manual_release'], true) && isset($userNames[(int) $row['reference_id']])) {
         $referenceLabel = 'By ' . $userNames[(int) $row['reference_id']];

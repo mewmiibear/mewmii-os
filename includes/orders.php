@@ -52,6 +52,24 @@ function order_status_badge(string $status): string
 }
 
 /**
+ * Human-facing formatting for mewmii_orders.order_number - display only, never the stored
+ * value itself (see includes/wc_order_import.php, which still writes the literal 'WC-16712'
+ * into the column - untouched by this function). A WooCommerce-imported order's order_number
+ * reads 'WC-16712' while WooCommerce's own admin shows the same order as 'Order #16712' -
+ * looking like two different IDs for one order was the actual reported confusion, not a real
+ * ID mismatch. Every other order_number format (manual 'ORD-...', historical imports) is
+ * returned unchanged.
+ */
+function order_display_number(string $orderNumber): string
+{
+    if (str_starts_with($orderNumber, 'WC-')) {
+        return 'WooCommerce Order #' . substr($orderNumber, 3);
+    }
+
+    return $orderNumber;
+}
+
+/**
  * Receipt visibility for a WooCommerce order (see includes/wc_order_import.php) - purely
  * informational display, entirely independent of payment_status/order_status. Returns null
  * when this order has no receipt workflow data at all, meaning there is nothing to show.
@@ -117,7 +135,7 @@ function order_receipt_status_badge(array $order): string
 function order_build_status_messages(array $order, array $items, array $orderShipments): array
 {
     $customerName = $order['customer_name'] ?? 'there';
-    $orderNumber = $order['order_number'];
+    $orderNumber = order_display_number($order['order_number']);
 
     $productNames = [];
     foreach ($items as $item) {

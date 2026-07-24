@@ -147,7 +147,7 @@ require_once __DIR__ . '/../../includes/header.php';
                     <?php foreach ($deletableOrders as $order): ?>
                         <tr>
                             <td><input type="checkbox" name="ids[]" value="<?php echo (int) $order['id']; ?>"></td>
-                            <td><?php echo app_escape($order['order_number']); ?></td>
+                            <td><?php echo app_escape(order_display_number($order['order_number'])); ?></td>
                             <td><?php echo app_escape(ucfirst($order['order_status'])); ?></td>
                             <td><?php echo app_escape(ucfirst($order['payment_status'])); ?></td>
                             <td class="text-muted small"><?php echo app_escape($order['created_at']); ?></td>

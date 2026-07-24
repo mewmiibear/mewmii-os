@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/shipments.php';
+require_once __DIR__ . '/../../includes/orders.php';
 app_require_permission('shipments.view');
 
 $appTitle = 'Shipment Detail';
@@ -161,9 +162,9 @@ require_once __DIR__ . '/../../includes/header.php';
                             </td>
                             <td>
                                 <?php if (!empty($item['order_number']) && $canViewOrders): ?>
-                                    <a href="/modules/orders/view.php?id=<?php echo (int) $item['order_id']; ?>"><?php echo app_escape($item['order_number']); ?></a>
+                                    <a href="/modules/orders/view.php?id=<?php echo (int) $item['order_id']; ?>"><?php echo app_escape(order_display_number($item['order_number'])); ?></a>
                                 <?php elseif (!empty($item['order_number'])): ?>
-                                    <?php echo app_escape($item['order_number']); ?>
+                                    <?php echo app_escape(order_display_number($item['order_number'])); ?>
                                 <?php else: ?>
                                     &mdash;
                                 <?php endif; ?>

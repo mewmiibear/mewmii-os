@@ -44,8 +44,6 @@ const WC_ORDER_IMPORT_SYNC_TYPE = 'woocommerce_order_import';
  */
 function wc_order_import_get_meta(array $wcOrder, string $key): ?string
 {
-    $orderId = $wcOrder['id'] ?? 'unknown';
-    $matchCount = 0;
     $found = null;
 
     foreach (($wcOrder['meta_data'] ?? []) as $meta) {
@@ -53,22 +51,12 @@ function wc_order_import_get_meta(array $wcOrder, string $key): ?string
             continue;
         }
 
-        $matchCount++;
         $value = $meta['value'] ?? null;
         $resolved = $value !== null && $value !== '' ? (string) $value : null;
         if ($resolved !== null) {
             $found = $resolved;
         }
     }
-
-    // TEMPORARY DEBUG - one line per key requested, per order. No $pdo is available in this
-    // function (and adding one would mean changing this function's and
-    // wc_order_import_extract_receipt_fields()'s signatures, out of scope for this audit), so
-    // this goes to Mewmii OS's own PHP error log - not WordPress's - via error_log(). Check
-    // your server's configured PHP error log (php.ini's error_log directive, or your web
-    // server's error log). Remove once the missing-metadata issue is confirmed/resolved.
-    error_log('[Mewmii wc_order_import_get_meta DEBUG] order=' . $orderId . ' key=' . $key
-        . ' matches_found_in_meta_data=' . $matchCount . ' resolved_value=' . json_encode($found));
 
     return $found;
 }
@@ -335,36 +323,12 @@ function wc_order_import_single(PDO $pdo, array $wcOrder): array
 
     $receiptFields = wc_order_import_extract_receipt_fields($wcOrder);
 
-    // TEMPORARY DEBUG - shows every raw receipt-related source value read from the WooCommerce
-    // order alongside the final resolved receiptFields, so the fallback priority (_receipt_url
-    // -> _pepro_receipt_url, receipt_upload_admin_note -> _mewmii_reject_reason) can be
-    // confirmed against real orders. Remove once confirmed.
-    $extractionDebug = 'DEBUG EXTRACT order_id(wc)=' . $wcOrderId . PHP_EOL
-        . '_receipt_url = ' . json_encode(wc_order_import_get_meta($wcOrder, '_receipt_url')) . PHP_EOL
-        . '_pepro_receipt_url = ' . json_encode(wc_order_import_get_meta($wcOrder, '_pepro_receipt_url')) . PHP_EOL
-        . 'receipt_upload_status = ' . json_encode(wc_order_import_get_meta($wcOrder, 'receipt_upload_status')) . PHP_EOL
-        . 'receipt_upload_admin_note = ' . json_encode(wc_order_import_get_meta($wcOrder, 'receipt_upload_admin_note')) . PHP_EOL
-        . 'receiptFields (final) = ' . json_encode($receiptFields);
-    sync_log_write($pdo, WC_ORDER_IMPORT_SYNC_TYPE, 'debug', null, $extractionDebug);
-
     $existingStmt = $pdo->prepare('SELECT id, payment_status FROM mewmii_orders WHERE woocommerce_order_id = ?');
     $existingStmt->execute([$wcOrderId]);
     $existing = $existingStmt->fetch(PDO::FETCH_ASSOC);
 
     if ($existing !== false) {
         $orderId = (int) $existing['id'];
-
-        // TEMPORARY DEBUG - confirms what wc_order_import_extract_receipt_fields() returned and
-        // the exact values about to be written to mewmii_orders for this existing order, via the
-        // same sync_logs 'debug' channel used earlier. Remove once the receipt-visibility fix is
-        // confirmed against real data.
-        $updateDebug = 'DEBUG UPDATE order_id(wc)=' . $wcOrderId . ' order_id(mewmii)=' . $orderId . PHP_EOL
-            . 'receiptFields: ' . json_encode($receiptFields) . PHP_EOL
-            . 'SQL values -> is_preorder_request=' . json_encode($receiptFields['is_preorder_request'])
-            . ', receipt_url=' . json_encode($receiptFields['receipt_url'])
-            . ', receipt_status=' . json_encode($receiptFields['receipt_status'])
-            . ', receipt_reject_reason=' . json_encode($receiptFields['receipt_reject_reason']);
-        sync_log_write($pdo, WC_ORDER_IMPORT_SYNC_TYPE, 'debug', $orderId, $updateDebug);
 
         $pdo->prepare('
             UPDATE mewmii_orders
@@ -467,42 +431,6 @@ function wc_order_import_run(PDO $pdo, int $limit = 20): array
         }
 
         $wcOrderId = (int) ($wcOrder['id'] ?? 0);
-
-        // =====================================================================================
-        // TEMPORARY DEBUG - writes into the existing sync_logs-backed "Recent Sync Activity"
-        // table on modules/integrations/woocommerce.php (status = 'debug', so these rows are
-        // visually distinct from real success/failure rows) instead of a file or the PHP error
-        // log. Confirms exactly what WooCommerce's REST API sent for this order, before any
-        // Mewmii-side processing touches it. Remove this whole block once confirmed - it is not
-        // part of the import logic and does not affect it.
-        // =====================================================================================
-        $debugMetaFlat = [];
-        foreach (($wcOrder['meta_data'] ?? []) as $debugMetaEntry) {
-            if (is_array($debugMetaEntry) && isset($debugMetaEntry['key'])) {
-                $debugMetaFlat[$debugMetaEntry['key']] = $debugMetaEntry['value'] ?? null;
-            }
-        }
-
-        $debugKeysOfInterest = [
-            '_mewmii_is_preorder', 'receipt_upload_status', '_mewmii_reject_reason', '_receipt_id',
-            '_receipt_file_name', '_receipt_file_path', '_receipt_file_url',
-            '_receipt_url', 'receipt_url',
-            '_receipt_attachment_id', '_receipt_attachment',
-            '_pepro_receipt', '_pepro_receipt_url',
-        ];
-        $debug_output = 'DEBUG ORDER ' . $wcOrderId . PHP_EOL
-            . 'META KEYS: ' . implode(', ', array_keys($debugMetaFlat)) . PHP_EOL;
-        foreach ($debugKeysOfInterest as $debugKey) {
-            if (array_key_exists($debugKey, $debugMetaFlat)) {
-                $debug_output .= $debugKey . ' = ' . json_encode($debugMetaFlat[$debugKey])
-                    . ' (type: ' . gettype($debugMetaFlat[$debugKey]) . ')' . PHP_EOL;
-            } else {
-                $debug_output .= $debugKey . ' = (not present)' . PHP_EOL;
-            }
-        }
-
-        sync_log_write($pdo, WC_ORDER_IMPORT_SYNC_TYPE, 'debug', null, $debug_output);
-        // ===================================================== END TEMPORARY DEBUG LOGGING ====
 
         $pdo->beginTransaction();
         try {

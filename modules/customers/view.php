@@ -153,9 +153,9 @@ require_once __DIR__ . '/../../includes/header.php';
                 <tr>
                     <td>
                         <?php if ($canViewOrders): ?>
-                            <a href="/modules/orders/view.php?id=<?php echo (int) $order['id']; ?>"><?php echo app_escape($order['order_number']); ?></a>
+                            <a href="/modules/orders/view.php?id=<?php echo (int) $order['id']; ?>"><?php echo app_escape(order_display_number($order['order_number'])); ?></a>
                         <?php else: ?>
-                            <?php echo app_escape($order['order_number']); ?>
+                            <?php echo app_escape(order_display_number($order['order_number'])); ?>
                         <?php endif; ?>
                         <?php if (!empty($order['is_historical'])): ?>
                             <span class="badge bg-secondary">Historical</span>
@@ -192,7 +192,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 <tr>
                     <td>
                         <?php if (!empty($item['order_number'])): ?>
-                            <?php echo app_escape($item['order_number']); ?>
+                            <?php echo app_escape(order_display_number($item['order_number'])); ?>
                         <?php else: ?>
                             &mdash;
                         <?php endif; ?>
@@ -246,9 +246,9 @@ require_once __DIR__ . '/../../includes/header.php';
                         <?php foreach ($shipment['orders'] as $shipmentOrder): ?>
                             <div>
                                 <?php if ($canViewOrders): ?>
-                                    <a href="/modules/orders/view.php?id=<?php echo (int) $shipmentOrder['id']; ?>"><?php echo app_escape($shipmentOrder['order_number']); ?></a>
+                                    <a href="/modules/orders/view.php?id=<?php echo (int) $shipmentOrder['id']; ?>"><?php echo app_escape(order_display_number($shipmentOrder['order_number'])); ?></a>
                                 <?php else: ?>
-                                    <?php echo app_escape($shipmentOrder['order_number']); ?>
+                                    <?php echo app_escape(order_display_number($shipmentOrder['order_number'])); ?>
                                 <?php endif; ?>
                             </div>
                         <?php endforeach; ?>

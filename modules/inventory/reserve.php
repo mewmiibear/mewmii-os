@@ -4,6 +4,7 @@ require_once __DIR__ . '/../../includes/inventory.php';
 require_once __DIR__ . '/../../includes/order_fulfillment.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
 require_once __DIR__ . '/../../includes/catalog.php';
+require_once __DIR__ . '/../../includes/orders.php';
 app_require_permission('inventory.view');
 
 $appTitle = 'Reserve Available Stock';
@@ -250,9 +251,9 @@ require_once __DIR__ . '/../../includes/header.php';
             <div class="mt-2 d-flex gap-1 flex-wrap">
                 <?php foreach ($touchedOrders as $touchedOrder): ?>
                     <?php if ($canViewOrders): ?>
-                        <a class="btn btn-sm btn-outline-success" href="/modules/orders/view.php?id=<?php echo (int) $touchedOrder['id']; ?>"><?php echo app_escape($touchedOrder['order_number']); ?></a>
+                        <a class="btn btn-sm btn-outline-success" href="/modules/orders/view.php?id=<?php echo (int) $touchedOrder['id']; ?>"><?php echo app_escape(order_display_number($touchedOrder['order_number'])); ?></a>
                     <?php else: ?>
-                        <span class="badge bg-success"><?php echo app_escape($touchedOrder['order_number']); ?></span>
+                        <span class="badge bg-success"><?php echo app_escape(order_display_number($touchedOrder['order_number'])); ?></span>
                     <?php endif; ?>
                 <?php endforeach; ?>
             </div>
@@ -315,7 +316,7 @@ require_once __DIR__ . '/../../includes/header.php';
                                     <input type="checkbox" class="form-check-input" name="rows[]" value="<?php echo (int) $candidate['order_item_id']; ?>" <?php echo $candidate['default_qty'] > 0 ? 'checked' : ''; ?>>
                                 </td>
                                 <td>
-                                    <a href="/modules/orders/view.php?id=<?php echo (int) $candidate['order_id']; ?>"><?php echo app_escape($candidate['order_number']); ?></a>
+                                    <a href="/modules/orders/view.php?id=<?php echo (int) $candidate['order_id']; ?>"><?php echo app_escape(order_display_number($candidate['order_number'])); ?></a>
                                     <div class="text-muted small"><?php echo app_escape($candidate['order_date'] ?? '-'); ?></div>
                                 </td>
                                 <td>

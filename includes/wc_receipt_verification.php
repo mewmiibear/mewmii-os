@@ -45,12 +45,6 @@ function wc_receipt_verification_send(int $woocommerceOrderId, string $receiptSt
         'receipt_reject_reason' => $rejectReason ?? '',
     ];
 
-    // TEMPORARY DEBUG - logs the outgoing payload now, and the response/HTTP status further
-    // down, so the full round trip to the WordPress endpoint can be traced end-to-end. Remove
-    // once the receipt approve/reject workflow is confirmed working. Goes to Mewmii OS's own
-    // PHP error log (this is not a WordPress file).
-    error_log('[Mewmii Receipt Verification OUT] url=' . $url . ' payload=' . json_encode($payload));
-
     $ch = curl_init($url);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
@@ -71,10 +65,6 @@ function wc_receipt_verification_send(int $woocommerceOrderId, string $receiptSt
     $curlError = curl_error($ch);
     $statusCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
-
-    // TEMPORARY DEBUG - the other half of the trace above: HTTP status, curl-level error (if
-    // any), and the raw response body exactly as received, before any json_decode/interpretation.
-    error_log('[Mewmii Receipt Verification IN] http_status=' . $statusCode . ' curl_errno=' . $curlErrno . ' curl_error=' . $curlError . ' raw_response=' . $responseBody);
 
     if ($curlErrno !== 0) {
         throw new RuntimeException('Could not reach the WooCommerce site: ' . $curlError);

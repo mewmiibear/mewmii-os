@@ -101,7 +101,7 @@ $canViewCustomers = app_has_permission('customers.view');
             <?php foreach ($orders as $order): ?>
                 <tr>
                     <td>
-                        <?php echo app_escape($order['order_number']); ?>
+                        <?php echo app_escape(order_display_number($order['order_number'])); ?>
                         <?php if (!empty($order['is_historical'])): ?>
                             <span class="badge bg-secondary">Historical</span>
                         <?php endif; ?>
