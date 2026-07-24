@@ -28,17 +28,49 @@ const WC_ORDER_IMPORT_SYNC_TYPE = 'woocommerce_order_import';
  * Reads one key out of a WooCommerce REST order's meta_data array
  * ([['id' => .., 'key' => .., 'value' => ..], ...]). Returns null if the key isn't present -
  * covers both "WooCommerce never exposed it" and "this order genuinely has no value yet".
+ *
+ * AUDIT NOTE: this operates purely on the already-fetched REST response array. There is no
+ * $order object here, no get_post_meta(), and no direct SQL - this function runs inside Mewmii
+ * OS's own PHP process, which has no WordPress bootstrap at all. Whatever WooCommerce's REST
+ * API included in meta_data for this order - private "_"-prefixed keys and normal keys alike,
+ * WooCommerce's own order REST controller does not apply WordPress core's is_protected_meta()
+ * hiding to order meta_data - is the entire universe this function can see. HPOS vs legacy
+ * postmeta storage is irrelevant here too, for the same reason: that distinction only matters
+ * on the WordPress side, before the HTTP response was ever built.
+ *
+ * If the same key appears more than once in meta_data, the last non-empty match wins rather
+ * than returning on the first match found, so a leading empty/legacy duplicate entry can never
+ * shadow a real value that appears later in the array.
  */
 function wc_order_import_get_meta(array $wcOrder, string $key): ?string
 {
+    $orderId = $wcOrder['id'] ?? 'unknown';
+    $matchCount = 0;
+    $found = null;
+
     foreach (($wcOrder['meta_data'] ?? []) as $meta) {
-        if (is_array($meta) && ($meta['key'] ?? null) === $key) {
-            $value = $meta['value'] ?? null;
-            return $value !== null && $value !== '' ? (string) $value : null;
+        if (!is_array($meta) || ($meta['key'] ?? null) !== $key) {
+            continue;
+        }
+
+        $matchCount++;
+        $value = $meta['value'] ?? null;
+        $resolved = $value !== null && $value !== '' ? (string) $value : null;
+        if ($resolved !== null) {
+            $found = $resolved;
         }
     }
 
-    return null;
+    // TEMPORARY DEBUG - one line per key requested, per order. No $pdo is available in this
+    // function (and adding one would mean changing this function's and
+    // wc_order_import_extract_receipt_fields()'s signatures, out of scope for this audit), so
+    // this goes to Mewmii OS's own PHP error log - not WordPress's - via error_log(). Check
+    // your server's configured PHP error log (php.ini's error_log directive, or your web
+    // server's error log). Remove once the missing-metadata issue is confirmed/resolved.
+    error_log('[Mewmii wc_order_import_get_meta DEBUG] order=' . $orderId . ' key=' . $key
+        . ' matches_found_in_meta_data=' . $matchCount . ' resolved_value=' . json_encode($found));
+
+    return $found;
 }
 
 /**
