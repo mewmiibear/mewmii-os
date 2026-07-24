@@ -52,20 +52,22 @@ function wc_order_import_get_meta(array $wcOrder, string $key): ?string
  *
  * Source keys confirmed against real data (order 14291/14300 debug traces) - these are the
  * PeproDev BACS Receipt Upload plugin's actual fields, resolved and exposed by
- * mewmii-preorder.php's woocommerce_rest_prepare_shop_order_object filter:
- *   _receipt_url              - wp_get_attachment_url() already resolved on the WP side
- *   receipt_upload_status     - upload | pending | approved | rejected
- *   receipt_upload_admin_note - PeproDev's own admin note, used for both approval and rejection
- * The earlier _receipt_file_name / _pepro_receipt_url / _mewmii_reject_reason keys were from a
- * dead code path (mewmii-preorder.php's own unused parallel receipt scheme) and are no longer
- * read here.
+ * mewmii-preorder.php's woocommerce_rest_prepare_shop_order_object filter. Two receipt-upload
+ * generations coexist on real orders, so the URL needs a fallback:
+ *   _receipt_url              - newer Pepro upload system (wp_get_attachment_url() resolved)
+ *   _pepro_receipt_url        - older Pepro system, still present on older orders
+ *   receipt_upload_status     - upload | pending | approved | rejected - single source, no fallback
+ *   receipt_upload_admin_note - PeproDev's own admin note (approval/rejection context)
+ *   _mewmii_reject_reason     - fallback if the note above is ever empty
  */
 function wc_order_import_extract_receipt_fields(array $wcOrder): array
 {
     $isPreorder = wc_order_import_get_meta($wcOrder, '_mewmii_is_preorder') === 'yes';
-    $receiptUrl = wc_order_import_get_meta($wcOrder, '_receipt_url');
+    $receiptUrl = wc_order_import_get_meta($wcOrder, '_receipt_url')
+        ?? wc_order_import_get_meta($wcOrder, '_pepro_receipt_url');
     $rawStatus = wc_order_import_get_meta($wcOrder, 'receipt_upload_status');
-    $rejectReason = wc_order_import_get_meta($wcOrder, 'receipt_upload_admin_note');
+    $rejectReason = wc_order_import_get_meta($wcOrder, 'receipt_upload_admin_note')
+        ?? wc_order_import_get_meta($wcOrder, '_mewmii_reject_reason');
 
     $receiptStatus = null;
     if ($isPreorder) {
@@ -276,6 +278,18 @@ function wc_order_import_single(PDO $pdo, array $wcOrder): array
     $subtotal = round($totalAmount - $shippingFee + $discount, 2);
 
     $receiptFields = wc_order_import_extract_receipt_fields($wcOrder);
+
+    // TEMPORARY DEBUG - shows every raw receipt-related source value read from the WooCommerce
+    // order alongside the final resolved receiptFields, so the fallback priority (_receipt_url
+    // -> _pepro_receipt_url, receipt_upload_admin_note -> _mewmii_reject_reason) can be
+    // confirmed against real orders. Remove once confirmed.
+    $extractionDebug = 'DEBUG EXTRACT order_id(wc)=' . $wcOrderId . PHP_EOL
+        . '_receipt_url = ' . json_encode(wc_order_import_get_meta($wcOrder, '_receipt_url')) . PHP_EOL
+        . '_pepro_receipt_url = ' . json_encode(wc_order_import_get_meta($wcOrder, '_pepro_receipt_url')) . PHP_EOL
+        . 'receipt_upload_status = ' . json_encode(wc_order_import_get_meta($wcOrder, 'receipt_upload_status')) . PHP_EOL
+        . 'receipt_upload_admin_note = ' . json_encode(wc_order_import_get_meta($wcOrder, 'receipt_upload_admin_note')) . PHP_EOL
+        . 'receiptFields (final) = ' . json_encode($receiptFields);
+    sync_log_write($pdo, WC_ORDER_IMPORT_SYNC_TYPE, 'debug', null, $extractionDebug);
 
     $existingStmt = $pdo->prepare('SELECT id, payment_status FROM mewmii_orders WHERE woocommerce_order_id = ?');
     $existingStmt->execute([$wcOrderId]);
