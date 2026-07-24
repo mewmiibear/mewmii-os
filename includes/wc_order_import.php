@@ -49,11 +49,17 @@ function wc_order_import_get_meta(array $wcOrder, string $key): ?string
  * receipt_status is only ever non-null for a preorder order, and defaults to 'pending' when
  * WooCommerce didn't report receipt_upload_status at all (no receipt uploaded yet, or the
  * field isn't exposed) - it is never left unset for a preorder order.
+ *
+ * receipt_url source: _receipt_file_name first - confirmed via debug logging to be what
+ * WooCommerce REST actually returns today - falling back to _pepro_receipt_url if
+ * _receipt_file_name is ever absent (e.g. an older order, or the receipt plugin's exposed key
+ * changes again later).
  */
 function wc_order_import_extract_receipt_fields(array $wcOrder): array
 {
     $isPreorder = wc_order_import_get_meta($wcOrder, '_mewmii_is_preorder') === 'yes';
-    $receiptUrl = wc_order_import_get_meta($wcOrder, '_pepro_receipt_url');
+    $receiptUrl = wc_order_import_get_meta($wcOrder, '_receipt_file_name')
+        ?? wc_order_import_get_meta($wcOrder, '_pepro_receipt_url');
     $rawStatus = wc_order_import_get_meta($wcOrder, 'receipt_upload_status');
     $rejectReason = wc_order_import_get_meta($wcOrder, '_mewmii_reject_reason');
 
@@ -391,7 +397,7 @@ function wc_order_import_run(PDO $pdo, int $limit = 20): array
             }
         }
 
-        $debugKeysOfInterest = ['_mewmii_is_preorder', '_pepro_receipt_url', '_pepro_receipt', 'receipt_upload_status', '_mewmii_reject_reason'];
+        $debugKeysOfInterest = ['_mewmii_is_preorder', '_pepro_receipt_url', '_pepro_receipt', 'receipt_upload_status', '_mewmii_reject_reason', '_receipt_file_name', '_receipt_file_url', '_receipt_attachment', '_receipt_id'];
         $debug_output = 'DEBUG ORDER ' . $wcOrderId . PHP_EOL
             . 'META KEYS: ' . implode(', ', array_keys($debugMetaFlat)) . PHP_EOL;
         foreach ($debugKeysOfInterest as $debugKey) {
