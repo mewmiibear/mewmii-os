@@ -4,6 +4,7 @@ require_once __DIR__ . '/../../includes/inventory.php';
 require_once __DIR__ . '/../../includes/orders.php';
 require_once __DIR__ . '/../../includes/order_fulfillment.php';
 require_once __DIR__ . '/../../includes/shipments.php';
+require_once __DIR__ . '/../../includes/wc_receipt_verification.php';
 app_require_permission('orders.view');
 
 $appTitle = 'Order Detail';
@@ -194,6 +195,62 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } catch (Exception $exception) {
                     $pdo->rollBack();
                     $error = 'Failed to cancel order.';
+                }
+            }
+        } elseif ($error === '' && !empty($_POST['approve_receipt'])) {
+            // The WordPress write-back happens BEFORE any local DB transaction opens, and the
+            // local receipt_status/receipt_reject_reason are only ever updated after it succeeds
+            // - a failed write-back must never leave Mewmii OS showing a decision WordPress
+            // (and therefore the customer) never actually received.
+            if (empty($order['woocommerce_order_id']) || (string) $order['receipt_status'] !== 'pending') {
+                $error = 'This order is not awaiting receipt review.';
+            } else {
+                try {
+                    wc_receipt_verification_send((int) $order['woocommerce_order_id'], 'approved', null);
+
+                    $pdo->beginTransaction();
+                    $pdo->prepare("UPDATE mewmii_orders SET receipt_status = 'approved', receipt_reject_reason = NULL WHERE id = ?")
+                        ->execute([$orderId]);
+                    $pdo->prepare('
+                        INSERT INTO mewmii_order_events (order_id, event_type, description, created_by)
+                        VALUES (?, ?, ?, ?)
+                    ')->execute([$orderId, 'receipt_status_change', 'Receipt approved.', $_SESSION['user_id'] ?? null]);
+                    $pdo->commit();
+
+                    app_redirect('/modules/orders/view.php?id=' . $orderId . '&updated=1');
+                } catch (RuntimeException $exception) {
+                    if ($pdo->inTransaction()) {
+                        $pdo->rollBack();
+                    }
+                    $error = 'Failed to approve receipt: ' . $exception->getMessage();
+                }
+            }
+        } elseif ($error === '' && !empty($_POST['reject_receipt'])) {
+            $rejectReason = trim((string) ($_POST['receipt_reject_reason'] ?? ''));
+
+            if (empty($order['woocommerce_order_id']) || (string) $order['receipt_status'] !== 'pending') {
+                $error = 'This order is not awaiting receipt review.';
+            } elseif ($rejectReason === '') {
+                $error = 'Enter a rejection reason.';
+            } else {
+                try {
+                    wc_receipt_verification_send((int) $order['woocommerce_order_id'], 'rejected', $rejectReason);
+
+                    $pdo->beginTransaction();
+                    $pdo->prepare("UPDATE mewmii_orders SET receipt_status = 'rejected', receipt_reject_reason = ? WHERE id = ?")
+                        ->execute([$rejectReason, $orderId]);
+                    $pdo->prepare('
+                        INSERT INTO mewmii_order_events (order_id, event_type, description, created_by)
+                        VALUES (?, ?, ?, ?)
+                    ')->execute([$orderId, 'receipt_status_change', 'Receipt rejected. Reason: ' . $rejectReason, $_SESSION['user_id'] ?? null]);
+                    $pdo->commit();
+
+                    app_redirect('/modules/orders/view.php?id=' . $orderId . '&updated=1');
+                } catch (RuntimeException $exception) {
+                    if ($pdo->inTransaction()) {
+                        $pdo->rollBack();
+                    }
+                    $error = 'Failed to reject receipt: ' . $exception->getMessage();
                 }
             }
         } elseif ($error === '') {
@@ -502,6 +559,24 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php else: ?>
                 <p class="text-muted mb-3">No receipt uploaded.</p>
             <?php endif; ?>
+
+            <?php if (!empty($order['is_preorder_request'])): ?>
+                <div class="text-muted small mb-2">Receipt Status: <?php echo order_receipt_status_badge($order); ?></div>
+                <?php if ((string) $order['receipt_status'] === 'rejected' && !empty($order['receipt_reject_reason'])): ?>
+                    <div class="alert alert-danger small py-2 px-3 mb-3"><?php echo app_escape($order['receipt_reject_reason']); ?></div>
+                <?php endif; ?>
+                <?php if ($canManage && empty($order['is_historical']) && (string) $order['receipt_status'] === 'pending' && !empty($order['receipt_url'])): ?>
+                    <div class="d-flex gap-2 mb-3">
+                        <form method="post" onsubmit="return confirm('Approve this receipt? The customer will be notified.');">
+                            <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                            <input type="hidden" name="approve_receipt" value="1">
+                            <button type="submit" class="btn btn-success btn-sm">Approve Receipt</button>
+                        </form>
+                        <button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#rejectReceiptModal">Reject Receipt</button>
+                    </div>
+                <?php endif; ?>
+            <?php endif; ?>
+
             <?php if ($canManage && empty($order['is_historical']) && $order['payment_status'] === 'pending'): ?>
                 <div class="d-flex gap-2">
                     <form method="post" onsubmit="return confirm('Approve this payment? Ready-stock items will be reserved where possible and the order status will update automatically.');">
@@ -703,5 +778,31 @@ require_once __DIR__ . '/../../includes/header.php';
     renderMessage();
 })();
 </script>
+
+<?php if ($canManage && empty($order['is_historical']) && !empty($order['is_preorder_request']) && (string) $order['receipt_status'] === 'pending' && !empty($order['receipt_url'])): ?>
+<div class="modal fade" id="rejectReceiptModal" tabindex="-1" aria-labelledby="rejectReceiptModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post">
+                <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                <input type="hidden" name="reject_receipt" value="1">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="rejectReceiptModalLabel">Reject Receipt</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <label for="receipt_reject_reason" class="form-label">Rejection reason</label>
+                    <textarea class="form-control" id="receipt_reject_reason" name="receipt_reject_reason" rows="3" required placeholder="e.g. Amount transferred does not match order total."></textarea>
+                    <div class="form-text">Sent to the customer, who will be able to upload a replacement receipt.</div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger btn-sm">Confirm Reject &amp; Notify Customer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
