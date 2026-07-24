@@ -31,7 +31,7 @@ function wc_order_import_format_gmt_setting(?string $gmtTimestamp): ?string
         $dt->setTimezone(new DateTimeZone(date_default_timezone_get()));
 
         return $dt->format('Y-m-d H:i:s');
-    } catch (Exception $e) {
+    } catch (Exception) {
         return $gmtTimestamp;
     }
 }
