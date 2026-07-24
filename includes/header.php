@@ -13,10 +13,15 @@ $appTitle = 'Mewmii OS';
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo app_escape($appTitle); ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <style>
         /* --- Mewmii OS design tokens ------------------------------------------------------
-           Single source of truth for the brand palette. Everything below references these
-           instead of hardcoded hex values, so a future palette change only touches this block. */
+           Single source of truth for the brand/neutral palette. Everything below references
+           these instead of hardcoded hex values, so a future palette change only touches this
+           block. UI/UX Phase 5A: shifted toward a flatter, neutral "admin SaaS" surface -
+           brand pink is now reserved for primary actions/active states rather than used as an
+           ambient tint on every card/shadow/background. Class names are all unchanged from
+           before this phase, so every other page's markup keeps working without edits. */
         :root {
             --mewmii-pink: #FF94C4;
             --mewmii-pink-hover: #F97DB7;
@@ -26,12 +31,14 @@ $appTitle = 'Mewmii OS';
             --sky-blue: #85D2FF;
             --berry-rose: #B2668C;
             --base-white: #FFFFFF;
-            --text-main: #353535;
-            --text-secondary: #66524E;
+            --text-main: #202223;
+            --text-secondary: #6B6F76;
+            --neutral-bg: #F6F6F7;
+            --neutral-border: #E3E3E3;
         }
 
         body {
-            background: #FAF9FB;
+            background: var(--neutral-bg);
             color: var(--text-main);
         }
 
@@ -40,16 +47,16 @@ $appTitle = 'Mewmii OS';
             font-weight: 700;
         }
 
-        /* --- Cards: rounded, soft-shadow "premium stationery" surface, used everywhere ---- */
+        /* --- Cards: flat, bordered "admin SaaS" surface (was a heavy pink drop-shadow) ---- */
         .card {
-            border: 0;
-            border-radius: 18px;
-            box-shadow: 0 8px 24px rgba(255, 148, 196, 0.14);
+            border: 1px solid var(--neutral-border);
+            border-radius: 12px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
         }
 
         /* --- Buttons: Pink = primary action, Blue = secondary action, per design tokens --- */
         .btn {
-            border-radius: 10px;
+            border-radius: 8px;
         }
 
         .btn-primary {
@@ -193,6 +200,22 @@ $appTitle = 'Mewmii OS';
             margin-top: 0.3rem;
         }
 
+        /* --- Clickable stat-card (UI/UX Phase 5A) - whole card is the link target (Dashboard
+           Top Summary strip), no separate button needed - "reduce clicks" per the design
+           brief. Same .card/.stat-card look, just neutralises the default <a> underline/color
+           and adds a subtle lift on hover so it still reads as interactive. */
+        a.stat-card-link {
+            display: block;
+            text-decoration: none;
+            color: inherit;
+            transition: box-shadow 0.15s ease, transform 0.15s ease;
+        }
+
+        a.stat-card-link:hover {
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+            transform: translateY(-1px);
+        }
+
         /* --- Receipt preview thumbnail (order view Receipt row) - max-width/max-height cap the
            box, width/height:auto let the element follow the receipt photo's real aspect ratio
            instead of forcing a fixed square, object-fit:contain as a defensive backstop. Wrapped
@@ -286,16 +309,62 @@ $appTitle = 'Mewmii OS';
         }
 
         .sidebar {
-            background: linear-gradient(180deg, var(--base-white) 0%, var(--mewmii-pink-tint) 100%);
+            background: var(--base-white);
+            border-right: 1px solid var(--neutral-border);
             min-height: 100vh;
         }
 
-        /* Current-page highlight in the sidebar - set via an `active` class added per-link in
-           the PHP below by comparing $_SERVER['REQUEST_URI'] to each link's own href. */
-        .sidebar .btn-light.active {
-            background: var(--mewmii-pink);
-            color: var(--base-white);
+        /* --- Sidebar nav links (UI/UX Phase 5A) - flat text + icon rows instead of stacked
+           Bootstrap buttons, grouped under small uppercase section labels for scan-ability.
+           $navActive()'s logic in the PHP below is unchanged - only which CSS class receives
+           the resulting " active" string changed (was .btn-light.active, now .nav-link.active). */
+        .sidebar .nav-section-label {
+            font-size: 0.72rem;
+            font-weight: 700;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin: 1.1rem 0 0.35rem 0.75rem;
+        }
+
+        .sidebar .nav-section-label:first-child {
+            margin-top: 0.25rem;
+        }
+
+        .sidebar .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 0.5rem 0.75rem;
+            border-radius: 8px;
+            color: var(--text-main);
+            font-size: 0.92rem;
+            border-left: 3px solid transparent;
+        }
+
+        .sidebar .nav-link:hover {
+            background: var(--neutral-bg);
+            color: var(--text-main);
+        }
+
+        .sidebar .nav-link.active {
+            background: var(--mewmii-pink-tint);
+            color: var(--mewmii-pink-hover);
             font-weight: 600;
+            border-left-color: var(--mewmii-pink);
+        }
+
+        .sidebar .nav-link i {
+            font-size: 0.95rem;
+            width: 1.1rem;
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        .sidebar .nav-link.nav-link-sub {
+            padding-left: 2.1rem;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
         }
 
         /* --- Needs Attention list rows (dashboard) - a coloured left border communicates
@@ -389,47 +458,59 @@ $appTitle = 'Mewmii OS';
                 };
                 ?>
                 <aside class="col-lg-2 sidebar p-3">
-                    <div class="d-grid gap-2">
-                        <a class="btn btn-light text-start<?php echo $navActive('/index.php'); ?>" href="/index.php">Dashboard</a>
-                        <a class="btn btn-light text-start<?php echo $navActive('/modules/products/index.php'); ?>" href="/modules/products/index.php">Products</a>
+                    <div class="d-flex flex-column">
+                        <a class="nav-link<?php echo $navActive('/index.php'); ?>" href="/index.php"><i class="bi bi-speedometer2"></i> Dashboard</a>
+
+                        <div class="nav-section-label">Catalog</div>
+                        <a class="nav-link<?php echo $navActive('/modules/products/index.php'); ?>" href="/modules/products/index.php"><i class="bi bi-box-seam"></i> Products</a>
                         <?php if (app_has_permission('products.view')): ?>
-                            <a class="btn btn-light btn-sm text-start ms-3<?php echo $navActive('/modules/categories/index.php'); ?>" href="/modules/categories/index.php">Categories</a>
-                            <a class="btn btn-light btn-sm text-start ms-3<?php echo $navActive('/modules/brands/index.php'); ?>" href="/modules/brands/index.php">Brands</a>
-                            <a class="btn btn-light btn-sm text-start ms-3<?php echo $navActive('/modules/collections/index.php'); ?>" href="/modules/collections/index.php">Collections</a>
-                            <a class="btn btn-light btn-sm text-start ms-3<?php echo $navActive('/modules/tags/index.php'); ?>" href="/modules/tags/index.php">Tags</a>
+                            <a class="nav-link nav-link-sub<?php echo $navActive('/modules/categories/index.php'); ?>" href="/modules/categories/index.php">Categories</a>
+                            <a class="nav-link nav-link-sub<?php echo $navActive('/modules/brands/index.php'); ?>" href="/modules/brands/index.php">Brands</a>
+                            <a class="nav-link nav-link-sub<?php echo $navActive('/modules/collections/index.php'); ?>" href="/modules/collections/index.php">Collections</a>
+                            <a class="nav-link nav-link-sub<?php echo $navActive('/modules/tags/index.php'); ?>" href="/modules/tags/index.php">Tags</a>
                         <?php endif; ?>
-                        <?php if (app_has_permission('orders.view')): ?>
-                            <a class="btn btn-light text-start<?php echo $navActive('/modules/orders/index.php'); ?>" href="/modules/orders/index.php">Orders</a>
+
+                        <?php if (app_has_permission('orders.view') || app_has_permission('customers.view')): ?>
+                            <div class="nav-section-label">Sales</div>
+                            <?php if (app_has_permission('orders.view')): ?>
+                                <a class="nav-link<?php echo $navActive('/modules/orders/index.php'); ?>" href="/modules/orders/index.php"><i class="bi bi-cart3"></i> Orders</a>
+                            <?php endif; ?>
+                            <?php if (app_has_permission('customers.view')): ?>
+                                <a class="nav-link<?php echo $navActive('/modules/customers/index.php'); ?>" href="/modules/customers/index.php"><i class="bi bi-people"></i> Customers</a>
+                            <?php endif; ?>
                         <?php endif; ?>
-                        <?php if (app_has_permission('suppliers.view')): ?>
-                            <a class="btn btn-light text-start<?php echo $navActive('/modules/suppliers/index.php'); ?>" href="/modules/suppliers/index.php">Suppliers</a>
+
+                        <?php if (app_has_permission('suppliers.view') || app_has_permission('supplier-orders.view') || app_has_permission('inventory.view')): ?>
+                            <div class="nav-section-label">Operations</div>
+                            <?php if (app_has_permission('suppliers.view')): ?>
+                                <a class="nav-link<?php echo $navActive('/modules/suppliers/index.php'); ?>" href="/modules/suppliers/index.php"><i class="bi bi-truck"></i> Suppliers</a>
+                            <?php endif; ?>
+                            <?php if (app_has_permission('supplier-orders.view')): ?>
+                                <a class="nav-link<?php echo $navActive('/modules/supplier-orders/index.php'); ?>" href="/modules/supplier-orders/index.php"><i class="bi bi-clipboard-check"></i> Supplier Orders</a>
+                            <?php endif; ?>
+                            <?php if (app_has_permission('inventory.view')): ?>
+                                <a class="nav-link<?php echo $navActive('/modules/inventory/index.php'); ?>" href="/modules/inventory/index.php"><i class="bi bi-boxes"></i> Inventory</a>
+                            <?php endif; ?>
                         <?php endif; ?>
-                        <?php if (app_has_permission('supplier-orders.view')): ?>
-                            <a class="btn btn-light text-start<?php echo $navActive('/modules/supplier-orders/index.php'); ?>" href="/modules/supplier-orders/index.php">Supplier Orders</a>
+
+                        <?php if (app_has_permission('customer-storage.view') || app_has_permission('ship-my-box.view') || app_has_permission('shipments.view')): ?>
+                            <div class="nav-section-label">Fulfilment</div>
+                            <?php if (app_has_permission('customer-storage.view')): ?>
+                                <a class="nav-link<?php echo $navActive('/modules/customer-storage/index.php'); ?>" href="/modules/customer-storage/index.php"><i class="bi bi-archive"></i> Customer Storage</a>
+                            <?php endif; ?>
+                            <?php if (app_has_permission('ship-my-box.view')): ?>
+                                <a class="nav-link<?php echo $navActive('/modules/ship-my-box/index.php'); ?>" href="/modules/ship-my-box/index.php"><i class="bi bi-box2"></i> Ship My Box</a>
+                            <?php endif; ?>
+                            <?php if (app_has_permission('shipments.view')): ?>
+                                <a class="nav-link<?php echo $navActive('/modules/shipments/index.php'); ?>" href="/modules/shipments/index.php"><i class="bi bi-send"></i> Shipments</a>
+                            <?php endif; ?>
                         <?php endif; ?>
-                        <?php if (app_has_permission('inventory.view')): ?>
-                            <a class="btn btn-light text-start<?php echo $navActive('/modules/inventory/index.php'); ?>" href="/modules/inventory/index.php">Inventory</a>
-                        <?php endif; ?>
-                        <?php if (app_has_permission('customers.view')): ?>
-                            <a class="btn btn-light text-start<?php echo $navActive('/modules/customers/index.php'); ?>" href="/modules/customers/index.php">Customers</a>
-                        <?php endif; ?>
-                        <?php if (app_has_permission('customer-storage.view')): ?>
-                            <a class="btn btn-light text-start<?php echo $navActive('/modules/customer-storage/index.php'); ?>" href="/modules/customer-storage/index.php">Customer Storage</a>
-                        <?php endif; ?>
-                        <?php if (app_has_permission('ship-my-box.view')): ?>
-                            <a class="btn btn-light text-start<?php echo $navActive('/modules/ship-my-box/index.php'); ?>" href="/modules/ship-my-box/index.php">Ship My Box</a>
-                        <?php endif; ?>
-                        <?php if (app_has_permission('shipments.view')): ?>
-                            <a class="btn btn-light text-start<?php echo $navActive('/modules/shipments/index.php'); ?>" href="/modules/shipments/index.php">Shipments</a>
-                        <?php endif; ?>
+
                         <?php if (app_has_permission('settings.manage')): ?>
-                            <a class="btn btn-light text-start<?php echo $navActive('/modules/integrations/woocommerce.php'); ?>" href="/modules/integrations/woocommerce.php">WooCommerce Orders</a>
-                        <?php endif; ?>
-                        <?php if (app_has_permission('settings.manage')): ?>
-                            <a class="btn btn-light text-start<?php echo $navActive('/modules/sync-logs/index.php'); ?>" href="/modules/sync-logs/index.php">Sync Logs</a>
-                        <?php endif; ?>
-                        <?php if (app_has_permission('settings.manage')): ?>
-                            <a class="btn btn-light text-start<?php echo $navActive('/modules/settings/maintenance.php'); ?>" href="/modules/settings/maintenance.php">Settings</a>
+                            <div class="nav-section-label">System</div>
+                            <a class="nav-link<?php echo $navActive('/modules/integrations/woocommerce.php'); ?>" href="/modules/integrations/woocommerce.php"><i class="bi bi-arrow-repeat"></i> WooCommerce Sync</a>
+                            <a class="nav-link<?php echo $navActive('/modules/sync-logs/index.php'); ?>" href="/modules/sync-logs/index.php"><i class="bi bi-list-check"></i> Sync Logs</a>
+                            <a class="nav-link<?php echo $navActive('/modules/settings/maintenance.php'); ?>" href="/modules/settings/maintenance.php"><i class="bi bi-gear"></i> Settings</a>
                         <?php endif; ?>
                     </div>
                 </aside>
