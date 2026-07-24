@@ -377,11 +377,12 @@ function wc_order_import_run(PDO $pdo, int $limit = 20): array
         $wcOrderId = (int) ($wcOrder['id'] ?? 0);
 
         // =====================================================================================
-        // TEMPORARY DEBUG LOGGING - added to diagnose why is_preorder_request/receipt_status/
-        // receipt_url are coming back empty despite a successful import. Logs exactly what
-        // WooCommerce's REST API returned for this order, before any Mewmii-side processing
-        // touches it. Remove this whole block once the cause is confirmed - it is not part of
-        // the import logic and does not affect it.
+        // TEMPORARY DEBUG - writes into the existing sync_logs-backed "Recent Sync Activity"
+        // table on modules/integrations/woocommerce.php (status = 'debug', so these rows are
+        // visually distinct from real success/failure rows) instead of a file or the PHP error
+        // log. Confirms exactly what WooCommerce's REST API sent for this order, before any
+        // Mewmii-side processing touches it. Remove this whole block once confirmed - it is not
+        // part of the import logic and does not affect it.
         // =====================================================================================
         $debugMetaFlat = [];
         foreach (($wcOrder['meta_data'] ?? []) as $debugMetaEntry) {
@@ -389,37 +390,15 @@ function wc_order_import_run(PDO $pdo, int $limit = 20): array
                 $debugMetaFlat[$debugMetaEntry['key']] = $debugMetaEntry['value'] ?? null;
             }
         }
-        $debugMewmiiKeys = [];
-        $debugPeproKeys = [];
-        foreach ($debugMetaFlat as $debugKey => $debugValue) {
-            if (strpos($debugKey, '_mewmii') === 0) {
-                $debugMewmiiKeys[$debugKey] = $debugValue;
-            }
-            if (strpos($debugKey, '_pepro') === 0 || strpos($debugKey, 'pepro') === 0 || strpos($debugKey, 'peprodev') === 0) {
-                $debugPeproKeys[$debugKey] = $debugValue;
-            }
+
+        $debugKeysOfInterest = ['_mewmii_is_preorder', '_pepro_receipt_url', '_pepro_receipt', 'receipt_upload_status', '_mewmii_reject_reason'];
+        $debug_output = 'DEBUG ORDER ' . $wcOrderId . PHP_EOL
+            . 'META KEYS: ' . implode(', ', array_keys($debugMetaFlat)) . PHP_EOL;
+        foreach ($debugKeysOfInterest as $debugKey) {
+            $debug_output .= $debugKey . ' = ' . (array_key_exists($debugKey, $debugMetaFlat) ? json_encode($debugMetaFlat[$debugKey]) : '(not present)') . PHP_EOL;
         }
 
-        $debug_output = '===== Order #' . $wcOrderId . ' =====' . PHP_EOL
-            . 'meta_data key count: ' . count($debugMetaFlat) . ' | keys: ' . implode(', ', array_keys($debugMetaFlat)) . PHP_EOL
-            . '_mewmii_* keys: ' . json_encode($debugMewmiiKeys) . PHP_EOL
-            . 'pepro/_pepro/peprodev keys: ' . json_encode($debugPeproKeys) . PHP_EOL
-            . 'receipt_upload_status: ' . (array_key_exists('receipt_upload_status', $debugMetaFlat) ? json_encode($debugMetaFlat['receipt_upload_status']) : '(key not present in meta_data)') . PHP_EOL
-            . 'full meta_data: ' . json_encode($debugMetaFlat) . PHP_EOL
-            . 'full raw order payload: ' . json_encode($wcOrder) . PHP_EOL
-            . PHP_EOL;
-
-        $debugFile = dirname(__DIR__) . '/logs/mewmii-wc-debug.log';
-        if (! is_dir(dirname($debugFile))) {
-            mkdir(dirname($debugFile), 0755, true);
-        }
-
-        error_log('Mewmii debug reached');
-        file_put_contents(
-            $debugFile,
-            $debug_output,
-            FILE_APPEND
-        );
+        sync_log_write($pdo, WC_ORDER_IMPORT_SYNC_TYPE, 'debug', null, $debug_output);
         // ===================================================== END TEMPORARY DEBUG LOGGING ====
 
         $pdo->beginTransaction();
