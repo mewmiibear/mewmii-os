@@ -770,6 +770,14 @@ require_once __DIR__ . '/../../includes/header.php';
     var copyBtn = document.getElementById('statusMessageCopyBtn');
     var copiedLabel = document.getElementById('statusMessageCopied');
 
+    // Defensive guard: this block used to assume all four elements always exist and would
+    // throw an uncaught TypeError on the first null access if any were ever missing - which
+    // would show up as a page-load console error unrelated to (but easily confused with) the
+    // Reject Receipt modal below. Bails out cleanly instead of throwing.
+    if (!select || !textarea || !copyBtn || !copiedLabel) {
+        return;
+    }
+
     function renderMessage() {
         textarea.value = messages[select.value] || '';
         copiedLabel.classList.add('d-none');
