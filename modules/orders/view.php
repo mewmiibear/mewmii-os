@@ -581,6 +581,11 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php endif; ?>
         </div>
 
+        <!-- RECEIPT UI VERSION 3 -->
+        <div class="alert alert-danger">
+            RECEIPT UI VERSION 3
+        </div>
+
         <?php if (!empty($order['is_preorder_request']) && $canManage && empty($order['is_historical']) && (string) $order['receipt_status'] === 'pending' && !empty($order['receipt_url'])): ?>
             <div class="card p-4 mb-4 border-primary-subtle">
                 <h5 class="mb-1">Receipt Verification</h5>
