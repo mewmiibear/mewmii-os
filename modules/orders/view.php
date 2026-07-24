@@ -245,7 +245,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     wc_receipt_verification_send((int) $order['woocommerce_order_id'], 'rejected', $rejectReason);
 
                     $pdo->beginTransaction();
-                    $pdo->prepare("UPDATE mewmii_orders SET receipt_status = 'rejected', receipt_reject_reason = ? WHERE id = ?")
+                    // receipt_url cleared too - WordPress deletes the underlying attachment as
+                    // part of this same rejection (see mewmii-preorder.php's receipt-status
+                    // endpoint), so nothing should keep pointing at it here either. A later
+                    // re-upload + re-import will populate a fresh receipt_url once the customer
+                    // submits a replacement - the importer itself is untouched.
+                    $pdo->prepare("UPDATE mewmii_orders SET receipt_status = 'rejected', receipt_reject_reason = ?, receipt_url = NULL WHERE id = ?")
                         ->execute([$rejectReason, $orderId]);
                     $pdo->prepare('
                         INSERT INTO mewmii_order_events (order_id, event_type, description, created_by)
