@@ -158,6 +158,62 @@ function app_require_permission(string $permission): void
  * non-sensitive text (both existing callers already do: 'Successful login', the attempted
  * email on failure, 'User logged out' - none of these are secrets).
  */
+/**
+ * Progressive login delay (Security Hardening Phase 4D) - reuses audit_logs (restored in
+ * Phase 4C, no new table needed - see the Phase 4D audit for why: it already has ip_address,
+ * action, details (the attempted email), and created_at, exactly what this needs).
+ *
+ * Deliberately NOT an account lock: counts recent 'login_failed' rows matching this exact
+ * (ip_address, email) pair and sleeps 1 second per recent failure, capped at 10 - a real
+ * slowdown against automated guessing, but the legitimate owner mistyping their password a
+ * few times only ever waits a few extra seconds, never gets locked out. "Recent" means since
+ * this email's last successful login (found via user_id, since a fresh success is the
+ * clearest possible signal that whoever is at that IP now is legitimate), falling back to a
+ * bounded 24-hour lookback for an email that has never once succeeded - so the query never
+ * scans unbounded history either way. This never deletes or modifies any audit_logs row -
+ * failed attempts stay logged permanently regardless of what happens after them.
+ *
+ * Must be called AFTER validating $email is a plausible address but BEFORE password_verify(),
+ * so both a correct and incorrect password on this attempt are delayed equally (no timing
+ * signal either way) - see login.php.
+ */
+function app_login_throttle_delay(string $ipAddress, string $email): void
+{
+    try {
+        $pdo = app_db();
+
+        $userStmt = $pdo->prepare('SELECT id FROM users WHERE email = ?');
+        $userStmt->execute([$email]);
+        $userId = $userStmt->fetchColumn();
+
+        $sinceTimestamp = null;
+        if ($userId !== false) {
+            $lastSuccessStmt = $pdo->prepare("
+                SELECT MAX(created_at) FROM audit_logs WHERE action = 'login' AND user_id = ?
+            ");
+            $lastSuccessStmt->execute([(int) $userId]);
+            $sinceTimestamp = $lastSuccessStmt->fetchColumn() ?: null;
+        }
+
+        $countStmt = $pdo->prepare("
+            SELECT COUNT(*) FROM audit_logs
+            WHERE action = 'login_failed' AND ip_address = ? AND details = ?
+              AND created_at >= COALESCE(?, DATE_SUB(NOW(), INTERVAL 24 HOUR))
+        ");
+        $countStmt->execute([$ipAddress, $email, $sinceTimestamp]);
+        $recentFailures = (int) $countStmt->fetchColumn();
+
+        if ($recentFailures > 0) {
+            sleep(min(10, $recentFailures));
+        }
+    } catch (Throwable $e) {
+        // Never let the throttle check itself block a login attempt - if this fails for any
+        // reason (e.g. a transient DB hiccup), the login proceeds undelayed rather than
+        // erroring out entirely. Same "must never block the real action" convention as
+        // app_log_action() just below.
+    }
+}
+
 function app_log_action($userId, $action, $details = '')
 {
     try {

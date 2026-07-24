@@ -38,6 +38,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         } else {
 
+            // Security Hardening Phase 4D: progressive delay based on recent failed attempts
+            // for this IP+email - see app_login_throttle_delay()'s own docblock
+            // (includes/bootstrap.php). Applied before the password check so a correct and
+            // incorrect password are delayed equally either way.
+            app_login_throttle_delay((string) ($_SERVER['REMOTE_ADDR'] ?? ''), $email);
+
             $stmt = app_db()->prepare("
                 SELECT
                     u.id,

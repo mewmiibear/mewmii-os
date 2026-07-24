@@ -36,6 +36,17 @@ function wc_client_is_configured(): bool
 /**
  * Low-level request. Throws RuntimeException on transport failure, a non-2xx
  * response, or an unparsable body - callers should catch and log via sync_log.php.
+ *
+ * Security Hardening Phase 4D: retries exactly once, and only for GET requests, on a
+ * transient failure - a curl-level transport error, an HTTP 5xx, or a 429 (rate limited,
+ * respecting Retry-After if present). Never retries an auth/permission/invalid-request
+ * response (401/403/400/422/...) - retrying those can't succeed and would just double the
+ * wait for an error that isn't going away.
+ *
+ * Retry is deliberately GET-only: wc_client_post()/wc_client_put() (used only by product
+ * sync - the order importer and receipt verification never call this function with POST/PUT
+ * at all) could have already written something server-side before a transport failure lost
+ * the response, and blindly retrying a write risks a duplicate. A GET has no such risk.
  */
 function wc_client_request(string $method, string $endpoint, array $data = [], array $query = []): array
 {
@@ -55,26 +66,63 @@ function wc_client_request(string $method, string $endpoint, array $data = [], a
         $url .= '?' . http_build_query($query);
     }
 
-    $ch = curl_init($url);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_CUSTOMREQUEST => $method,
-        CURLOPT_TIMEOUT => 15,
-        CURLOPT_CONNECTTIMEOUT => 10,
-        CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Accept: application/json'],
-        CURLOPT_SSL_VERIFYPEER => true,
-        CURLOPT_USERPWD => $config['consumer_key'] . ':' . $config['consumer_secret'],
-    ]);
+    $retryable = $method === 'GET';
+    $maxAttempts = $retryable ? 2 : 1;
 
-    if (in_array($method, ['POST', 'PUT'], true)) {
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+    for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+        $responseHeaders = [];
+
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CUSTOMREQUEST => $method,
+            CURLOPT_TIMEOUT => 15,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Accept: application/json'],
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_USERPWD => $config['consumer_key'] . ':' . $config['consumer_secret'],
+            CURLOPT_HEADERFUNCTION => function ($curlHandle, $headerLine) use (&$responseHeaders) {
+                $parts = explode(':', $headerLine, 2);
+                if (count($parts) === 2) {
+                    $responseHeaders[strtolower(trim($parts[0]))] = trim($parts[1]);
+                }
+
+                return strlen($headerLine);
+            },
+        ]);
+
+        if (in_array($method, ['POST', 'PUT'], true)) {
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+        }
+
+        $responseBody = curl_exec($ch);
+        $curlErrno = curl_errno($ch);
+        $curlError = curl_error($ch);
+        $statusCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $isTransportFailure = $curlErrno !== 0;
+        $isServerError = !$isTransportFailure && $statusCode >= 500 && $statusCode < 600;
+        $isRateLimited = !$isTransportFailure && $statusCode === 429;
+
+        $canRetryAgain = $retryable && $attempt < $maxAttempts;
+        if ($canRetryAgain && ($isTransportFailure || $isServerError || $isRateLimited)) {
+            if ($isRateLimited) {
+                // Respect Retry-After if WooCommerce provided one, bounded to a few seconds -
+                // this is a single synchronous retry within one request/cron run, not a
+                // queue, so an unbounded wait here isn't appropriate even if the header asked
+                // for one.
+                $retryAfterHeader = (int) ($responseHeaders['retry-after'] ?? 0);
+                sleep(min(10, max(1, $retryAfterHeader > 0 ? $retryAfterHeader : 2)));
+            } else {
+                sleep(1);
+            }
+
+            continue;
+        }
+
+        break;
     }
-
-    $responseBody = curl_exec($ch);
-    $curlErrno = curl_errno($ch);
-    $curlError = curl_error($ch);
-    $statusCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
 
     if ($curlErrno !== 0) {
         throw new RuntimeException('WooCommerce API request failed: ' . $curlError);

@@ -54,7 +54,11 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_audit_logs_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
   INDEX idx_audit_user (user_id),
-  INDEX idx_audit_action (action)
+  INDEX idx_audit_action (action),
+  -- Security Hardening Phase 4D: this table is now read on every login attempt (see
+  -- app_login_throttle_delay() in includes/bootstrap.php), not just written to - an index on
+  -- ip_address keeps that query cheap as the table grows.
+  INDEX idx_audit_ip (ip_address)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Reusable, module-agnostic activity log for future auditing - separate from the
