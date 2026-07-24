@@ -586,6 +586,19 @@ require_once __DIR__ . '/../../includes/header.php';
             RECEIPT UI VERSION 3
         </div>
 
+        <?php
+        // TEMPORARY DEBUG - remove once the failing condition is identified.
+        echo '<pre>';
+        var_dump([
+            'is_preorder_request' => $order['is_preorder_request'] ?? null,
+            'is_historical' => $order['is_historical'] ?? null,
+            'canManage' => $canManage ?? null,
+            'receipt_status' => $order['receipt_status'] ?? null,
+            'receipt_url' => $order['receipt_url'] ?? null,
+        ]);
+        echo '</pre>';
+        ?>
+
         <?php if (!empty($order['is_preorder_request']) && $canManage && empty($order['is_historical']) && (string) $order['receipt_status'] === 'pending' && !empty($order['receipt_url'])): ?>
             <div class="card p-4 mb-4 border-primary-subtle">
                 <h5 class="mb-1">Receipt Verification</h5>
