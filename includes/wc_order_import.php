@@ -50,18 +50,22 @@ function wc_order_import_get_meta(array $wcOrder, string $key): ?string
  * WooCommerce didn't report receipt_upload_status at all (no receipt uploaded yet, or the
  * field isn't exposed) - it is never left unset for a preorder order.
  *
- * receipt_url source: _receipt_file_name first - confirmed via debug logging to be what
- * WooCommerce REST actually returns today - falling back to _pepro_receipt_url if
- * _receipt_file_name is ever absent (e.g. an older order, or the receipt plugin's exposed key
- * changes again later).
+ * Source keys confirmed against real data (order 14291/14300 debug traces) - these are the
+ * PeproDev BACS Receipt Upload plugin's actual fields, resolved and exposed by
+ * mewmii-preorder.php's woocommerce_rest_prepare_shop_order_object filter:
+ *   _receipt_url              - wp_get_attachment_url() already resolved on the WP side
+ *   receipt_upload_status     - upload | pending | approved | rejected
+ *   receipt_upload_admin_note - PeproDev's own admin note, used for both approval and rejection
+ * The earlier _receipt_file_name / _pepro_receipt_url / _mewmii_reject_reason keys were from a
+ * dead code path (mewmii-preorder.php's own unused parallel receipt scheme) and are no longer
+ * read here.
  */
 function wc_order_import_extract_receipt_fields(array $wcOrder): array
 {
     $isPreorder = wc_order_import_get_meta($wcOrder, '_mewmii_is_preorder') === 'yes';
-    $receiptUrl = wc_order_import_get_meta($wcOrder, '_receipt_file_name')
-        ?? wc_order_import_get_meta($wcOrder, '_pepro_receipt_url');
+    $receiptUrl = wc_order_import_get_meta($wcOrder, '_receipt_url');
     $rawStatus = wc_order_import_get_meta($wcOrder, 'receipt_upload_status');
-    $rejectReason = wc_order_import_get_meta($wcOrder, '_mewmii_reject_reason');
+    $rejectReason = wc_order_import_get_meta($wcOrder, 'receipt_upload_admin_note');
 
     $receiptStatus = null;
     if ($isPreorder) {
@@ -279,6 +283,18 @@ function wc_order_import_single(PDO $pdo, array $wcOrder): array
 
     if ($existing !== false) {
         $orderId = (int) $existing['id'];
+
+        // TEMPORARY DEBUG - confirms what wc_order_import_extract_receipt_fields() returned and
+        // the exact values about to be written to mewmii_orders for this existing order, via the
+        // same sync_logs 'debug' channel used earlier. Remove once the receipt-visibility fix is
+        // confirmed against real data.
+        $updateDebug = 'DEBUG UPDATE order_id(wc)=' . $wcOrderId . ' order_id(mewmii)=' . $orderId . PHP_EOL
+            . 'receiptFields: ' . json_encode($receiptFields) . PHP_EOL
+            . 'SQL values -> is_preorder_request=' . json_encode($receiptFields['is_preorder_request'])
+            . ', receipt_url=' . json_encode($receiptFields['receipt_url'])
+            . ', receipt_status=' . json_encode($receiptFields['receipt_status'])
+            . ', receipt_reject_reason=' . json_encode($receiptFields['receipt_reject_reason']);
+        sync_log_write($pdo, WC_ORDER_IMPORT_SYNC_TYPE, 'debug', $orderId, $updateDebug);
 
         $pdo->prepare('
             UPDATE mewmii_orders
