@@ -193,14 +193,17 @@ $appTitle = 'Mewmii OS';
             margin-top: 0.3rem;
         }
 
-        /* --- Receipt preview thumbnail (order view Receipt row) - object-fit: contain so a
-           tall/wide receipt photo is never stretched to fill the box; wrapped in a link to the
-           original receipt_url so clicking it (thumbnail or "View Receipt" text) opens the
-           full-size original in a new tab. */
+        /* --- Receipt preview thumbnail (order view Receipt row) - max-width/max-height cap the
+           box, width/height:auto let the element follow the receipt photo's real aspect ratio
+           instead of forcing a fixed square, object-fit:contain as a defensive backstop. Wrapped
+           in a link to the original receipt_url so clicking it (thumbnail or "View Receipt"
+           text) opens the full-size original in a new tab. */
         .receipt-preview-thumb {
             display: block;
-            width: 160px;
-            height: 160px;
+            max-width: 160px;
+            max-height: 160px;
+            width: auto;
+            height: auto;
             object-fit: contain;
             background: var(--bs-tertiary-bg, #f5f5f5);
             border: 1px solid var(--border-color, #dee2e6);

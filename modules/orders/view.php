@@ -496,7 +496,9 @@ require_once __DIR__ . '/../../includes/header.php';
         <div class="card p-4 mb-4">
             <h5 class="mb-3">Receipt</h5>
             <?php if (!empty($order['receipt_url'])): ?>
-                <img src="<?php echo app_escape($order['receipt_url']); ?>" alt="Payment receipt" class="img-fluid rounded border mb-3" style="max-height: 320px;">
+                <a href="<?php echo app_escape($order['receipt_url']); ?>" target="_blank" rel="noopener" title="Open full receipt">
+                    <img src="<?php echo app_escape($order['receipt_url']); ?>" alt="Payment receipt" class="img-fluid rounded border mb-3" style="max-height: 320px; width: auto; object-fit: contain;">
+                </a>
             <?php else: ?>
                 <p class="text-muted mb-3">No receipt uploaded.</p>
             <?php endif; ?>
