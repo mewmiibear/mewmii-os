@@ -400,13 +400,20 @@ function wc_order_import_run(PDO $pdo, int $limit = 20): array
             }
         }
 
-        error_log('[Mewmii WC Import DEBUG] ===== Order #' . $wcOrderId . ' =====');
-        error_log('[Mewmii WC Import DEBUG] Order #' . $wcOrderId . ' meta_data key count: ' . count($debugMetaFlat) . ' | keys: ' . implode(', ', array_keys($debugMetaFlat)));
-        error_log('[Mewmii WC Import DEBUG] Order #' . $wcOrderId . ' _mewmii_* keys: ' . json_encode($debugMewmiiKeys));
-        error_log('[Mewmii WC Import DEBUG] Order #' . $wcOrderId . ' pepro/_pepro/peprodev keys: ' . json_encode($debugPeproKeys));
-        error_log('[Mewmii WC Import DEBUG] Order #' . $wcOrderId . ' receipt_upload_status: ' . (array_key_exists('receipt_upload_status', $debugMetaFlat) ? json_encode($debugMetaFlat['receipt_upload_status']) : '(key not present in meta_data)'));
-        error_log('[Mewmii WC Import DEBUG] Order #' . $wcOrderId . ' full meta_data: ' . json_encode($debugMetaFlat));
-        error_log('[Mewmii WC Import DEBUG] Order #' . $wcOrderId . ' full raw order payload: ' . json_encode($wcOrder));
+        $debug_output = '===== Order #' . $wcOrderId . ' =====' . PHP_EOL
+            . 'meta_data key count: ' . count($debugMetaFlat) . ' | keys: ' . implode(', ', array_keys($debugMetaFlat)) . PHP_EOL
+            . '_mewmii_* keys: ' . json_encode($debugMewmiiKeys) . PHP_EOL
+            . 'pepro/_pepro/peprodev keys: ' . json_encode($debugPeproKeys) . PHP_EOL
+            . 'receipt_upload_status: ' . (array_key_exists('receipt_upload_status', $debugMetaFlat) ? json_encode($debugMetaFlat['receipt_upload_status']) : '(key not present in meta_data)') . PHP_EOL
+            . 'full meta_data: ' . json_encode($debugMetaFlat) . PHP_EOL
+            . 'full raw order payload: ' . json_encode($wcOrder) . PHP_EOL
+            . PHP_EOL;
+
+        file_put_contents(
+            WP_CONTENT_DIR . '/mewmii-wc-debug.log',
+            $debug_output,
+            FILE_APPEND
+        );
         // ===================================================== END TEMPORARY DEBUG LOGGING ====
 
         $pdo->beginTransaction();
