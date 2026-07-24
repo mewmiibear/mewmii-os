@@ -409,13 +409,14 @@ function wc_order_import_run(PDO $pdo, int $limit = 20): array
             . 'full raw order payload: ' . json_encode($wcOrder) . PHP_EOL
             . PHP_EOL;
 
-        $debugLogDir = __DIR__ . '/../logs';
-        if (! is_dir($debugLogDir)) {
-            mkdir($debugLogDir, 0755, true);
+        $debugFile = dirname(__DIR__) . '/logs/mewmii-wc-debug.log';
+        if (! is_dir(dirname($debugFile))) {
+            mkdir(dirname($debugFile), 0755, true);
         }
 
+        error_log('Mewmii debug reached');
         file_put_contents(
-            $debugLogDir . '/mewmii-wc-debug.log',
+            $debugFile,
             $debug_output,
             FILE_APPEND
         );
