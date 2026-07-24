@@ -82,35 +82,59 @@ function wc_order_import_get_meta(array $wcOrder, string $key): ?string
  * WooCommerce didn't report receipt_upload_status at all (no receipt uploaded yet, or the
  * field isn't exposed) - it is never left unset for a preorder order.
  *
- * Source keys confirmed against real data (order 14291/14300 debug traces) - these are the
- * PeproDev BACS Receipt Upload plugin's actual fields, resolved and exposed by
- * mewmii-preorder.php's woocommerce_rest_prepare_shop_order_object filter. Two receipt-upload
- * generations coexist on real orders, so the URL needs a fallback:
- *   _receipt_url              - newer Pepro upload system (wp_get_attachment_url() resolved)
- *   _pepro_receipt_url        - older Pepro system, still present on older orders
- *   receipt_upload_status     - upload | pending | approved | rejected - single source, no fallback
- *   receipt_upload_admin_note - PeproDev's own admin note (approval/rejection context)
- *   _mewmii_reject_reason     - fallback if the note above is ever empty
+ * Source keys confirmed against real data across multiple debug traces - several receipt-upload
+ * generations/mirrors coexist on real orders, so each field uses a priority chain rather than a
+ * single key:
+ *   receipt_url:    _pepro_receipt_url -> _receipt_url -> pepro_receipt_url
+ *                    -> (unresolved) _receipt_attachment_id / _pepro_receipt
+ *   receipt_status: receipt_upload_status -> pepro_receipt_status -> _pepro_status
+ *   reject reason:  receipt_upload_admin_note -> _mewmii_reject_reason
+ * The attachment-ID tier is a last resort and deliberately never becomes receipt_url: Mewmii OS
+ * has no WordPress access and cannot turn a numeric attachment ID into a real file URL itself
+ * (that resolution already happens WordPress-side, in mewmii-preorder.php's REST filter, via
+ * wp_get_attachment_url() - see _receipt_url). Storing a bare ID in a URL column would just be
+ * wrong data, so this tier only feeds $hasReceiptSignal below, never receipt_url.
+ *
+ * is_preorder_request keeps using _mewmii_is_preorder exactly as before - unchanged.
+ * IMPORTANT: receipt_url/receipt_status/receipt_reject_reason are NOT gated behind that flag
+ * (they used to be, via `$isPreorder ? $x : null`). _mewmii_is_preorder is stale for effectively
+ * every order placed since checkout moved off the old gateway to Bank Transfer/QR, so gating on
+ * it was silently discarding real, present receipt data - confirmed directly: debug output has
+ * repeatedly shown is_preorder_request:0 alongside genuinely-populated raw meta. The presence of
+ * receipt data is now its own independent signal for whether to populate these fields.
  */
 function wc_order_import_extract_receipt_fields(array $wcOrder): array
 {
     $isPreorder = wc_order_import_get_meta($wcOrder, '_mewmii_is_preorder') === 'yes';
-    $receiptUrl = wc_order_import_get_meta($wcOrder, '_receipt_url')
-        ?? wc_order_import_get_meta($wcOrder, '_pepro_receipt_url');
-    $rawStatus = wc_order_import_get_meta($wcOrder, 'receipt_upload_status');
+
+    $receiptUrl = wc_order_import_get_meta($wcOrder, '_pepro_receipt_url')
+        ?? wc_order_import_get_meta($wcOrder, '_receipt_url')
+        ?? wc_order_import_get_meta($wcOrder, 'pepro_receipt_url');
+
+    $unresolvedAttachmentId = $receiptUrl === null
+        ? (wc_order_import_get_meta($wcOrder, '_receipt_attachment_id')
+            ?? wc_order_import_get_meta($wcOrder, '_pepro_receipt'))
+        : null;
+
+    $rawStatus = wc_order_import_get_meta($wcOrder, 'receipt_upload_status')
+        ?? wc_order_import_get_meta($wcOrder, 'pepro_receipt_status')
+        ?? wc_order_import_get_meta($wcOrder, '_pepro_status');
+
     $rejectReason = wc_order_import_get_meta($wcOrder, 'receipt_upload_admin_note')
         ?? wc_order_import_get_meta($wcOrder, '_mewmii_reject_reason');
 
+    $hasReceiptSignal = $receiptUrl !== null || $unresolvedAttachmentId !== null || $rawStatus !== null;
+
     $receiptStatus = null;
-    if ($isPreorder) {
+    if ($hasReceiptSignal) {
         $receiptStatus = in_array($rawStatus, ['approved', 'rejected'], true) ? $rawStatus : 'pending';
     }
 
     return [
         'is_preorder_request' => $isPreorder ? 1 : 0,
-        'receipt_url' => $isPreorder ? $receiptUrl : null,
+        'receipt_url' => $receiptUrl,
         'receipt_status' => $receiptStatus,
-        'receipt_reject_reason' => $isPreorder ? $rejectReason : null,
+        'receipt_reject_reason' => $hasReceiptSignal ? $rejectReason : null,
     ];
 }
 
