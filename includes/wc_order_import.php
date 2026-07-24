@@ -41,6 +41,23 @@ const WC_ORDER_IMPORT_SETTING_LAST_RUN_SUMMARY = 'wc_order_import_last_run_summa
 const WC_ORDER_IMPORT_PAGE_SIZE = 50;
 const WC_ORDER_IMPORT_MAX_PAGES = 25;
 
+// MySQL advisory lock name (Sync Automation Phase 4A) - server-wide, so it's deliberately
+// specific rather than a generic "sync" name to avoid ever colliding with anything else on
+// shared hosting. Prevents cron and the manual "Import Orders Now" button (or two overlapping
+// cron ticks) from ever running wc_order_import_single() against the same orders at once.
+const WC_ORDER_IMPORT_LOCK_NAME = 'mewmii_wc_order_import';
+
+// Distinct RuntimeException code for "another sync is already running" (see
+// wc_order_import_run() below) - lets callers (cli/wc_order_sync.php) tell this benign,
+// expected condition apart from a real failure without string-matching the message.
+const WC_ORDER_IMPORT_LOCK_BUSY_CODE = 42301;
+
+// Sync health thresholds in minutes, measured against the delta cursor (only ever advanced
+// after a fully successful run - see wc_order_import_run()'s docblock), used by
+// wc_order_import_sync_health() below.
+const WC_ORDER_IMPORT_HEALTH_WARNING_MINUTES = 30;
+const WC_ORDER_IMPORT_HEALTH_CRITICAL_MINUTES = 120;
+
 /**
  * Thin key-value helpers over the `settings` table - generic and app-wide, but this is
  * currently their only caller. `INSERT ... ON DUPLICATE KEY UPDATE` relies on
@@ -62,6 +79,59 @@ function wc_order_import_set_setting(PDO $pdo, string $key, string $value): void
         INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)
         ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)
     ')->execute([$key, $value]);
+}
+
+/**
+ * Time-based sync health (Sync Automation Phase 4A) - purely a read of how long ago the delta
+ * cursor last advanced, measured against WC_ORDER_IMPORT_HEALTH_WARNING_MINUTES/
+ * _CRITICAL_MINUTES. Deliberately independent of sync_logs' per-order success/failure counts
+ * (a different, already-visible signal on both callers of this function) - this answers "is
+ * the sync loop itself still running on schedule", not "did every order import cleanly".
+ * Pure function, no DB access - callers pass in whatever they already read via
+ * wc_order_import_get_setting(WC_ORDER_IMPORT_SETTING_LAST_SYNCED_AT), so this is never a
+ * second query for the same value.
+ *
+ * Returns ['level' => 'unknown'|'healthy'|'warning'|'critical', 'message' => string,
+ * 'minutes_ago' => int|null].
+ */
+function wc_order_import_sync_health(?string $lastSyncedAtGmt): array
+{
+    if ($lastSyncedAtGmt === null || $lastSyncedAtGmt === '') {
+        return [
+            'level' => 'unknown',
+            'message' => 'No successful sync has completed yet.',
+            'minutes_ago' => null,
+        ];
+    }
+
+    try {
+        $lastSynced = new DateTime($lastSyncedAtGmt, new DateTimeZone('UTC'));
+    } catch (Exception) {
+        return [
+            'level' => 'unknown',
+            'message' => 'Sync cursor value could not be read.',
+            'minutes_ago' => null,
+        ];
+    }
+
+    $now = new DateTime('now', new DateTimeZone('UTC'));
+    // Guards against clock skew between the PHP server and whatever wrote the stored
+    // timestamp (should never happen - both are written by this same codebase - but a
+    // negative "minutes ago" would be a confusing thing to display either way).
+    $minutesAgo = max(0, (int) floor(($now->getTimestamp() - $lastSynced->getTimestamp()) / 60));
+
+    if ($minutesAgo > WC_ORDER_IMPORT_HEALTH_CRITICAL_MINUTES) {
+        $level = 'critical';
+        $message = 'Sync has not completed for more than 2 hours (last completed ' . $minutesAgo . ' minutes ago).';
+    } elseif ($minutesAgo > WC_ORDER_IMPORT_HEALTH_WARNING_MINUTES) {
+        $level = 'warning';
+        $message = 'Sync has not completed for more than 30 minutes (last completed ' . $minutesAgo . ' minutes ago).';
+    } else {
+        $level = 'healthy';
+        $message = 'Last sync completed ' . $minutesAgo . ' minute' . ($minutesAgo === 1 ? '' : 's') . ' ago.';
+    }
+
+    return ['level' => $level, 'message' => $message, 'minutes_ago' => $minutesAgo];
 }
 
 /**
@@ -456,15 +526,53 @@ function wc_order_import_single(PDO $pdo, array $wcOrder): array
 
 /**
  * Batch entrypoint for the manual "Import Orders Now" admin action (see
- * modules/integrations/woocommerce.php) - also the intended entrypoint for the future
- * scheduled/cron trigger, unchanged, once that's added. Delta-based: fetches only orders
- * WooCommerce reports as modified after the last successfully completed run's start time
- * (`modified_after`, `dates_are_gmt` to avoid any WordPress-vs-server timezone mismatch),
- * walking pages oldest-modified-first until WooCommerce returns an empty page or the safety
- * ceiling is hit. This replaces the old "always latest 20 by date_created" fetch, which could
- * never see an update to an order that had already fallen out of that top-20 window (e.g. a
- * receipt uploaded days after the order was placed, once 20+ newer orders existed) - the
- * entire reason this rework exists.
+ * modules/integrations/woocommerce.php) and the scheduled cron trigger (see
+ * cli/wc_order_sync.php) - both call this exact function, unchanged from either caller's point
+ * of view. Wraps wc_order_import_run_body() in a MySQL advisory lock (Sync Automation Phase
+ * 4A) so cron and the manual button (or two overlapping cron ticks) can never run
+ * wc_order_import_single() against the same orders concurrently.
+ *
+ * GET_LOCK(name, 0) never waits - if another sync already holds the lock, this fails fast and
+ * throws immediately rather than queuing up behind it, so a slow first-time backfill can never
+ * cause a pile-up of blocked cron processes. The lock is released in both the success and
+ * failure paths via `finally`, and MySQL also auto-releases it if this PHP process dies before
+ * reaching the `finally` at all (the lock is scoped to this request's own DB session, and this
+ * app never uses persistent PDO connections - see config/database.php) - so a crashed run can
+ * never leave the lock stuck.
+ *
+ * @throws RuntimeException with code WC_ORDER_IMPORT_LOCK_BUSY_CODE if another sync is already
+ * running - callers (see cli/wc_order_sync.php) should treat this as benign/expected, not a
+ * real failure.
+ */
+function wc_order_import_run(PDO $pdo): array
+{
+    $lockStmt = $pdo->prepare('SELECT GET_LOCK(?, 0)');
+    $lockStmt->execute([WC_ORDER_IMPORT_LOCK_NAME]);
+
+    if ((int) $lockStmt->fetchColumn() !== 1) {
+        throw new RuntimeException(
+            'Another WooCommerce sync is already in progress - skipped this run.',
+            WC_ORDER_IMPORT_LOCK_BUSY_CODE
+        );
+    }
+
+    try {
+        return wc_order_import_run_body($pdo);
+    } finally {
+        $pdo->prepare('SELECT RELEASE_LOCK(?)')->execute([WC_ORDER_IMPORT_LOCK_NAME]);
+    }
+}
+
+/**
+ * The actual delta-sync logic - unchanged from Sync Automation Phase 1/2, only ever called by
+ * wc_order_import_run() above, which holds the advisory lock for the entire duration of this
+ * function. Fetches only orders WooCommerce reports as modified after the last successfully
+ * completed run's start time (`modified_after`, `dates_are_gmt` to avoid any WordPress-vs-
+ * server timezone mismatch), walking pages oldest-modified-first until WooCommerce returns an
+ * empty page or the safety ceiling is hit. This replaces the old "always latest 20 by
+ * date_created" fetch, which could never see an update to an order that had already fallen out
+ * of that top-20 window (e.g. a receipt uploaded days after the order was placed, once 20+
+ * newer orders existed) - the entire reason this rework exists.
  *
  * Each order is still imported inside its own transaction (via wc_order_import_single(),
  * completely unchanged) so one bad order never rolls back the rest of the batch - identical
@@ -477,7 +585,7 @@ function wc_order_import_single(PDO $pdo, array $wcOrder): array
  * that re-covered range are harmless no-op updates (matched via woocommerce_order_id, see
  * wc_order_import_single()), so this is always safe to retry, never duplicates.
  */
-function wc_order_import_run(PDO $pdo): array
+function wc_order_import_run_body(PDO $pdo): array
 {
     $summary = ['created' => 0, 'updated' => 0, 'skipped' => 0, 'failed' => 0];
 

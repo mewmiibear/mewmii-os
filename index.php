@@ -319,14 +319,13 @@ if ($canManageIntegrations) {
     $wcFailedTodayCount = (int) ($wcSyncTodayStats['failed_today'] ?? 0);
     $wcImportedTodayCount = (int) ($wcSyncTodayStats['imported_today'] ?? 0);
 }
-// "Healthy" is narrowly defined as "no failures observed" (this run's per-order failures, plus
-// any failed sync_logs rows today) - deliberately NOT a staleness/freshness check, since there
-// is no stored "expected sync interval" anywhere in this app to compare against without
-// inventing one.
-$wcSyncHealthy = $canManageIntegrations
-    && $wcLastRunSummary !== null
-    && (int) ($wcLastRunSummary['failed'] ?? 0) === 0
-    && $wcFailedTodayCount === 0;
+// Time-based health (Sync Automation Phase 4A) - see wc_order_import_sync_health()'s own
+// docblock in includes/wc_order_import.php. Deliberately independent of $wcFailedTodayCount
+// above (a different, still separately-shown signal) - this answers "is the sync loop itself
+// still running on schedule", not "did every order import cleanly".
+$wcSyncHealth = $canManageIntegrations
+    ? wc_order_import_sync_health($wcLastSyncCursor)
+    : ['level' => 'unknown', 'message' => '', 'minutes_ago' => null];
 
 /**
  * Display-only GMT->local conversion for the WooCommerce section, identical helper to the one
@@ -564,9 +563,16 @@ require_once __DIR__ . '/includes/header.php';
         <div class="col-md-3">
             <div class="card stat-card p-4 h-100 d-flex flex-column">
                 <div class="stat-label">Sync Health</div>
-                <div class="stat-value <?php echo $wcSyncHealthy ? '' : 'stat-value-alert'; ?>" style="font-size: 1.25rem;"><?php echo $wcSyncHealthy ? 'Healthy' : 'Needs Review'; ?></div>
-                <div class="stat-helper mb-2">Based on the most recent run and today's activity.</div>
-                <a class="btn btn-outline-primary btn-sm mt-auto" href="/modules/sync-logs/index.php">View Sync Logs</a>
+                <div class="stat-value <?php echo $wcSyncHealth['level'] !== 'healthy' ? 'stat-value-alert' : ''; ?>" style="font-size: 1.25rem;">
+                    <?php echo match ($wcSyncHealth['level']) {
+                        'healthy' => 'Healthy',
+                        'warning' => 'Warning',
+                        'critical' => 'Critical',
+                        default => 'Unknown',
+                    }; ?>
+                </div>
+                <div class="stat-helper mb-2"><?php echo app_escape($wcSyncHealth['message']); ?></div>
+                <a class="btn btn-outline-primary btn-sm mt-auto" href="/modules/integrations/woocommerce.php">View Integration</a>
             </div>
         </div>
         <div class="col-md-3">

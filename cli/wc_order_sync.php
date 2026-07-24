@@ -57,6 +57,18 @@ $cursorBefore = wc_order_import_get_setting($pdo, WC_ORDER_IMPORT_SETTING_LAST_S
 
 try {
     $summary = wc_order_import_run($pdo);
+} catch (RuntimeException $e) {
+    if ($e->getCode() === WC_ORDER_IMPORT_LOCK_BUSY_CODE) {
+        // Benign, expected condition (Sync Automation Phase 4A) - another sync (cron or the
+        // manual "Import Orders Now" button) is already running against the same lock. Not a
+        // failure: exits 0 so this doesn't trip cron-failure monitoring on a routine overlap -
+        // the other, already-running sync will advance the cursor normally.
+        wc_order_sync_cli_log($e->getMessage());
+        exit(0);
+    }
+
+    wc_order_sync_cli_error('Unhandled exception during sync: ' . $e->getMessage());
+    exit(1);
 } catch (Throwable $e) {
     // Reaching here means something genuinely unexpected happened outside what
     // wc_order_import_run() already handles internally (e.g. a database-level failure).

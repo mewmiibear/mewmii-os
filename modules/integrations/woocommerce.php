@@ -95,6 +95,10 @@ if (!is_array($lastRunSummary)) {
     $lastRunSummary = null;
 }
 
+// Time-based health (Sync Automation Phase 4A) - see wc_order_import_sync_health()'s own
+// docblock for why this is measured against the cursor, not sync_logs' failure counts.
+$syncHealth = wc_order_import_sync_health($lastSyncCursor);
+
 require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -185,10 +189,17 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="col-md-4">
         <div class="card stat-card p-4 h-100 d-flex flex-column">
             <div class="stat-label">Sync Cursor</div>
-            <div class="stat-value" style="font-size: 1.5rem;">
+            <div class="stat-value <?php echo $syncHealth['level'] !== 'healthy' ? 'stat-value-alert' : ''; ?>" style="font-size: 1.5rem;">
                 <?php echo app_escape(wc_order_import_format_gmt_setting($lastSyncCursor) ?? 'Not synced yet'); ?>
             </div>
-            <div class="stat-helper mb-0">Orders modified after this point are picked up on the next run. Only advances after a fully successful run.</div>
+            <div class="stat-helper mb-0">
+                <?php echo app_escape($syncHealth['message']); ?>
+                <?php if ($syncHealth['level'] === 'warning'): ?>
+                    <span class="badge bg-warning text-dark ms-1">Warning</span>
+                <?php elseif ($syncHealth['level'] === 'critical'): ?>
+                    <span class="badge bg-danger ms-1">Critical</span>
+                <?php endif; ?>
+            </div>
         </div>
     </div>
     <div class="col-md-4">
