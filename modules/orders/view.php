@@ -1,5 +1,25 @@
 <?php
-die('DEPLOYMENT CHECK: this exact file is at ' . __FILE__); // TEMPORARY - remove after verifying deployment
+// TEMPORARY DIAGNOSTIC - remove this whole block once A vs B below is confirmed.
+echo "FILE: " . __FILE__ . "<br>";
+echo "UPDATED: " . date("Y-m-d H:i:s", filemtime(__FILE__)) . "<br>";
+echo "SERVER NOW: " . date("Y-m-d H:i:s") . "<br>";
+
+if (function_exists('opcache_get_status')) {
+    $opStatus = opcache_get_status(false);
+    echo "OPCACHE ENABLED: " . (($opStatus && !empty($opStatus['opcache_enabled'])) ? 'yes' : 'no') . "<br>";
+} else {
+    echo "OPCACHE ENABLED: opcache_get_status() not available<br>";
+}
+
+if (function_exists('opcache_reset')) {
+    $resetResult = opcache_reset();
+    echo "OPCACHE RESET AVAILABLE - reset() returned: " . ($resetResult ? 'true' : 'false') . "<br>";
+} else {
+    echo "OPCACHE RESET AVAILABLE: no (opcache_reset() not callable)<br>";
+}
+
+exit;
+
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/inventory.php';
 require_once __DIR__ . '/../../includes/orders.php';
