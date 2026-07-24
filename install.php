@@ -72,8 +72,16 @@ $existing = (int) $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
 if ($existing === 0) {
     $email = getenv('APP_ADMIN_EMAIL') ?: 'mewmiibear@gmail.com';
     $password = getenv('APP_ADMIN_PASSWORD');
+    $passwordWasGenerated = false;
+
+    // Security Hardening Phase 4C: no guessable hardcoded fallback. If APP_ADMIN_PASSWORD
+    // isn't set on the server, generate a random one instead of ever creating the first admin
+    // account with a fixed, publicly-knowable password. Only runs once, ever - this whole
+    // block is gated on $existing === 0 above, so it can never touch an account that already
+    // exists (see the else branch below).
     if (empty($password)) {
-        $password = '270701';
+        $password = bin2hex(random_bytes(9));
+        $passwordWasGenerated = true;
     }
 
     $defaultPassword = password_hash($password, PASSWORD_DEFAULT);
@@ -86,6 +94,9 @@ if ($existing === 0) {
     $pdo->prepare('INSERT INTO users (name, email, password_hash, role_id, status) VALUES (?, ?, ?, ?, ?)')->execute(['Owner', $email, $defaultPassword, $roleId, 'active']);
 
     echo 'Admin account created. Email: ' . $email . ' Password: ' . $password . PHP_EOL;
+    if ($passwordWasGenerated) {
+        echo 'This password was randomly generated because APP_ADMIN_PASSWORD was not set - record it now, it will not be shown again. Change it after first login.' . PHP_EOL;
+    }
 } else {
     echo 'Installation complete. Existing users detected.' . PHP_EOL;
 }

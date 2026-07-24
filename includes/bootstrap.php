@@ -19,6 +19,10 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
 }
 
+// Security Hardening Phase 4C: loads .env (if present) into getenv()/$_ENV before config.php
+// reads it below - see includes/env_loader.php. Silently no-ops if .env doesn't exist yet.
+require_once __DIR__ . '/env_loader.php';
+
 $configPath = dirname(__DIR__) . '/config.php';
 if (is_file($configPath)) {
     $appConfig = require $configPath;
@@ -131,8 +135,42 @@ function app_require_permission(string $permission): void
     }
 }
 
+/**
+ * Writes one row to the audit_logs table (see database/schema.sql - id, user_id, action,
+ * details, ip_address, created_at). Restored in Security Hardening Phase 4C - was previously
+ * a no-op stub. Signature, and every existing caller (login.php, logout.php), are unchanged -
+ * this only makes the function actually write.
+ *
+ * Best-effort only, same convention as activity_log() (includes/activity_log.php): a logging
+ * failure must never block the real action it's describing (login/logout), so every failure
+ * path here is swallowed, never thrown. Callers already wrap their own calls in try/catch as
+ * an extra layer, but this function must be safe to call unguarded too.
+ *
+ * $userId of 0/empty is normalized to NULL rather than inserted literally - audit_logs.user_id
+ * has a real FOREIGN KEY to users(id), and no user with id 0 ever exists (AUTO_INCREMENT
+ * starts at 1), so a failed-login attempt (which has no authenticated user yet - see
+ * login.php's login_failed call, which passes 0) would otherwise violate that constraint on
+ * every single call and silently never get logged at all, defeating the point of this
+ * function. NULL is also the semantically correct value here: "no user", not "user zero".
+ *
+ * Callers must never pass a password or other secret in $details - this function does not
+ * redact or inspect its input, the caller is responsible for only ever passing safe,
+ * non-sensitive text (both existing callers already do: 'Successful login', the attempted
+ * email on failure, 'User logged out' - none of these are secrets).
+ */
 function app_log_action($userId, $action, $details = '')
 {
-    // Logging temporarily disabled.
+    try {
+        $normalizedUserId = ((int) $userId) > 0 ? (int) $userId : null;
+        $ipAddress = $_SERVER['REMOTE_ADDR'] ?? null;
+
+        app_db()->prepare('
+            INSERT INTO audit_logs (user_id, action, details, ip_address)
+            VALUES (?, ?, ?, ?)
+        ')->execute([$normalizedUserId, (string) $action, (string) $details, $ipAddress]);
+    } catch (Throwable $e) {
+        // Never let audit logging break the real action it's describing.
+    }
+
     return true;
 }
