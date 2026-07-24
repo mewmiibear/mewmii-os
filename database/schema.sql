@@ -502,7 +502,11 @@ CREATE TABLE IF NOT EXISTS mewmii_orders (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_mewmii_orders_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL,
-  INDEX idx_mewmii_orders_payment_status (payment_status)
+  INDEX idx_mewmii_orders_payment_status (payment_status),
+  -- Dedup key for the WooCommerce importer's "does this order already exist" lookup (see
+  -- includes/wc_order_import.php). InnoDB unique indexes allow any number of NULL values -
+  -- manually created orders (order_number 'ORD-...') never set this column and are unaffected.
+  UNIQUE KEY uq_mewmii_orders_woocommerce_order_id (woocommerce_order_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS mewmii_order_items (

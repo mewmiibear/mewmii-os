@@ -1,7 +1,8 @@
 <?php
 
 /**
- * WooCommerce -> Mewmii OS order import (Phase 1: manual, admin-triggered polling only).
+ * WooCommerce -> Mewmii OS order import. Delta-based (see wc_order_import_run()'s docblock) -
+ * still manual, admin-triggered only for now (Sync Automation Phase 1: no cron/webhook yet).
  *
  * Mewmii OS remains the sole owner of order_status - order_recompute_status() (see
  * includes/order_fulfillment.php) is the only place that ever writes it for a non-historical
@@ -23,6 +24,45 @@ require_once __DIR__ . '/inventory.php';
 require_once __DIR__ . '/product_variations.php';
 
 const WC_ORDER_IMPORT_SYNC_TYPE = 'woocommerce_order_import';
+
+// Reuses the existing, previously-unused generic `settings` key-value table - no schema
+// change needed for these. LAST_SYNCED_AT is the delta cursor (only ever advanced after a
+// full run succeeds - see wc_order_import_run()); LAST_RUN_SUMMARY is display-only stats for
+// modules/integrations/woocommerce.php, updated after every run attempt regardless of outcome
+// so staff can see "did this actually run" separately from "how far does coverage reach".
+const WC_ORDER_IMPORT_SETTING_LAST_SYNCED_AT = 'wc_order_import_last_synced_at';
+const WC_ORDER_IMPORT_SETTING_LAST_RUN_SUMMARY = 'wc_order_import_last_run_summary';
+
+// Orders per WooCommerce REST page, and a hard ceiling on how many pages one run will walk.
+// The ceiling exists for the very first run (no stored cursor yet -> fetches full order
+// history) and for any unexpectedly large backlog - it protects shared hosting from an
+// unbounded request chain. Hitting it does NOT advance the cursor (see wc_order_import_run()),
+// so a re-run simply continues instead of silently losing whatever was past the ceiling.
+const WC_ORDER_IMPORT_PAGE_SIZE = 50;
+const WC_ORDER_IMPORT_MAX_PAGES = 25;
+
+/**
+ * Thin key-value helpers over the `settings` table - generic and app-wide, but this is
+ * currently their only caller. `INSERT ... ON DUPLICATE KEY UPDATE` relies on
+ * settings.setting_key being UNIQUE (see database/schema.sql), so this is always a single
+ * upsert, never a duplicate row.
+ */
+function wc_order_import_get_setting(PDO $pdo, string $key): ?string
+{
+    $stmt = $pdo->prepare('SELECT setting_value FROM settings WHERE setting_key = ?');
+    $stmt->execute([$key]);
+    $value = $stmt->fetchColumn();
+
+    return $value !== false ? (string) $value : null;
+}
+
+function wc_order_import_set_setting(PDO $pdo, string $key, string $value): void
+{
+    $pdo->prepare('
+        INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)
+        ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)
+    ')->execute([$key, $value]);
+}
 
 /**
  * Reads one key out of a WooCommerce REST order's meta_data array
@@ -416,38 +456,110 @@ function wc_order_import_single(PDO $pdo, array $wcOrder): array
 
 /**
  * Batch entrypoint for the manual "Import Orders Now" admin action (see
- * modules/integrations/woocommerce.php). Each order is imported inside its own transaction so
- * one bad order never rolls back the rest of the batch. Polling only - no webhook in Phase 1.
+ * modules/integrations/woocommerce.php) - also the intended entrypoint for the future
+ * scheduled/cron trigger, unchanged, once that's added. Delta-based: fetches only orders
+ * WooCommerce reports as modified after the last successfully completed run's start time
+ * (`modified_after`, `dates_are_gmt` to avoid any WordPress-vs-server timezone mismatch),
+ * walking pages oldest-modified-first until WooCommerce returns an empty page or the safety
+ * ceiling is hit. This replaces the old "always latest 20 by date_created" fetch, which could
+ * never see an update to an order that had already fallen out of that top-20 window (e.g. a
+ * receipt uploaded days after the order was placed, once 20+ newer orders existed) - the
+ * entire reason this rework exists.
+ *
+ * Each order is still imported inside its own transaction (via wc_order_import_single(),
+ * completely unchanged) so one bad order never rolls back the rest of the batch - identical
+ * per-order behavior to before, only the fetch/pagination strategy around it is new.
+ *
+ * The delta cursor only advances if every page was walked successfully (reached a page with
+ * fewer than WC_ORDER_IMPORT_PAGE_SIZE results, i.e. no more pages remain). A fetch failure
+ * partway through, or hitting the page-count safety ceiling, leaves the cursor untouched - the
+ * next run simply re-covers the same ground from the old cursor. Already-imported orders in
+ * that re-covered range are harmless no-op updates (matched via woocommerce_order_id, see
+ * wc_order_import_single()), so this is always safe to retry, never duplicates.
  */
-function wc_order_import_run(PDO $pdo, int $limit = 20): array
+function wc_order_import_run(PDO $pdo): array
 {
     $summary = ['created' => 0, 'updated' => 0, 'skipped' => 0, 'failed' => 0];
 
-    $orders = wc_client_get('orders', ['per_page' => $limit, 'orderby' => 'date', 'order' => 'desc']);
+    // Captured before the first fetch, not after the last one - an order modified while this
+    // run is still in progress must be picked up on the NEXT run, never silently skipped
+    // because it looked "already covered" by a cursor stamped after the run finished.
+    $syncStartedAt = gmdate('Y-m-d\TH:i:s');
+    $previousCursor = wc_order_import_get_setting($pdo, WC_ORDER_IMPORT_SETTING_LAST_SYNCED_AT);
 
-    foreach ($orders as $wcOrder) {
-        if (!is_array($wcOrder)) {
-            continue;
-        }
-
-        $wcOrderId = (int) ($wcOrder['id'] ?? 0);
-
-        $pdo->beginTransaction();
-        try {
-            $result = wc_order_import_single($pdo, $wcOrder);
-            $pdo->commit();
-
-            $summary[$result['action']]++;
-
-            if ($result['action'] !== 'skipped') {
-                sync_log_success($pdo, WC_ORDER_IMPORT_SYNC_TYPE, $result['order_id']);
-            }
-        } catch (Throwable $e) {
-            $pdo->rollBack();
-            $summary['failed']++;
-            sync_log_failure($pdo, WC_ORDER_IMPORT_SYNC_TYPE, 'WooCommerce order #' . $wcOrderId . ': ' . $e->getMessage());
-        }
+    $baseQuery = [
+        'per_page' => WC_ORDER_IMPORT_PAGE_SIZE,
+        'orderby' => 'modified',
+        'order' => 'asc',
+        'dates_are_gmt' => true,
+    ];
+    if ($previousCursor !== null) {
+        $baseQuery['modified_after'] = $previousCursor;
     }
+
+    $page = 1;
+    $fullyCompleted = false;
+
+    try {
+        while (true) {
+            if ($page > WC_ORDER_IMPORT_MAX_PAGES) {
+                sync_log_write($pdo, WC_ORDER_IMPORT_SYNC_TYPE, 'failed', null,
+                    'Stopped after ' . WC_ORDER_IMPORT_MAX_PAGES . ' pages (safety limit) - more orders may remain. Cursor not advanced; re-run to continue.');
+                break;
+            }
+
+            $orders = wc_client_get('orders', array_merge($baseQuery, ['page' => $page]));
+
+            foreach ($orders as $wcOrder) {
+                if (!is_array($wcOrder)) {
+                    continue;
+                }
+
+                $wcOrderId = (int) ($wcOrder['id'] ?? 0);
+
+                $pdo->beginTransaction();
+                try {
+                    $result = wc_order_import_single($pdo, $wcOrder);
+                    $pdo->commit();
+
+                    $summary[$result['action']]++;
+
+                    if ($result['action'] !== 'skipped') {
+                        sync_log_success($pdo, WC_ORDER_IMPORT_SYNC_TYPE, $result['order_id']);
+                    }
+                } catch (Throwable $e) {
+                    $pdo->rollBack();
+                    $summary['failed']++;
+                    sync_log_failure($pdo, WC_ORDER_IMPORT_SYNC_TYPE, 'WooCommerce order #' . $wcOrderId . ': ' . $e->getMessage());
+                }
+            }
+
+            if (count($orders) < WC_ORDER_IMPORT_PAGE_SIZE) {
+                $fullyCompleted = true;
+                break;
+            }
+
+            $page++;
+        }
+
+        if ($fullyCompleted) {
+            wc_order_import_set_setting($pdo, WC_ORDER_IMPORT_SETTING_LAST_SYNCED_AT, $syncStartedAt);
+        }
+    } catch (Throwable $e) {
+        // A fetch itself failed (connection/API error) - whatever was processed on earlier
+        // pages this run stays committed (each order's own transaction already closed), but
+        // the cursor is deliberately NOT advanced, so the next run re-walks from the old
+        // cursor rather than risk skipping a page this run never reached.
+        sync_log_failure($pdo, WC_ORDER_IMPORT_SYNC_TYPE, 'WooCommerce order fetch failed: ' . $e->getMessage());
+    }
+
+    wc_order_import_set_setting($pdo, WC_ORDER_IMPORT_SETTING_LAST_RUN_SUMMARY, json_encode([
+        'ran_at' => $syncStartedAt,
+        'created' => $summary['created'],
+        'updated' => $summary['updated'],
+        'skipped' => $summary['skipped'],
+        'failed' => $summary['failed'],
+    ]));
 
     return $summary;
 }

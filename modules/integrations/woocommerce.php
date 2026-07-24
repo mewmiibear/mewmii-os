@@ -14,6 +14,28 @@ $appTitle = 'WooCommerce Orders';
 $pdo = app_db();
 $error = '';
 
+/**
+ * wc_order_import_run() stores its cursor/last-run stats as GMT (see
+ * WC_ORDER_IMPORT_SETTING_LAST_SYNCED_AT's docblock) - display only, converts to whatever
+ * timezone this app is configured for (see includes/bootstrap.php's date_default_timezone_set())
+ * so staff never have to mentally convert from UTC.
+ */
+function wc_order_import_format_gmt_setting(?string $gmtTimestamp): ?string
+{
+    if ($gmtTimestamp === null || $gmtTimestamp === '') {
+        return null;
+    }
+
+    try {
+        $dt = new DateTime($gmtTimestamp, new DateTimeZone('UTC'));
+        $dt->setTimezone(new DateTimeZone(date_default_timezone_get()));
+
+        return $dt->format('Y-m-d H:i:s');
+    } catch (Exception $e) {
+        return $gmtTimestamp;
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         app_require_csrf();
@@ -30,7 +52,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } elseif ($error === '' && !empty($_POST['import_orders'])) {
         try {
-            $summary = wc_order_import_run($pdo, 20);
+            $summary = wc_order_import_run($pdo);
             app_redirect('/modules/integrations/woocommerce.php?imported=1&created=' . $summary['created'] . '&updated=' . $summary['updated'] . '&skipped=' . $summary['skipped'] . '&failed=' . $summary['failed']);
         } catch (Throwable $exception) {
             app_redirect('/modules/integrations/woocommerce.php?imported=1&created=0&updated=0&skipped=0&failed=0&message=' . urlencode($exception->getMessage()));
@@ -60,6 +82,18 @@ $recentLogsStmt = $pdo->prepare('
 ');
 $recentLogsStmt->execute([WC_ORDER_IMPORT_SYNC_TYPE]);
 $recentLogs = $recentLogsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Delta-sync visibility (Sync Automation Phase 1) - sourced from the `settings` table cursor/
+// summary wc_order_import_run() now maintains, not from sync_logs. sync_logs only gains a row
+// per order actually touched, so a run that found nothing new would never move "Last Sync"
+// under the old sync_logs-only reading - these settings-backed values instead reflect every
+// run attempt, regardless of whether it found any orders to process.
+$lastSyncCursor = wc_order_import_get_setting($pdo, WC_ORDER_IMPORT_SETTING_LAST_SYNCED_AT);
+$lastRunSummaryRaw = wc_order_import_get_setting($pdo, WC_ORDER_IMPORT_SETTING_LAST_RUN_SUMMARY);
+$lastRunSummary = $lastRunSummaryRaw !== null ? json_decode($lastRunSummaryRaw, true) : null;
+if (!is_array($lastRunSummary)) {
+    $lastRunSummary = null;
+}
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
@@ -134,6 +168,43 @@ require_once __DIR__ . '/../../includes/header.php';
             <div class="stat-label">Failed Sync</div>
             <div class="stat-value <?php echo (int) ($stats['failed_count'] ?? 0) > 0 ? 'stat-value-alert' : ''; ?>"><?php echo (int) ($stats['failed_count'] ?? 0); ?></div>
             <div class="stat-helper mb-0">Orders that failed to import.</div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card stat-card p-4 h-100 d-flex flex-column">
+            <div class="stat-label">Last Sync Run</div>
+            <div class="stat-value" style="font-size: 1.5rem;">
+                <?php echo app_escape(wc_order_import_format_gmt_setting($lastRunSummary['ran_at'] ?? null) ?? 'Never'); ?>
+            </div>
+            <div class="stat-helper mb-0">When the importer last attempted to run (manual or automated).</div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card stat-card p-4 h-100 d-flex flex-column">
+            <div class="stat-label">Sync Cursor</div>
+            <div class="stat-value" style="font-size: 1.5rem;">
+                <?php echo app_escape(wc_order_import_format_gmt_setting($lastSyncCursor) ?? 'Not synced yet'); ?>
+            </div>
+            <div class="stat-helper mb-0">Orders modified after this point are picked up on the next run. Only advances after a fully successful run.</div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card stat-card p-4 h-100 d-flex flex-column">
+            <div class="stat-label">Orders Processed (Last Run)</div>
+            <div class="stat-value">
+                <?php echo $lastRunSummary !== null ? (int) $lastRunSummary['created'] + (int) $lastRunSummary['updated'] : 0; ?>
+            </div>
+            <div class="stat-helper mb-0">
+                <?php if ($lastRunSummary !== null): ?>
+                    <?php echo (int) $lastRunSummary['created']; ?> created, <?php echo (int) $lastRunSummary['updated']; ?> updated,
+                    <?php echo (int) $lastRunSummary['skipped']; ?> skipped, <?php echo (int) $lastRunSummary['failed']; ?> failed.
+                <?php else: ?>
+                    No sync run yet.
+                <?php endif; ?>
+            </div>
         </div>
     </div>
 </div>
