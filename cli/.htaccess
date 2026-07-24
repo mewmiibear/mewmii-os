@@ -1,0 +1,11 @@
+# Deny all direct web access to this directory - everything in here is CLI-only, invoked by
+# cron, never intended to be reachable over HTTP. wc_order_sync.php also independently checks
+# PHP_SAPI and refuses to run under a web request - this is the second, server-level layer of
+# the same protection, so a misconfiguration in one doesn't leave the route open.
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>
