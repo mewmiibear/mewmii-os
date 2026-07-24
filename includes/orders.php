@@ -52,14 +52,25 @@ function order_status_badge(string $status): string
 }
 
 /**
- * Receipt visibility for a WooCommerce preorder order (see includes/wc_order_import.php) -
- * purely informational display, entirely independent of payment_status/order_status. Returns
- * null for a non-preorder order (is_preorder_request = 0), meaning there is nothing to show.
- * Expects a row with at least is_preorder_request, receipt_url, receipt_status.
+ * Receipt visibility for a WooCommerce order (see includes/wc_order_import.php) - purely
+ * informational display, entirely independent of payment_status/order_status. Returns null
+ * when this order has no receipt workflow data at all, meaning there is nothing to show.
+ *
+ * Gated on receipt_status being non-null, NOT on is_preorder_request. is_preorder_request
+ * mirrors WooCommerce's _mewmii_is_preorder meta, which is only ever set by the retired
+ * Mewmii_Preorder_Gateway - stale for every order placed since checkout moved to Bank
+ * Transfer/QR (see the WordPress-side mewmii_order_is_preorder() fallback built for the same
+ * reason). receipt_status/receipt_url come from PeproDev's own real meta keys independently of
+ * that flag, and wc_order_import_extract_receipt_fields() already only ever sets receipt_status
+ * to a non-null value when real receipt signal was found - so it's the accurate "does this
+ * order have receipt data" signal, confirmed directly against order #31 (is_preorder_request=0,
+ * receipt_status='pending', receipt_url populated).
+ *
+ * Expects a row with at least receipt_url, receipt_status.
  */
 function order_receipt_status_label(array $order): ?string
 {
-    if (empty($order['is_preorder_request'])) {
+    if (($order['receipt_status'] ?? null) === null) {
         return null;
     }
 

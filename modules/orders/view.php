@@ -443,7 +443,7 @@ require_once __DIR__ . '/../../includes/header.php';
             <table class="table table-borderless mb-0">
                 <tr><th>Status</th><td><?php echo order_status_badge($order['order_status']); ?></td></tr>
                 <tr><th>Payment Status</th><td><?php echo app_escape($order['payment_status']); ?></td></tr>
-                <?php if (!empty($order['is_preorder_request'])): ?>
+                <?php if (($order['receipt_status'] ?? null) !== null): ?>
                     <tr>
                         <th>Receipt</th>
                         <td>
@@ -573,7 +573,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 <p class="text-muted mb-3">No receipt uploaded.</p>
             <?php endif; ?>
 
-            <?php if (!empty($order['is_preorder_request'])): ?>
+            <?php if (($order['receipt_status'] ?? null) !== null): ?>
                 <div class="text-muted small mb-0">Receipt Status: <?php echo order_receipt_status_badge($order); ?></div>
                 <?php if ((string) $order['receipt_status'] === 'rejected' && !empty($order['receipt_reject_reason'])): ?>
                     <div class="alert alert-danger small py-2 px-3 mt-2 mb-0"><?php echo app_escape($order['receipt_reject_reason']); ?></div>
@@ -581,25 +581,7 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php endif; ?>
         </div>
 
-        <!-- RECEIPT UI VERSION 3 -->
-        <div class="alert alert-danger">
-            RECEIPT UI VERSION 3
-        </div>
-
-        <?php
-        // TEMPORARY DEBUG - remove once the failing condition is identified.
-        echo '<pre>';
-        var_dump([
-            'is_preorder_request' => $order['is_preorder_request'] ?? null,
-            'is_historical' => $order['is_historical'] ?? null,
-            'canManage' => $canManage ?? null,
-            'receipt_status' => $order['receipt_status'] ?? null,
-            'receipt_url' => $order['receipt_url'] ?? null,
-        ]);
-        echo '</pre>';
-        ?>
-
-        <?php if (!empty($order['is_preorder_request']) && $canManage && empty($order['is_historical']) && (string) $order['receipt_status'] === 'pending' && !empty($order['receipt_url'])): ?>
+        <?php if (($order['receipt_status'] ?? null) !== null && $canManage && empty($order['is_historical']) && (string) $order['receipt_status'] === 'pending' && !empty($order['receipt_url'])): ?>
             <div class="card p-4 mb-4 border-primary-subtle">
                 <h5 class="mb-1">Receipt Verification</h5>
                 <p class="text-muted small mb-3">Confirms whether the uploaded bank transfer / QR receipt is genuine. Independent of the manual payment review below.</p>
