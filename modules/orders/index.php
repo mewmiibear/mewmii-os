@@ -45,13 +45,30 @@ $filterPaymentStatus = isset($_GET['payment_status']) && in_array($_GET['payment
     ? $_GET['payment_status']
     : null;
 
-$sql = 'SELECT DISTINCT o.id, o.order_number, o.order_date, o.payment_status, o.order_status, o.receipt_status, o.receipt_url, o.is_historical, o.tracking_number, o.customer_id, c.name AS customer_name FROM mewmii_orders o LEFT JOIN customers c ON c.id = o.customer_id';
+// UI/UX Orders Cleanup: Active/Completed/Cancelled/All tabs - a display-default change only
+// (which rows this LIST QUERY includes), never a change to order_status itself or to
+// order_recompute_status() (includes/order_fulfillment.php, unchanged). 'active' (the
+// default) is everything NOT YET settled - the exact same "not completed, not cancelled"
+// rule already used nowhere else as a single condition, but consistent with every existing
+// order_status value (see ORDER_STATUS_WORKFLOW in includes/orders.php).
+$viewOptions = ['active', 'completed', 'cancelled', 'all'];
+$view = isset($_GET['view']) && in_array($_GET['view'], $viewOptions, true) ? $_GET['view'] : 'active';
+
+$pdo = app_db();
+$fromSql = 'FROM mewmii_orders o LEFT JOIN customers c ON c.id = o.customer_id';
 $conditions = [];
 $params = [];
 if ($filterProductId !== null) {
-    $sql .= ' INNER JOIN mewmii_order_items oi ON oi.order_id = o.id';
+    $fromSql .= ' INNER JOIN mewmii_order_items oi ON oi.order_id = o.id';
     $conditions[] = 'oi.product_id = ?';
     $params[] = $filterProductId;
+}
+if ($view === 'active') {
+    $conditions[] = "o.order_status NOT IN ('completed', 'cancelled')";
+} elseif ($view === 'completed') {
+    $conditions[] = "o.order_status = 'completed'";
+} elseif ($view === 'cancelled') {
+    $conditions[] = "o.order_status = 'cancelled'";
 }
 if ($filterStatus !== null) {
     $conditions[] = 'o.order_status = ?';
@@ -67,13 +84,44 @@ if ($searchTerm !== '') {
     $params[] = $likeTerm;
     $params[] = $likeTerm;
 }
-if ($conditions !== []) {
-    $sql .= ' WHERE ' . implode(' AND ', $conditions);
-}
-$sql .= ' ORDER BY o.id DESC LIMIT 20';
-$stmt = app_db()->prepare($sql);
+$whereSql = $conditions !== [] ? (' WHERE ' . implode(' AND ', $conditions)) : '';
+
+// UI/UX Orders Cleanup: pagination - same COUNT-then-LIMIT/OFFSET mechanism already proven on
+// modules/products/index.php, replacing the previous hard "always latest 20, no further pages"
+// cutoff. Every existing filter (product_id/status/payment/search) plus the new view tab feed
+// the same $whereSql/$params used by both the count and the page queries, so a filtered count
+// can never disagree with what the page below actually shows.
+$countStmt = $pdo->prepare("SELECT COUNT(DISTINCT o.id) {$fromSql}{$whereSql}");
+$countStmt->execute($params);
+$totalCount = (int) $countStmt->fetchColumn();
+$perPage = 20;
+$totalPages = max(1, (int) ceil($totalCount / $perPage));
+$page = isset($_GET['page']) && ctype_digit((string) $_GET['page']) && (int) $_GET['page'] > 0 ? (int) $_GET['page'] : 1;
+$page = min($page, $totalPages);
+$offset = ($page - 1) * $perPage;
+
+// UI/UX Orders Cleanup: urgency sort - on the Active tab, oldest order_date first surfaces the
+// longest-waiting customer order at the top of the queue. Completed/Cancelled/All keep the
+// original newest-created-first sort, which is more useful for browsing recent history than
+// digging up the oldest settled order. Never touches order_date's own value or how it's set.
+$orderBySql = $view === 'active' ? 'o.order_date ASC, o.id ASC' : 'o.id DESC';
+
+$sql = "SELECT DISTINCT o.id, o.order_number, o.order_date, o.payment_status, o.order_status, o.receipt_status, o.receipt_url, o.is_historical, o.tracking_number, o.customer_id, c.name AS customer_name {$fromSql}{$whereSql} ORDER BY {$orderBySql} LIMIT {$perPage} OFFSET {$offset}";
+$stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// UI/UX Orders Cleanup: order age, purely derived from the already-selected order_date - no
+// new query, no new column. $orderWaitingThresholdDays only controls when the "Waiting" badge
+// appears below; it never affects which rows are queried or order_date's stored value.
+$orderWaitingThresholdDays = 3;
+foreach ($orders as &$order) {
+    $order['age_days'] = $order['order_date'] !== null
+        ? (int) floor((strtotime('today') - strtotime($order['order_date'])) / 86400)
+        : null;
+}
+unset($order);
+
 $canManage = app_has_permission('orders.manage');
 // Customer name below links to modules/customers/view.php, which requires customers.view -
 // the destination controls permission, not this page's own orders.view gate.
@@ -131,11 +179,24 @@ unset($_SESSION['orders_bulk_result']);
     </div>
 <?php endif; ?>
 
+<?php
+$viewLabels = ['active' => 'Active', 'completed' => 'Completed', 'cancelled' => 'Cancelled', 'all' => 'All'];
+?>
+<div class="d-flex flex-wrap gap-2 mb-3">
+    <?php foreach ($viewLabels as $viewValue => $viewLabel): ?>
+        <?php $tabParams = array_merge($_GET, ['view' => $viewValue]); unset($tabParams['page']); ?>
+        <a class="btn btn-sm <?php echo $view === $viewValue ? 'btn-primary' : 'btn-outline-secondary'; ?>" href="/modules/orders/index.php?<?php echo http_build_query($tabParams); ?>">
+            <?php echo app_escape($viewLabel); ?>
+        </a>
+    <?php endforeach; ?>
+</div>
+
 <div class="card filter-card p-3 mb-4">
     <form method="get" class="row g-2 align-items-end">
         <?php if ($filterProductId !== null): ?>
             <input type="hidden" name="product_id" value="<?php echo (int) $filterProductId; ?>">
         <?php endif; ?>
+        <input type="hidden" name="view" value="<?php echo app_escape($view); ?>">
         <div class="col-md-4">
             <label class="form-label small mb-1">Search</label>
             <input type="text" class="form-control form-control-sm" name="q" value="<?php echo app_escape($searchTerm); ?>" placeholder="Order number or customer name">
@@ -231,7 +292,19 @@ foreach ($orders as $order) {
                                 <?php echo app_escape($order['customer_name']); ?>
                             <?php endif; ?>
                         </td>
-                        <td data-label="Order Date"><?php echo $order['order_date'] !== null ? app_escape($order['order_date']) : '&mdash;'; ?></td>
+                        <td data-label="Order Date">
+                            <?php if ($order['order_date'] !== null): ?>
+                                <?php echo app_escape(date('j M Y', strtotime($order['order_date']))); ?>
+                                <div class="text-muted small">
+                                    <?php echo (int) $order['age_days']; ?> day<?php echo $order['age_days'] === 1 ? '' : 's'; ?> ago
+                                </div>
+                                <?php if (!in_array($order['order_status'], ['completed', 'cancelled'], true) && $order['age_days'] >= $orderWaitingThresholdDays): ?>
+                                    <span class="badge bg-warning text-dark">&#9201; Waiting <?php echo (int) $order['age_days']; ?> day<?php echo $order['age_days'] === 1 ? '' : 's'; ?></span>
+                                <?php endif; ?>
+                            <?php else: ?>
+                                &mdash;
+                            <?php endif; ?>
+                        </td>
                         <td data-label="Payment"><?php echo payment_status_badge($order['payment_status']); ?></td>
                         <td data-label="Status"><?php echo order_status_badge($order['order_status']); ?></td>
                         <td data-label="Receipt">
@@ -247,12 +320,13 @@ foreach ($orders as $order) {
                     </tr>
                 <?php endforeach; ?>
                 <?php if ($orders === []): ?>
+                    <?php $hasActiveFilters = $searchTerm !== '' || $filterStatus !== null || $filterPaymentStatus !== null || $view !== 'active'; ?>
                     <tr>
                         <td colspan="9">
                             <div class="empty-state">
                                 <div class="empty-state-title">No Orders Match</div>
-                                <p class="empty-state-text"><?php echo ($searchTerm !== '' || $filterStatus !== null || $filterPaymentStatus !== null) ? 'Try adjusting or clearing your filters.' : 'Customer orders will appear here once created.'; ?></p>
-                                <?php if ($canManage && $searchTerm === '' && $filterStatus === null && $filterPaymentStatus === null): ?>
+                                <p class="empty-state-text"><?php echo $hasActiveFilters ? 'Try adjusting or clearing your filters.' : 'Customer orders will appear here once created.'; ?></p>
+                                <?php if ($canManage && !$hasActiveFilters): ?>
                                     <a class="btn btn-primary btn-sm" href="/modules/orders/create.php">New Order</a>
                                 <?php endif; ?>
                             </div>
@@ -261,6 +335,30 @@ foreach ($orders as $order) {
                 <?php endif; ?>
             </tbody>
         </table>
+        </div>
+
+        <?php
+        $pageUrl = static function (int $targetPage): string {
+            return '/modules/orders/index.php?' . http_build_query(array_merge($_GET, ['page' => $targetPage]));
+        };
+        $rangeStart = $totalCount === 0 ? 0 : (($page - 1) * $perPage) + 1;
+        $rangeEnd = min($totalCount, $page * $perPage);
+        ?>
+        <div class="d-flex justify-content-between align-items-center mt-3">
+            <p class="text-muted small mb-0">
+                <?php if ($totalCount > 0): ?>
+                    Showing <?php echo (int) $rangeStart; ?>&ndash;<?php echo (int) $rangeEnd; ?> of <?php echo (int) $totalCount; ?> order<?php echo $totalCount === 1 ? '' : 's'; ?>
+                <?php else: ?>
+                    0 orders
+                <?php endif; ?>
+            </p>
+            <?php if ($totalPages > 1): ?>
+                <div class="d-flex gap-2 align-items-center">
+                    <a class="btn btn-sm btn-outline-secondary <?php echo $page <= 1 ? 'disabled' : ''; ?>" href="<?php echo app_escape($pageUrl(max(1, $page - 1))); ?>">&laquo; Prev</a>
+                    <span class="text-muted small">Page <?php echo (int) $page; ?> of <?php echo (int) $totalPages; ?></span>
+                    <a class="btn btn-sm btn-outline-secondary <?php echo $page >= $totalPages ? 'disabled' : ''; ?>" href="<?php echo app_escape($pageUrl(min($totalPages, $page + 1))); ?>">Next &raquo;</a>
+                </div>
+            <?php endif; ?>
         </div>
     </div>
 </form>
