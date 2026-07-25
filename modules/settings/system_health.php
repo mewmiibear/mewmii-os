@@ -6,6 +6,7 @@ app_require_permission('settings.manage');
 $appTitle = 'System Health';
 $pdo = app_db();
 $health = system_health_check($pdo);
+$uploadsDirCheck = system_health_check_uploads_directory();
 
 // Bugfix pass (WooCommerce image sync still 404s after two URL-config attempts) - the
 // filesystem diagnostic (does the file exist on disk, is that location even inside the
@@ -30,6 +31,14 @@ $writeTestResults = null;
 // orphaned rows.
 $allImages = system_health_list_all_images($pdo);
 
+// Domain-vs-subdomain uploads mapping - cheap (is_dir/is_link only), safe on every load.
+$uploadsDualLocation = system_health_check_uploads_dual_location();
+$urlMappingTestResult = null;
+$symlinkResult = null;
+// The exact root domain named in this incident - not derived from config, since the whole
+// point is testing the real mapping independently of whatever app.uploads_url currently says.
+const SYSTEM_HEALTH_ROOT_DOMAIN = 'https://mewmiibear.com';
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         app_require_csrf();
@@ -50,6 +59,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'products' => system_health_test_image_write('products'),
             'variations' => system_health_test_image_write('variations'),
         ];
+    } elseif ($uploadsCheckError === '' && (string) ($_POST['action'] ?? '') === 'test_url_mapping') {
+        $urlMappingTestResult = system_health_test_uploads_url_mapping(SYSTEM_HEALTH_ROOT_DOMAIN);
+    } elseif ($uploadsCheckError === '' && (string) ($_POST['action'] ?? '') === 'create_uploads_symlink') {
+        $symlinkResult = system_health_create_uploads_symlink();
+        $uploadsDualLocation = system_health_check_uploads_dual_location();
     }
 }
 
@@ -67,6 +81,19 @@ require_once __DIR__ . '/../../includes/header.php';
     <a class="btn btn-outline-secondary btn-sm" href="/modules/settings/export.php">Data Export</a>
     <a class="btn btn-secondary btn-sm" href="/modules/settings/system_health.php">System Health</a>
 </div>
+
+<?php if (!$uploadsDirCheck['ok']): ?>
+    <div class="alert alert-danger">
+        <strong>&#9888; Uploads directory problem detected.</strong>
+        <?php if (!$uploadsDirCheck['exists']): ?>
+            <code><?php echo app_escape($uploadsDirCheck['path']); ?></code> does not exist. Product/variation images cannot be uploaded or served until this is restored - see <code>DEPLOYMENT.md</code>.
+        <?php elseif (!$uploadsDirCheck['is_dir']): ?>
+            <code><?php echo app_escape($uploadsDirCheck['path']); ?></code> exists but is not a directory.
+        <?php elseif (!$uploadsDirCheck['writable']): ?>
+            <code><?php echo app_escape($uploadsDirCheck['path']); ?></code> exists but is not writable - new image uploads will fail. Check filesystem permissions.
+        <?php endif; ?>
+    </div>
+<?php endif; ?>
 
 <?php if ($health['pending'] !== []): ?>
     <div class="alert alert-warning">
@@ -177,6 +204,76 @@ require_once __DIR__ . '/../../includes/header.php';
         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
         <input type="hidden" name="action" value="check_uploads">
         <button type="submit" class="btn btn-outline-secondary btn-sm">Check Public Reachability</button>
+    </form>
+</div>
+
+<div class="card p-4 mb-4">
+    <h5 class="mb-3">Uploads URL Mapping (domain vs. subdomain)</h5>
+    <p class="text-muted small">If this app lives in a subfolder of the main domain's document root (e.g. <code>public_html/admin</code>), the main domain's own <code>public_html/uploads/</code> is a completely different, sibling directory that was never written to - this checks both directly on disk, then tests which one a real URL on the main domain actually serves from.</p>
+
+    <ul class="list-unstyled small">
+        <li><strong>Admin app's uploads (known working):</strong> <code><?php echo app_escape($uploadsDualLocation['admin_uploads_dir']); ?></code>
+            &mdash; <?php echo $uploadsDualLocation['admin_uploads_exists'] ? '<span class="text-success">exists</span>' : '<span class="text-danger">missing</span>'; ?>
+        </li>
+        <li class="mt-1"><strong>Main domain's uploads (root):</strong> <code><?php echo app_escape($uploadsDualLocation['root_uploads_dir']); ?></code>
+            &mdash;
+            <?php if ($uploadsDualLocation['root_uploads_exists']): ?>
+                <span class="text-success">exists</span>
+                <?php if ($uploadsDualLocation['root_uploads_is_symlink']): ?>
+                    (symlink &rarr; <code><?php echo app_escape((string) $uploadsDualLocation['root_uploads_symlink_target']); ?></code>)
+                <?php else: ?>
+                    (a real directory, not a symlink)
+                <?php endif; ?>
+            <?php else: ?>
+                <span class="text-danger">does not exist</span>
+            <?php endif; ?>
+        </li>
+    </ul>
+
+    <?php if (!$uploadsDualLocation['root_uploads_exists']): ?>
+        <div class="alert alert-warning small">
+            <code><?php echo app_escape($uploadsDualLocation['root_uploads_dir']); ?></code> does not exist - if the main domain serves uploads from here, that's the 404 explained directly: nothing was ever written to this path.
+            <form method="post" class="mt-2">
+                <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                <input type="hidden" name="action" value="create_uploads_symlink">
+                <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Create a symlink at ' + <?php echo json_encode($uploadsDualLocation['root_uploads_dir']); ?> + ' pointing to ' + <?php echo json_encode($uploadsDualLocation['admin_uploads_dir']); ?> + '? This does not move or copy any files.');">Create Symlink (safest fix)</button>
+            </form>
+        </div>
+    <?php endif; ?>
+
+    <?php if ($symlinkResult !== null): ?>
+        <div class="alert <?php echo $symlinkResult['ok'] ? 'alert-success' : 'alert-danger'; ?> small"><?php echo app_escape($symlinkResult['message']); ?></div>
+    <?php endif; ?>
+
+    <p class="text-muted small mt-3 mb-1">Test which directory <code><?php echo app_escape(SYSTEM_HEALTH_ROOT_DOMAIN); ?>/uploads/products/...</code> actually serves from - writes a uniquely-named marker file into each existing candidate, fetches it over the real internet, then deletes it.</p>
+
+    <?php if ($urlMappingTestResult !== null): ?>
+        <div class="alert alert-info small">
+            <div><strong>Admin uploads (<?php echo app_escape($uploadsDualLocation['admin_uploads_dir']); ?>):</strong>
+                <?php if ($urlMappingTestResult['admin_marker_skipped_reason'] !== null): ?>
+                    skipped - <?php echo app_escape($urlMappingTestResult['admin_marker_skipped_reason']); ?>
+                <?php elseif ($urlMappingTestResult['admin_marker_result']['reachable']): ?>
+                    <span class="text-success">&#9989; This IS what <?php echo app_escape(SYSTEM_HEALTH_ROOT_DOMAIN); ?>/uploads/products/ serves.</span>
+                <?php else: ?>
+                    <span class="text-danger">Not reached via this URL prefix.</span>
+                <?php endif; ?>
+            </div>
+            <div class="mt-1"><strong>Root uploads (<?php echo app_escape($uploadsDualLocation['root_uploads_dir']); ?>):</strong>
+                <?php if ($urlMappingTestResult['root_marker_skipped_reason'] !== null): ?>
+                    skipped - <?php echo app_escape($urlMappingTestResult['root_marker_skipped_reason']); ?>
+                <?php elseif ($urlMappingTestResult['root_marker_result']['reachable']): ?>
+                    <span class="text-success">&#9989; This IS what <?php echo app_escape(SYSTEM_HEALTH_ROOT_DOMAIN); ?>/uploads/products/ serves.</span>
+                <?php else: ?>
+                    <span class="text-danger">Not reached via this URL prefix.</span>
+                <?php endif; ?>
+            </div>
+        </div>
+    <?php endif; ?>
+
+    <form method="post">
+        <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+        <input type="hidden" name="action" value="test_url_mapping">
+        <button type="submit" class="btn btn-outline-secondary btn-sm">Test URL Mapping</button>
     </form>
 </div>
 

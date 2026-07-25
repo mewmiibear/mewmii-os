@@ -3,6 +3,179 @@
 require_once __DIR__ . '/image_upload.php';
 
 /**
+ * Deployment-protection incident (uploads/ wiped by an external deploy process) - a
+ * startup-style check for the uploads directory itself: does it exist, is it a real
+ * directory, is it writable. Checked first/most prominently on System Health, since a
+ * deploy that deleted or replaced this directory (see DEPLOYMENT.md) is exactly the failure
+ * this is meant to catch immediately, rather than discovering it later via a WooCommerce
+ * sync error or the Stored Images Audit below.
+ *
+ * @return array{path: string, exists: bool, is_dir: bool, writable: bool, ok: bool}
+ */
+function system_health_check_uploads_directory(): array
+{
+    $path = image_upload_base_dir();
+    $exists = file_exists($path);
+    $isDir = $exists && is_dir($path);
+    $writable = $isDir && is_writable($path);
+
+    return [
+        'path' => $path,
+        'exists' => $exists,
+        'is_dir' => $isDir,
+        'writable' => $writable,
+        'ok' => $exists && $isDir && $writable,
+    ];
+}
+
+/**
+ * Domain-vs-subdomain uploads mapping incident (WooCommerce image sync 404 after the URL
+ * itself is confirmed well-formed and the file confirmed present on disk). The admin app's
+ * own root ("public_html/admin", one level above includes/) is a SUBFOLDER of the main
+ * domain's document root ("public_html") - image_upload_base_dir() only ever writes under
+ * the subfolder's own uploads/, but the public URL WooCommerce is given may point at the
+ * ROOT domain's uploads/ instead (a different, sibling directory that was never written to
+ * at all). This checks both candidate directories directly on disk - a pure filesystem
+ * check, no guessing about which vhost/domain serves which - so "does public_html/uploads/
+ * even exist" is answered with certainty rather than inferred from an HTTP response.
+ *
+ * @return array{
+ *   admin_uploads_dir: string,
+ *   admin_uploads_exists: bool,
+ *   root_uploads_dir: string,
+ *   root_uploads_exists: bool,
+ *   root_uploads_is_symlink: bool,
+ *   root_uploads_symlink_target: ?string,
+ * }
+ */
+function system_health_check_uploads_dual_location(): array
+{
+    $adminUploadsDir = image_upload_base_dir();
+    // One level above the app's own root (dirname(__DIR__), same computation
+    // image_upload_base_dir() itself uses) - the main domain's document root, if the app
+    // lives in a subfolder of it (e.g. "public_html/admin").
+    $rootUploadsDir = dirname(__DIR__, 2) . '/uploads';
+
+    $rootIsLink = @is_link($rootUploadsDir);
+
+    return [
+        'admin_uploads_dir' => $adminUploadsDir,
+        'admin_uploads_exists' => @is_dir($adminUploadsDir),
+        'root_uploads_dir' => $rootUploadsDir,
+        'root_uploads_exists' => @is_dir($rootUploadsDir),
+        'root_uploads_is_symlink' => $rootIsLink,
+        'root_uploads_symlink_target' => $rootIsLink ? (@readlink($rootUploadsDir) ?: null) : null,
+    ];
+}
+
+/**
+ * Definitive runtime test for "which physical directory does https://{$domain}/uploads/...
+ * actually serve from" - writes a uniquely-named marker file into EACH candidate directory
+ * (whichever ones actually exist and are writable), fetches https://{$domain}/uploads/
+ * products/{marker} for each over the real internet (via curl, same as
+ * system_health_check_url_reachable()), and reports which marker(s) were actually
+ * reachable. Whichever marker comes back 200 tells you, with certainty, which directory
+ * that URL prefix is physically served from - not an assumption. Every marker file is
+ * deleted again immediately after the check, whether it was reached or not.
+ *
+ * @return array{
+ *   domain: string,
+ *   admin_marker_result: ?array{reachable: bool, http_status: ?int, error: ?string},
+ *   root_marker_result: ?array{reachable: bool, http_status: ?int, error: ?string},
+ *   admin_marker_skipped_reason: ?string,
+ *   root_marker_skipped_reason: ?string,
+ * }
+ */
+function system_health_test_uploads_url_mapping(string $domain): array
+{
+    $dirs = system_health_check_uploads_dual_location();
+    $marker = 'health-check-' . bin2hex(random_bytes(6)) . '.txt';
+    $domain = rtrim($domain, '/');
+
+    $result = [
+        'domain' => $domain,
+        'admin_marker_result' => null,
+        'root_marker_result' => null,
+        'admin_marker_skipped_reason' => null,
+        'root_marker_skipped_reason' => null,
+    ];
+
+    $candidates = [
+        'admin' => $dirs['admin_uploads_dir'],
+        'root' => $dirs['root_uploads_dir'],
+    ];
+
+    foreach ($candidates as $key => $baseDir) {
+        $productsDir = $baseDir . '/products';
+        if (!@is_dir($productsDir) || !@is_writable($productsDir)) {
+            $result[$key . '_marker_skipped_reason'] = 'products/ subdirectory does not exist or is not writable at ' . $productsDir;
+
+            continue;
+        }
+
+        $markerPath = $productsDir . '/' . $marker;
+        if (file_put_contents($markerPath, 'health check') === false) {
+            $result[$key . '_marker_skipped_reason'] = 'Could not write marker file to ' . $markerPath;
+
+            continue;
+        }
+
+        $result[$key . '_marker_result'] = system_health_check_url_reachable($domain . '/uploads/products/' . $marker);
+
+        @unlink($markerPath);
+    }
+
+    return $result;
+}
+
+/**
+ * "Safest fix": if the root domain's uploads/ path (public_html/uploads) doesn't exist at
+ * all, create it as a symlink pointing at the admin app's real uploads/ folder
+ * (public_html/admin/uploads) - so https://{root domain}/uploads/products/x.webp serves the
+ * exact same file admin.{domain}/uploads/products/x.webp already does, with NO file moved,
+ * copied, or duplicated, and NO database/sync code touched. Deliberately refuses to
+ * overwrite an existing file/directory/symlink at the target path - this only ever fills in
+ * a genuinely missing path, never replaces something already there.
+ *
+ * Not run automatically - PHP's symlink() can fail for reasons this can't fully diagnose
+ * from inside the request (open_basedir restricting this vhost from ever seeing outside its
+ * own subfolder is the likely one on shared hosting, exactly why the split existed in the
+ * first place) - this is a deliberate, explicit, admin-triggered action that reports exactly
+ * what happened either way.
+ *
+ * @return array{ok: bool, message: string}
+ */
+function system_health_create_uploads_symlink(): array
+{
+    $dirs = system_health_check_uploads_dual_location();
+    $target = $dirs['admin_uploads_dir'];
+    $link = $dirs['root_uploads_dir'];
+
+    if (file_exists($link) || is_link($link)) {
+        return ['ok' => false, 'message' => 'Something already exists at ' . $link . ' - refusing to overwrite it. Remove or rename it manually first if it is safe to do so.'];
+    }
+
+    if (!is_dir($target)) {
+        return ['ok' => false, 'message' => 'Symlink target ' . $target . ' does not exist - nothing to link to.'];
+    }
+
+    $created = @symlink($target, $link);
+
+    if (!$created) {
+        $lastError = error_get_last();
+
+        return [
+            'ok' => false,
+            'message' => 'symlink() failed (' . ($lastError['message'] ?? 'no further detail from PHP') . '). '
+                . 'Most likely cause on shared hosting: this vhost\'s open_basedir restricts PHP to its own subfolder and cannot write outside it - '
+                . 'create the symlink manually instead via SSH or your hosting file manager: ln -s "' . $target . '" "' . $link . '"',
+        ];
+    }
+
+    return ['ok' => true, 'message' => 'Created symlink: ' . $link . ' -> ' . $target];
+}
+
+/**
  * System Health (Issue 5 - Production Migration Safety). We've now hit two separate
  * incidents where code was deployed expecting a database column/table that a migration
  * script existed for, but was never actually run against production: saved_views (missing
