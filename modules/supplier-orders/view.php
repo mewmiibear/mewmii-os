@@ -75,13 +75,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 try {
                     supplier_order_receive_item($pdo, $itemId, $quantity);
                     $pdo->commit();
+                    inventory_flush_woocommerce_resync($pdo);
 
                     app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1&received=1');
                 } catch (RuntimeException $exception) {
                     $pdo->rollBack();
+                    inventory_discard_pending_woocommerce_resync();
                     $error = $exception->getMessage();
                 } catch (Exception $exception) {
                     $pdo->rollBack();
+                    inventory_discard_pending_woocommerce_resync();
                     $error = 'Failed to receive item.';
                 }
             }
@@ -94,13 +97,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 try {
                     supplier_order_receive_all_remaining($pdo, $orderId);
                     $pdo->commit();
+                    inventory_flush_woocommerce_resync($pdo);
 
                     app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1&received=1');
                 } catch (RuntimeException $exception) {
                     $pdo->rollBack();
+                    inventory_discard_pending_woocommerce_resync();
                     $error = $exception->getMessage();
                 } catch (Exception $exception) {
                     $pdo->rollBack();
+                    inventory_discard_pending_woocommerce_resync();
                     $error = 'Failed to mark order as arrived.';
                 }
             }
@@ -182,13 +188,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             try {
                 supplier_order_cancel($pdo, $orderId);
                 $pdo->commit();
+                inventory_flush_woocommerce_resync($pdo);
 
                 app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1');
             } catch (RuntimeException $exception) {
                 $pdo->rollBack();
+                inventory_discard_pending_woocommerce_resync();
                 $error = $exception->getMessage();
             } catch (Exception $exception) {
                 $pdo->rollBack();
+                inventory_discard_pending_woocommerce_resync();
                 $error = 'Failed to cancel supplier order.';
             }
         } else {

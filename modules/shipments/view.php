@@ -66,6 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->beginTransaction();
                 shipment_mark_shipped($pdo, $shipmentId, $carrier, $trackingNumber, $shippedAt);
                 $pdo->commit();
+                inventory_flush_woocommerce_resync($pdo);
             } elseif ($action === 'mark_delivered') {
                 $pdo->beginTransaction();
                 shipment_mark_delivered($pdo, $shipmentId);
@@ -90,9 +91,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         } catch (RuntimeException $exception) {
             $pdo->rollBack();
+            inventory_discard_pending_woocommerce_resync();
             $error = $exception->getMessage();
         } catch (Exception $exception) {
             $pdo->rollBack();
+            inventory_discard_pending_woocommerce_resync();
             $error = 'Failed to update shipment.';
         }
     }

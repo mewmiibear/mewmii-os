@@ -195,13 +195,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 order_apply_edit($pdo, $orderId, $customerId, $validItems, $shippingFee, $form['customer_note'], $form['internal_note'], $orderDateValue);
 
                 $pdo->commit();
+                inventory_flush_woocommerce_resync($pdo);
 
                 app_redirect('/modules/orders/view.php?id=' . $orderId . '&updated=1');
             } catch (RuntimeException $exception) {
                 $pdo->rollBack();
+                inventory_discard_pending_woocommerce_resync();
                 $error = $exception->getMessage();
             } catch (Exception $exception) {
                 $pdo->rollBack();
+                inventory_discard_pending_woocommerce_resync();
                 $error = 'Failed to update order.';
             }
         }

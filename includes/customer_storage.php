@@ -132,77 +132,105 @@ function inventory_unit_outstanding_demand(PDO $pdo, int $productId, ?int $varia
  * appears here at all, by construction: it never routes supplier receiving into
  * arrived_quantity in the first place (see supplier_order_receive_item()), only
  * preorder/early_bird does.
+ *
+ * Set-based rewrite (Production Readiness Phase 1, Critical #3): the original queried every
+ * preorder/early_bird product, then every variation of each, then ran
+ * inventory_get_or_create_row(), inventory_unit_outstanding_demand() (itself a per-order-item
+ * loop), inventory_unit_arrived_total(), and inventory_unit_allocated_total() per unit - a
+ * deeply nested N+1 on every dashboard load. This version computes all four figures for every
+ * unit in one SQL query and filters to just the qualifying units; variation_build_full_label()
+ * (the one piece still requiring its own query) now only runs for that small qualifying set,
+ * not every preorder/early_bird unit in the catalog. Output shape is unchanged.
  */
 function inventory_allocation_queue(PDO $pdo): array
 {
-    $productsStmt = $pdo->query("
-        SELECT id, sku, name, catalog_type, product_type
-        FROM products
-        WHERE product_type IN ('preorder', 'early_bird')
-        ORDER BY name ASC
-    ");
-    $products = $productsStmt->fetchAll(PDO::FETCH_ASSOC);
+    $sql = "
+        SELECT * FROM (
+            SELECT
+                p.id AS product_id, NULL AS variation_id, p.sku AS unit_sku,
+                p.sku AS product_sku, p.name AS product_name, p.catalog_type AS catalog_type,
+                COALESCE(inv.arrived_quantity, 0) AS remaining,
+                (
+                    SELECT COALESCE(SUM(quantity), 0) FROM inventory_transactions
+                    WHERE product_id = p.id AND variation_id IS NULL AND transaction_type = 'supplier_receive'
+                ) AS arrived_total,
+                (
+                    SELECT COALESCE(SUM(quantity), 0) FROM inventory_transactions
+                    WHERE product_id = p.id AND variation_id IS NULL AND transaction_type = 'customer_storage_add'
+                ) AS allocated_total,
+                (
+                    SELECT COALESCE(SUM(GREATEST(oi.quantity - (
+                        SELECT COALESCE(SUM(cs.quantity), 0) FROM customer_storage cs WHERE cs.order_item_id = oi.id
+                    ), 0)), 0)
+                    FROM mewmii_order_items oi
+                    INNER JOIN mewmii_orders o ON o.id = oi.order_id
+                    WHERE oi.product_id = p.id AND oi.variation_id IS NULL
+                      AND o.order_status <> 'cancelled' AND o.is_historical = 0
+                ) AS need_allocate
+            FROM products p
+            LEFT JOIN mewmii_inventory inv ON inv.product_id = p.id AND inv.variation_id IS NULL
+            WHERE p.product_type IN ('preorder', 'early_bird') AND p.catalog_type = 'simple'
 
-    $result = [];
-    foreach ($products as $product) {
-        $productId = (int) $product['id'];
-        $isVariable = $product['catalog_type'] === 'variable';
+            UNION ALL
 
-        $unitRows = [];
-        if ($isVariable) {
-            $variationsStmt = $pdo->prepare("SELECT id, sku FROM product_variations WHERE product_id = ? AND status <> 'archived' ORDER BY id ASC");
-            $variationsStmt->execute([$productId]);
-            foreach ($variationsStmt->fetchAll(PDO::FETCH_ASSOC) as $variation) {
-                $unitRows[] = [
-                    'variation_id' => (int) $variation['id'],
-                    'sku' => $variation['sku'],
-                    'label' => variation_build_full_label($pdo, (int) $variation['id']),
-                ];
-            }
-        } else {
-            $unitRows[] = ['variation_id' => null, 'sku' => $product['sku'], 'label' => null];
-        }
+            SELECT
+                p.id AS product_id, pv.id AS variation_id, pv.sku AS unit_sku,
+                p.sku AS product_sku, p.name AS product_name, p.catalog_type AS catalog_type,
+                COALESCE(inv.arrived_quantity, 0) AS remaining,
+                (
+                    SELECT COALESCE(SUM(quantity), 0) FROM inventory_transactions
+                    WHERE product_id = p.id AND variation_id <=> pv.id AND transaction_type = 'supplier_receive'
+                ) AS arrived_total,
+                (
+                    SELECT COALESCE(SUM(quantity), 0) FROM inventory_transactions
+                    WHERE product_id = p.id AND variation_id <=> pv.id AND transaction_type = 'customer_storage_add'
+                ) AS allocated_total,
+                (
+                    SELECT COALESCE(SUM(GREATEST(oi.quantity - (
+                        SELECT COALESCE(SUM(cs.quantity), 0) FROM customer_storage cs WHERE cs.order_item_id = oi.id
+                    ), 0)), 0)
+                    FROM mewmii_order_items oi
+                    INNER JOIN mewmii_orders o ON o.id = oi.order_id
+                    WHERE oi.product_id = p.id AND oi.variation_id <=> pv.id
+                      AND o.order_status <> 'cancelled' AND o.is_historical = 0
+                ) AS need_allocate
+            FROM products p
+            INNER JOIN product_variations pv ON pv.product_id = p.id AND pv.status <> 'archived'
+            LEFT JOIN mewmii_inventory inv ON inv.product_id = p.id AND inv.variation_id = pv.id
+            WHERE p.product_type IN ('preorder', 'early_bird') AND p.catalog_type = 'variable'
+        ) AS queue
+        WHERE remaining >= 1 AND need_allocate >= 1
+        ORDER BY product_name ASC, variation_id ASC
+    ";
+    $rows = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
 
-        $units = [];
-        foreach ($unitRows as $unitRow) {
-            $variationId = $unitRow['variation_id'];
-            $inventoryRow = inventory_get_or_create_row($pdo, $productId, $variationId);
-            $remaining = (int) $inventoryRow['arrived_quantity'];
+    $byProduct = [];
+    foreach ($rows as $row) {
+        $productId = (int) $row['product_id'];
+        $variationId = $row['variation_id'] !== null ? (int) $row['variation_id'] : null;
 
-            if ($remaining < 1) {
-                continue;
-            }
-
-            $needAllocate = inventory_unit_outstanding_demand($pdo, $productId, $variationId);
-            if ($needAllocate < 1) {
-                continue;
-            }
-
-            $units[] = [
-                'variation_id' => $variationId,
-                'sku' => $unitRow['sku'],
-                'label' => $unitRow['label'],
-                'arrived_total' => inventory_unit_arrived_total($pdo, $productId, $variationId),
-                'allocated_total' => inventory_unit_allocated_total($pdo, $productId, $variationId),
-                'need_allocate' => $needAllocate,
-                'remaining' => $remaining,
+        if (!isset($byProduct[$productId])) {
+            $byProduct[$productId] = [
+                'product_id' => $productId,
+                'sku' => $row['product_sku'],
+                'name' => $row['product_name'],
+                'catalog_type' => $row['catalog_type'],
+                'units' => [],
             ];
         }
 
-        if ($units === []) {
-            continue;
-        }
-
-        $result[] = [
-            'product_id' => $productId,
-            'sku' => $product['sku'],
-            'name' => $product['name'],
-            'catalog_type' => $product['catalog_type'],
-            'units' => $units,
+        $byProduct[$productId]['units'][] = [
+            'variation_id' => $variationId,
+            'sku' => $row['unit_sku'],
+            'label' => $variationId !== null ? variation_build_full_label($pdo, $variationId) : null,
+            'arrived_total' => (int) $row['arrived_total'],
+            'allocated_total' => (int) $row['allocated_total'],
+            'need_allocate' => (int) $row['need_allocate'],
+            'remaining' => (int) $row['remaining'],
         ];
     }
 
-    return $result;
+    return array_values($byProduct);
 }
 
 /**

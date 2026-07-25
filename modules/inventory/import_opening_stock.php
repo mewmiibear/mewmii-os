@@ -100,12 +100,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
 
                     $pdo->commit();
+                    inventory_flush_woocommerce_resync($pdo);
                 } catch (RuntimeException $exception) {
                     $pdo->rollBack();
+                    inventory_discard_pending_woocommerce_resync();
                     $error = 'Import failed: ' . $exception->getMessage();
                     $imported = 0;
                 } catch (Exception $exception) {
                     $pdo->rollBack();
+                    inventory_discard_pending_woocommerce_resync();
                     $error = 'Import failed.';
                     $imported = 0;
                 }

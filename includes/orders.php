@@ -150,12 +150,15 @@ function order_bulk_approve_payment(PDO $pdo, array $orderIds): array
         try {
             order_approve_payment($pdo, $orderId);
             $pdo->commit();
+            inventory_flush_woocommerce_resync($pdo);
             $results[] = ['order_id' => $orderId, 'success' => true, 'message' => 'Approved.'];
         } catch (RuntimeException $exception) {
             $pdo->rollBack();
+            inventory_discard_pending_woocommerce_resync();
             $results[] = ['order_id' => $orderId, 'success' => false, 'message' => $exception->getMessage()];
         } catch (Exception $exception) {
             $pdo->rollBack();
+            inventory_discard_pending_woocommerce_resync();
             $results[] = ['order_id' => $orderId, 'success' => false, 'message' => 'Failed to approve payment.'];
         }
     }

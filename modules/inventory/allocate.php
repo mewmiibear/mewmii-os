@@ -162,6 +162,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
 
                     $pdo->commit();
+                    inventory_flush_woocommerce_resync($pdo);
 
                     $redirect = '/modules/inventory/allocate.php?product_id=' . $productId
                         . ($variationId !== null ? '&variation_id=' . $variationId : '')
@@ -170,9 +171,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     app_redirect($redirect);
                 } catch (RuntimeException $exception) {
                     $pdo->rollBack();
+                    inventory_discard_pending_woocommerce_resync();
                     $error = $exception->getMessage();
                 } catch (Exception $exception) {
                     $pdo->rollBack();
+                    inventory_discard_pending_woocommerce_resync();
                     $error = 'Failed to allocate stock.';
                 }
             }
@@ -201,6 +204,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 $pdo->commit();
+                inventory_flush_woocommerce_resync($pdo);
 
                 $redirect = '/modules/inventory/allocate.php?product_id=' . $productId
                     . ($variationId !== null ? '&variation_id=' . $variationId : '')
@@ -209,9 +213,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 app_redirect($redirect);
             } catch (RuntimeException $exception) {
                 $pdo->rollBack();
+                inventory_discard_pending_woocommerce_resync();
                 $error = $exception->getMessage();
             } catch (Exception $exception) {
                 $pdo->rollBack();
+                inventory_discard_pending_woocommerce_resync();
                 $error = 'Failed to auto-allocate stock.';
             }
         } elseif ($action === 'release') {
@@ -238,6 +244,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     inventory_log_transaction($pdo, $productId, 'arrived_release_to_available', $releaseQty, 'manual_release', (int) ($_SESSION['user_id'] ?? 0), $variationId);
 
                     $pdo->commit();
+                    inventory_flush_woocommerce_resync($pdo);
 
                     $redirect = '/modules/inventory/allocate.php?product_id=' . $productId
                         . ($variationId !== null ? '&variation_id=' . $variationId : '')
@@ -245,9 +252,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     app_redirect($redirect);
                 } catch (RuntimeException $exception) {
                     $pdo->rollBack();
+                    inventory_discard_pending_woocommerce_resync();
                     $error = $exception->getMessage();
                 } catch (Exception $exception) {
                     $pdo->rollBack();
+                    inventory_discard_pending_woocommerce_resync();
                     $error = 'Failed to release stock.';
                 }
             }

@@ -641,6 +641,7 @@ function wc_order_import_run_body(PDO $pdo): array
                 try {
                     $result = wc_order_import_single($pdo, $wcOrder);
                     $pdo->commit();
+                    inventory_flush_woocommerce_resync($pdo);
 
                     $summary[$result['action']]++;
 
@@ -649,6 +650,7 @@ function wc_order_import_run_body(PDO $pdo): array
                     }
                 } catch (Throwable $e) {
                     $pdo->rollBack();
+                    inventory_discard_pending_woocommerce_resync();
                     $summary['failed']++;
                     sync_log_failure($pdo, WC_ORDER_IMPORT_SYNC_TYPE, 'WooCommerce order #' . $wcOrderId . ': ' . $e->getMessage());
                 }

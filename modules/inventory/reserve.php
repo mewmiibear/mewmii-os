@@ -124,6 +124,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
 
                     $pdo->commit();
+                    inventory_flush_woocommerce_resync($pdo);
 
                     $redirect = '/modules/inventory/reserve.php?product_id=' . $productId
                         . ($variationId !== null ? '&variation_id=' . $variationId : '')
@@ -132,9 +133,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     app_redirect($redirect);
                 } catch (RuntimeException $exception) {
                     $pdo->rollBack();
+                    inventory_discard_pending_woocommerce_resync();
                     $error = $exception->getMessage();
                 } catch (Exception $exception) {
                     $pdo->rollBack();
+                    inventory_discard_pending_woocommerce_resync();
                     $error = 'Failed to reserve stock.';
                 }
             }
@@ -155,6 +158,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 $pdo->commit();
+                inventory_flush_woocommerce_resync($pdo);
 
                 $redirect = '/modules/inventory/reserve.php?product_id=' . $productId
                     . ($variationId !== null ? '&variation_id=' . $variationId : '')
@@ -163,9 +167,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 app_redirect($redirect);
             } catch (RuntimeException $exception) {
                 $pdo->rollBack();
+                inventory_discard_pending_woocommerce_resync();
                 $error = $exception->getMessage();
             } catch (Exception $exception) {
                 $pdo->rollBack();
+                inventory_discard_pending_woocommerce_resync();
                 $error = 'Failed to auto-reserve stock.';
             }
         } else {

@@ -68,86 +68,138 @@ function purchase_planning_paid_demand(PDO $pdo, int $productId, ?int $variation
  * Every row is tagged with its product's supplier_id so purchase_planning_generate() can
  * group by supplier without re-querying.
  */
+/**
+ * Set-based rewrite (Production Readiness Phase 1, Critical #3): the original implementation
+ * called catalog_sellable_units() (itself one label-building query per variation) and then, in
+ * PHP, ran a further one/two extra queries per unit (mewmii_inventory lookup, plus
+ * purchase_planning_paid_demand()'s own per-order-item loop for preorder/early_bird units) -
+ * tens of thousands of round trips on a large catalog, on every dashboard load. This version
+ * computes every unit's available/incoming/arrived quantities and paid demand in one SQL query
+ * (correlated subqueries execute inside that single round trip, not as separate ones) and
+ * keeps the exact same formula, in PHP, only over the rows that already need ordering - which
+ * is normally a small fraction of the catalog. variation_build_label() (still one query each)
+ * is now only ever called for those few rows, not every sellable unit. Every returned key and
+ * value matches the original function's shape exactly - see the three callers
+ * (index.php dashboard, modules/purchase-planning/generate.php, modules/inventory/index.php's
+ * needs_ordering filter), none of which needed to change.
+ */
 function purchase_planning_needs(PDO $pdo): array
 {
-    $units = catalog_sellable_units($pdo);
+    $unitSql = "
+        SELECT product_id, variation_id, product_name, sku, product_type, status, moq, cost_price,
+               supplier_id, target_stock_level, available_quantity, incoming_quantity, arrived_quantity, paid_demand
+        FROM (
+            SELECT
+                p.id AS product_id,
+                NULL AS variation_id,
+                p.name AS product_name,
+                p.sku AS sku,
+                p.product_type AS product_type,
+                p.status AS status,
+                p.moq AS moq,
+                p.product_cost AS cost_price,
+                p.supplier_id AS supplier_id,
+                p.target_stock_level AS target_stock_level,
+                COALESCE(inv.available_quantity, 0) AS available_quantity,
+                COALESCE(inv.incoming_quantity, 0) AS incoming_quantity,
+                COALESCE(inv.arrived_quantity, 0) AS arrived_quantity,
+                (
+                    SELECT COALESCE(SUM(GREATEST(oi.quantity - (
+                        SELECT COALESCE(SUM(cs.quantity), 0) FROM customer_storage cs WHERE cs.order_item_id = oi.id
+                    ), 0)), 0)
+                    FROM mewmii_order_items oi
+                    INNER JOIN mewmii_orders o ON o.id = oi.order_id
+                    WHERE oi.product_id = p.id AND oi.variation_id IS NULL
+                      AND o.payment_status = 'paid' AND o.order_status <> 'cancelled'
+                ) AS paid_demand
+            FROM products p
+            LEFT JOIN mewmii_inventory inv ON inv.product_id = p.id AND inv.variation_id IS NULL
+            WHERE p.catalog_type = 'simple'
 
-    $productIds = array_values(array_unique(array_column($units, 'product_id')));
-    $placeholders = implode(',', array_fill(0, count($productIds), '?'));
-    $productsStmt = $pdo->prepare("SELECT id, supplier_id, target_stock_level FROM products WHERE id IN ({$placeholders})");
-    $productsStmt->execute($productIds);
-    $productsById = [];
-    foreach ($productsStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $productsById[(int) $row['id']] = $row;
-    }
+            UNION ALL
+
+            SELECT
+                p.id AS product_id,
+                pv.id AS variation_id,
+                p.name AS product_name,
+                pv.sku AS sku,
+                p.product_type AS product_type,
+                p.status AS status,
+                p.moq AS moq,
+                CASE WHEN pv.cost_price IS NOT NULL AND pv.cost_price > 0 THEN pv.cost_price ELSE p.product_cost END AS cost_price,
+                p.supplier_id AS supplier_id,
+                p.target_stock_level AS target_stock_level,
+                COALESCE(inv.available_quantity, 0) AS available_quantity,
+                COALESCE(inv.incoming_quantity, 0) AS incoming_quantity,
+                COALESCE(inv.arrived_quantity, 0) AS arrived_quantity,
+                (
+                    SELECT COALESCE(SUM(GREATEST(oi.quantity - (
+                        SELECT COALESCE(SUM(cs.quantity), 0) FROM customer_storage cs WHERE cs.order_item_id = oi.id
+                    ), 0)), 0)
+                    FROM mewmii_order_items oi
+                    INNER JOIN mewmii_orders o ON o.id = oi.order_id
+                    WHERE oi.product_id = p.id AND oi.variation_id <=> pv.id
+                      AND o.payment_status = 'paid' AND o.order_status <> 'cancelled'
+                ) AS paid_demand
+            FROM products p
+            INNER JOIN product_variations pv ON pv.product_id = p.id AND pv.status <> 'archived'
+            LEFT JOIN mewmii_inventory inv ON inv.product_id = p.id AND inv.variation_id = pv.id
+            WHERE p.catalog_type = 'variable'
+        ) AS units
+        WHERE status <> 'archived'
+          AND (
+                (product_type IN ('preorder', 'early_bird') AND (paid_demand - incoming_quantity - arrived_quantity) > 0)
+             OR (product_type = 'ready_stock' AND target_stock_level IS NOT NULL AND (target_stock_level - available_quantity - incoming_quantity) > 0)
+          )
+    ";
+    $rows = $pdo->query($unitSql)->fetchAll(PDO::FETCH_ASSOC);
 
     $needs = [];
-    foreach ($units as $unit) {
-        if (($unit['status'] ?? 'draft') === 'archived') {
-            continue;
-        }
-
-        $productId = (int) $unit['product_id'];
-        $variationId = $unit['variation_id'];
-        $product = $productsById[$productId] ?? null;
-        if ($product === null) {
-            continue;
-        }
-
-        $invStmt = $pdo->prepare('SELECT available_quantity, incoming_quantity, arrived_quantity FROM mewmii_inventory WHERE product_id = ? AND variation_id <=> ?');
-        $invStmt->execute([$productId, $variationId]);
-        $inv = $invStmt->fetch(PDO::FETCH_ASSOC) ?: ['available_quantity' => 0, 'incoming_quantity' => 0, 'arrived_quantity' => 0];
-        $available = (int) $inv['available_quantity'];
-        $incoming = (int) $inv['incoming_quantity'];
-        $arrived = (int) $inv['arrived_quantity'];
-
-        $isPreorder = in_array($unit['product_type'], ['preorder', 'early_bird'], true);
+    foreach ($rows as $row) {
+        $productId = (int) $row['product_id'];
+        $variationId = $row['variation_id'] !== null ? (int) $row['variation_id'] : null;
+        $isPreorder = in_array($row['product_type'], ['preorder', 'early_bird'], true);
 
         if ($isPreorder) {
-            // arrived_quantity is supplier stock that HAS been received but is sitting
-            // unallocated pending a human action in the Allocation Center (see
-            // includes/customer_storage.php) - it is not yet in customer_storage, so
-            // purchase_planning_paid_demand() (which only nets against customer_storage)
-            // doesn't know about it. Without subtracting it here too, every preorder receiving
-            // event would make Purchase Planning briefly (and wrongly) show a bigger shortage
-            // than before that same stock arrived, since incoming_quantity drops but nothing
-            // offsets it until someone manually allocates. Subtracting it directly fixes that
-            // without touching the Allocation Center or any inventory-mutation logic.
-            $paidDemand = purchase_planning_paid_demand($pdo, $productId, $variationId);
+            // See the original docblock: arrived_quantity is received-but-unallocated
+            // supplier stock, subtracted here too so a preorder receiving event can never
+            // briefly inflate the shown shortage before someone allocates it.
+            $paidDemand = (int) $row['paid_demand'];
             $customerDemand = $paidDemand;
-            $rawNeed = $paidDemand - $incoming - $arrived;
+            $rawNeed = $paidDemand - (int) $row['incoming_quantity'] - (int) $row['arrived_quantity'];
             $demandBasis = 'customer';
         } else {
-            if ($product['target_stock_level'] === null) {
-                continue;
-            }
-            $customerDemand = (int) $product['target_stock_level'];
-            $rawNeed = $customerDemand - $available - $incoming;
+            $customerDemand = (int) $row['target_stock_level'];
+            $rawNeed = $customerDemand - (int) $row['available_quantity'] - (int) $row['incoming_quantity'];
             $demandBasis = 'topup';
         }
 
+        // The SQL WHERE above already restricts to raw_need > 0, but is re-checked here since
+        // it's cheap and keeps this loop's own arithmetic the single source of truth for what
+        // "needs ordering" means, exactly like the original function.
         if ($rawNeed <= 0) {
             continue;
         }
 
-        // Recommended Order Qty: shortage rounded UP to the next whole multiple of MOQ (see
-        // function docblock). $moq <= 0 (unset) means no lot-size constraint, so the
-        // recommendation is just the shortage itself.
-        $moq = $unit['moq'] !== null ? (int) $unit['moq'] : 0;
+        $moq = $row['moq'] !== null ? (int) $row['moq'] : 0;
         $suggestedQty = $moq > 0 ? (int) (ceil($rawNeed / $moq) * $moq) : $rawNeed;
         $moqTopUp = $suggestedQty - $rawNeed;
 
+        $label = $variationId !== null
+            ? $row['product_name'] . (($built = variation_build_label($pdo, $variationId)) !== '' ? (' - ' . $built) : '')
+            : $row['product_name'];
+
         $needs[] = [
-            'key' => $unit['key'],
+            'key' => $productId . ':' . ($variationId ?? 0),
             'product_id' => $productId,
             'variation_id' => $variationId,
-            'sku' => $unit['sku'],
-            'label' => $unit['label'],
-            'product_type' => $unit['product_type'],
-            'supplier_id' => $product['supplier_id'] !== null ? (int) $product['supplier_id'] : null,
+            'sku' => $row['sku'],
+            'label' => $label,
+            'product_type' => $row['product_type'],
+            'supplier_id' => $row['supplier_id'] !== null ? (int) $row['supplier_id'] : null,
             'customer_demand' => $customerDemand,
-            'available_quantity' => $available,
-            'incoming_quantity' => $incoming,
+            'available_quantity' => (int) $row['available_quantity'],
+            'incoming_quantity' => (int) $row['incoming_quantity'],
             'raw_need' => $rawNeed,
             'moq' => $moq,
             'suggested_quantity' => $suggestedQty,
@@ -156,7 +208,7 @@ function purchase_planning_needs(PDO $pdo): array
             'demand_basis' => $demandBasis,
             'demand_quantity' => $rawNeed,
             'moq_top_up' => $moqTopUp,
-            'cost_price' => $unit['cost_price'],
+            'cost_price' => (float) $row['cost_price'],
         ];
     }
 

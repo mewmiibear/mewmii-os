@@ -75,13 +75,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 activity_log($pdo, 'inventory', 'adjustment', $productId, 'Stock adjustment (' . $reason . ') on product #' . $productId . ($variationId !== null ? (' variation #' . $variationId) : '') . ': ' . ($delta > 0 ? '+' : '') . $delta);
 
                 $pdo->commit();
+                inventory_flush_woocommerce_resync($pdo);
 
                 app_redirect('/modules/inventory/index.php?adjusted=1');
             } catch (RuntimeException $exception) {
                 $pdo->rollBack();
+                inventory_discard_pending_woocommerce_resync();
                 $error = $exception->getMessage();
             } catch (Exception $exception) {
                 $pdo->rollBack();
+                inventory_discard_pending_woocommerce_resync();
                 $error = 'Failed to adjust inventory.';
             }
         }
@@ -107,50 +110,176 @@ $filterStage = in_array($_GET['stage'] ?? '', $stageOptions, true) ? $_GET['stag
 $filterSupplierId = isset($_GET['supplier_id']) && ctype_digit((string) $_GET['supplier_id']) ? (int) $_GET['supplier_id'] : null;
 $filterCategoryId = isset($_GET['category_id']) && ctype_digit((string) $_GET['category_id']) ? (int) $_GET['category_id'] : null;
 $filterProductType = in_array($_GET['product_type'] ?? '', $productTypeOptions, true) ? $_GET['product_type'] : null;
-// "Need Ordering" - Purchase Planning quick filter (see includes/purchase_planning.php);
-// applied post-fetch below since it depends on a cross-table calculation, not a plain column.
+// "Need Ordering" - Purchase Planning quick filter (see includes/purchase_planning.php).
 $filterNeedsOrdering = isset($_GET['needs_ordering']);
 
-$productSql = "
-    SELECT p.id, p.sku, p.name, p.catalog_type, p.product_type, p.min_stock_threshold,
-           p.status, p.preorder_closing_date, p.preorder_reopened_at, p.availability_override
-    FROM products p
-    WHERE 1 = 1
-";
-$productParams = [];
-
+// --- Product-level filter fragment (catalog_type/product_type/supplier/category/search) -
+// reused, unchanged, in both the attention-summary aggregate below and the candidate-id
+// query for the table, so the two can never drift out of sync with each other. ---
+$productFilterSql = '';
+$productFilterParams = [];
 if ($filterCatalogType !== null) {
-    $productSql .= ' AND p.catalog_type = ?';
-    $productParams[] = $filterCatalogType;
+    $productFilterSql .= ' AND p.catalog_type = ?';
+    $productFilterParams[] = $filterCatalogType;
 }
 if ($filterProductType !== null) {
-    $productSql .= ' AND p.product_type = ?';
-    $productParams[] = $filterProductType;
+    $productFilterSql .= ' AND p.product_type = ?';
+    $productFilterParams[] = $filterProductType;
 }
 if ($filterSupplierId !== null) {
-    $productSql .= ' AND p.supplier_id = ?';
-    $productParams[] = $filterSupplierId;
+    $productFilterSql .= ' AND p.supplier_id = ?';
+    $productFilterParams[] = $filterSupplierId;
 }
 if ($filterCategoryId !== null) {
-    $productSql .= ' AND EXISTS (SELECT 1 FROM product_category_relationships r WHERE r.product_id = p.id AND r.category_id = ?)';
-    $productParams[] = $filterCategoryId;
+    $productFilterSql .= ' AND EXISTS (SELECT 1 FROM product_category_relationships r WHERE r.product_id = p.id AND r.category_id = ?)';
+    $productFilterParams[] = $filterCategoryId;
 }
 if ($searchTerm !== '') {
     // Matches the product's own name/SKU, or any of its variations' SKUs - a variation-only
     // match still surfaces its parent product (auto-expanded below) rather than being
     // invisible under a collapsed group.
-    $productSql .= ' AND (p.name LIKE ? OR p.sku LIKE ? OR EXISTS (SELECT 1 FROM product_variations pv2 WHERE pv2.product_id = p.id AND pv2.sku LIKE ?))';
+    $productFilterSql .= ' AND (p.name LIKE ? OR p.sku LIKE ? OR EXISTS (SELECT 1 FROM product_variations pv2 WHERE pv2.product_id = p.id AND pv2.sku LIKE ?))';
     $likeTerm = '%' . $searchTerm . '%';
-    $productParams[] = $likeTerm;
-    $productParams[] = $likeTerm;
-    $productParams[] = $likeTerm;
+    $productFilterParams[] = $likeTerm;
+    $productFilterParams[] = $likeTerm;
+    $productFilterParams[] = $likeTerm;
 }
 
-$productSql .= ' ORDER BY p.id DESC LIMIT 500';
+/**
+ * Production Readiness Phase 1, Critical #2: the original query applied `ORDER BY p.id DESC
+ * LIMIT 500` BEFORE the Stock Status/Stage/Needs Ordering filters ran (in PHP, over that
+ * already-capped array) - a product outside the newest 500 could never appear in a "Low
+ * Stock" or "Needs Ordering" view no matter how badly it needed attention, and the attention
+ * summary below it was silently undercounting the same way. This rewrite computes one
+ * unit-level query (a simple product's own row, or one non-archived variation row) carrying
+ * every column Stock Status/Stage/the attention summary need, applies the product-level
+ * filters above to it, and reuses that SAME base query for two unbounded (uncapped) purposes:
+ * the attention summary aggregate, and the candidate product-id list the table paginates
+ * over. Pagination now happens last, over a plain array of ids - correct regardless of catalog
+ * size, and still cheap to hold in full even at 10,000+ matching products.
+ */
+$unitBaseSql = "
+    SELECT p.id AS product_id, NULL AS variation_id, p.product_type AS product_type,
+           p.min_stock_threshold AS min_stock_threshold, p.availability_override AS availability_override,
+           COALESCE(inv.available_quantity, 0) AS available_quantity,
+           COALESCE(inv.reserved_quantity, 0) AS reserved_quantity,
+           COALESCE(inv.incoming_quantity, 0) AS incoming_quantity,
+           COALESCE(inv.arrived_quantity, 0) AS arrived_quantity
+    FROM products p
+    LEFT JOIN mewmii_inventory inv ON inv.product_id = p.id AND inv.variation_id IS NULL
+    WHERE p.catalog_type = 'simple' {$productFilterSql}
 
-$productsStmt = $pdo->prepare($productSql);
-$productsStmt->execute($productParams);
-$inventory = $productsStmt->fetchAll(PDO::FETCH_ASSOC);
+    UNION ALL
+
+    SELECT p.id AS product_id, pv.id AS variation_id, p.product_type AS product_type,
+           p.min_stock_threshold AS min_stock_threshold, p.availability_override AS availability_override,
+           COALESCE(inv.available_quantity, 0) AS available_quantity,
+           COALESCE(inv.reserved_quantity, 0) AS reserved_quantity,
+           COALESCE(inv.incoming_quantity, 0) AS incoming_quantity,
+           COALESCE(inv.arrived_quantity, 0) AS arrived_quantity
+    FROM products p
+    INNER JOIN product_variations pv ON pv.product_id = p.id AND pv.status <> 'archived'
+    LEFT JOIN mewmii_inventory inv ON inv.product_id = p.id AND inv.variation_id = pv.id
+    WHERE p.catalog_type = 'variable' {$productFilterSql}
+";
+$unitBaseParams = array_merge($productFilterParams, $productFilterParams);
+
+// Attention summary: same rule inventory_stock_badges() applies per row, aggregated in SQL
+// over every matching unit in the whole catalog (not just whatever the table happens to be
+// paginated to) - reflects the catalog_type/product_type/supplier/category/search filters
+// above, but deliberately NOT the Stock Status/Stage/Needs Ordering quick filters below, same
+// as before this fix.
+$attentionStmt = $pdo->prepare("
+    SELECT
+        SUM(CASE WHEN product_type = 'ready_stock' AND COALESCE(availability_override, 'auto') <> 'available'
+                      AND (COALESCE(availability_override, 'auto') = 'out_of_stock' OR available_quantity = 0)
+                 THEN 1 ELSE 0 END) AS out_of_stock_count,
+        SUM(CASE WHEN product_type = 'ready_stock' AND COALESCE(availability_override, 'auto') <> 'available'
+                      AND COALESCE(availability_override, 'auto') <> 'out_of_stock' AND available_quantity > 0
+                      AND min_stock_threshold IS NOT NULL AND available_quantity < min_stock_threshold
+                 THEN 1 ELSE 0 END) AS low_stock_count
+    FROM ({$unitBaseSql}) AS attention_units
+");
+$attentionStmt->execute($unitBaseParams);
+$attentionRow = $attentionStmt->fetch(PDO::FETCH_ASSOC) ?: ['out_of_stock_count' => 0, 'low_stock_count' => 0];
+$attentionOutOfStockCount = (int) $attentionRow['out_of_stock_count'];
+$attentionLowStockCount = (int) $attentionRow['low_stock_count'];
+
+// Stock Status / Stage, now expressed as SQL predicates against the same unbounded unit set
+// above (inventory_unit_matches_filters() below still encodes the identical rule, reused
+// further down purely to decide which variations to DISPLAY under an already-qualifying
+// product, not whether the product qualifies at all).
+$stockFilterSql = '';
+$stockFilterParams = [];
+if ($filterStockStatus !== null) {
+    $stockFilterSql .= " AND (
+        CASE
+            WHEN product_type <> 'ready_stock' THEN 'in_stock'
+            WHEN available_quantity = 0 THEN 'out_of_stock'
+            WHEN min_stock_threshold IS NOT NULL AND available_quantity < min_stock_threshold THEN 'low_stock'
+            ELSE 'in_stock'
+        END
+    ) = ?";
+    $stockFilterParams[] = $filterStockStatus;
+}
+if ($filterStage !== null) {
+    $stageColumn = [
+        'on_hand' => 'available_quantity',
+        'reserved' => 'reserved_quantity',
+        'incoming' => 'incoming_quantity',
+        'arrived' => 'arrived_quantity',
+    ][$filterStage];
+    $stockFilterSql .= " AND {$stageColumn} > 0";
+}
+
+$candidateStmt = $pdo->prepare("SELECT DISTINCT product_id FROM ({$unitBaseSql}) AS candidate_units WHERE 1 = 1 {$stockFilterSql}");
+$candidateStmt->execute(array_merge($unitBaseParams, $stockFilterParams));
+$matchingProductIds = array_map('intval', $candidateStmt->fetchAll(PDO::FETCH_COLUMN));
+
+// Needs Ordering: purchase_planning_needs() already runs unbounded across the whole catalog
+// (Critical #3), so intersecting its product ids here is a genuine pre-filter, not a
+// post-filter on an already-capped page. $needyKeys (unit-level) is kept for the
+// per-variation display trim further below.
+$needyKeys = [];
+if ($filterNeedsOrdering) {
+    $needyKeys = array_column(purchase_planning_needs($pdo), null, 'key');
+    $needyProductIds = [];
+    foreach ($needyKeys as $need) {
+        $needyProductIds[(int) $need['product_id']] = true;
+    }
+    $matchingProductIds = array_values(array_intersect($matchingProductIds, array_keys($needyProductIds)));
+}
+
+// Pagination: over the id list (a plain array of ints - cheap to hold in full even for a
+// large catalog), not over full row data. Same ORDER BY p.id DESC as before this fix.
+rsort($matchingProductIds, SORT_NUMERIC);
+$perPage = 100;
+$totalCount = count($matchingProductIds);
+$totalPages = max(1, (int) ceil($totalCount / $perPage));
+$page = isset($_GET['page']) && ctype_digit((string) $_GET['page']) && (int) $_GET['page'] > 0 ? (int) $_GET['page'] : 1;
+$page = min($page, $totalPages);
+$pageProductIds = array_slice($matchingProductIds, ($page - 1) * $perPage, $perPage);
+
+$inventory = [];
+if ($pageProductIds !== []) {
+    $pagePlaceholders = implode(',', array_fill(0, count($pageProductIds), '?'));
+    $pageStmt = $pdo->prepare("
+        SELECT p.id, p.sku, p.name, p.catalog_type, p.product_type, p.min_stock_threshold,
+               p.status, p.preorder_closing_date, p.preorder_reopened_at, p.availability_override
+        FROM products p
+        WHERE p.id IN ({$pagePlaceholders})
+    ");
+    $pageStmt->execute($pageProductIds);
+    $productsById = [];
+    foreach ($pageStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $productsById[(int) $row['id']] = $row;
+    }
+    foreach ($pageProductIds as $pid) {
+        if (isset($productsById[$pid])) {
+            $inventory[] = $productsById[$pid];
+        }
+    }
+}
 
 $simpleIds = [];
 $variableIds = [];
@@ -247,35 +376,6 @@ foreach ($inventory as &$product) {
 }
 unset($product);
 
-// UI/UX Phase 5B: attention summary counts - a plain PHP count over the SAME already-fetched/
-// merged $inventory array above (before the stock_status/stage/needs_ordering filters further
-// below narrow it), using the identical ready_stock/override/threshold rule
-// inventory_stock_badges() already applies per-row. No new query, no new threshold logic -
-// reflects whatever catalog_type/product_type/supplier/category/search filters are already
-// active, same as the table itself.
-$attentionLowStockCount = 0;
-$attentionOutOfStockCount = 0;
-foreach ($inventory as $attentionProduct) {
-    if ($attentionProduct['product_type'] !== 'ready_stock') {
-        continue;
-    }
-    $attentionThreshold = $attentionProduct['min_stock_threshold'] !== null ? (int) $attentionProduct['min_stock_threshold'] : null;
-    $attentionOverride = $attentionProduct['availability_override'] ?? 'auto';
-    $attentionUnits = $attentionProduct['catalog_type'] === 'variable' ? ($attentionProduct['variations'] ?? []) : [$attentionProduct];
-
-    foreach ($attentionUnits as $attentionUnit) {
-        if ($attentionOverride === 'available') {
-            continue;
-        }
-        $attentionQty = (int) $attentionUnit['stock_quantity'];
-        if ($attentionOverride === 'out_of_stock' || $attentionQty === 0) {
-            $attentionOutOfStockCount++;
-        } elseif ($attentionThreshold !== null && $attentionQty < $attentionThreshold) {
-            $attentionLowStockCount++;
-        }
-    }
-}
-
 // Earliest expected delivery date already on file for a product's incoming stock - same
 // read-only lookup pattern already used on modules/purchase-planning/generate.php (same
 // query shape, same supplier_order_items/supplier_orders join), just batched here for
@@ -348,45 +448,40 @@ function inventory_unit_matches_filters(array $unit, string $productType, ?int $
     return true;
 }
 
-if ($filterStockStatus !== null || $filterStage !== null) {
+/**
+ * Every product reaching this point already qualified via the SQL candidate query above
+ * (guaranteed at least one matching unit for Stock Status/Stage, and/or at least one needy
+ * unit for Needs Ordering) - this pass only decides which of a matching VARIABLE product's
+ * variations to actually DISPLAY (a simple product's own single row is always already a
+ * match, nothing further to trim), combining both criteria in one filter so a variation must
+ * satisfy every currently-active filter to stay visible, same AND semantics as before this
+ * fix. A variable product whose variations all get trimmed away here is dropped entirely,
+ * matching the original behaviour of never showing an empty group for a filter it doesn't
+ * actually satisfy.
+ */
+if ($filterStockStatus !== null || $filterStage !== null || $filterNeedsOrdering) {
     $filteredInventory = [];
     foreach ($inventory as $product) {
-        $minThreshold = $product['min_stock_threshold'] !== null ? (int) $product['min_stock_threshold'] : null;
-
         if ($product['catalog_type'] === 'variable') {
+            $minThreshold = $product['min_stock_threshold'] !== null ? (int) $product['min_stock_threshold'] : null;
             $product['variations'] = array_values(array_filter(
                 $product['variations'],
-                static fn (array $variation): bool => inventory_unit_matches_filters($variation, $product['product_type'], $minThreshold, $filterStockStatus, $filterStage)
+                static function (array $variation) use ($product, $minThreshold, $filterStockStatus, $filterStage, $filterNeedsOrdering, $needyKeys): bool {
+                    if (($filterStockStatus !== null || $filterStage !== null)
+                        && !inventory_unit_matches_filters($variation, $product['product_type'], $minThreshold, $filterStockStatus, $filterStage)) {
+                        return false;
+                    }
+                    if ($filterNeedsOrdering && !isset($needyKeys[(int) $product['id'] . ':' . (int) $variation['variation_id']])) {
+                        return false;
+                    }
+
+                    return true;
+                }
             ));
             if ($product['variations'] === []) {
                 continue;
             }
             $product['auto_expand'] = true;
-        } elseif (!inventory_unit_matches_filters($product, $product['product_type'], $minThreshold, $filterStockStatus, $filterStage)) {
-            continue;
-        }
-
-        $filteredInventory[] = $product;
-    }
-    $inventory = $filteredInventory;
-}
-
-if ($filterNeedsOrdering) {
-    $needyKeys = array_column(purchase_planning_needs($pdo), null, 'key');
-
-    $filteredInventory = [];
-    foreach ($inventory as $product) {
-        if ($product['catalog_type'] === 'variable') {
-            $product['variations'] = array_values(array_filter(
-                $product['variations'],
-                static fn (array $variation): bool => isset($needyKeys[(int) $product['id'] . ':' . (int) $variation['variation_id']])
-            ));
-            if ($product['variations'] === []) {
-                continue;
-            }
-            $product['auto_expand'] = true;
-        } elseif (!isset($needyKeys[(int) $product['id'] . ':0'])) {
-            continue;
         }
 
         $filteredInventory[] = $product;
@@ -787,6 +882,30 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php endif; ?>
         </tbody>
     </table>
+    </div>
+
+    <?php
+    $inventoryPageUrl = static function (int $targetPage): string {
+        return '/modules/inventory/index.php?' . http_build_query(array_merge($_GET, ['page' => $targetPage]));
+    };
+    $inventoryRangeStart = $totalCount === 0 ? 0 : (($page - 1) * $perPage) + 1;
+    $inventoryRangeEnd = min($totalCount, $page * $perPage);
+    ?>
+    <div class="d-flex justify-content-between align-items-center mt-3">
+        <p class="text-muted small mb-0">
+            <?php if ($totalCount > 0): ?>
+                Showing <?php echo (int) $inventoryRangeStart; ?>&ndash;<?php echo (int) $inventoryRangeEnd; ?> of <?php echo (int) $totalCount; ?> product<?php echo $totalCount === 1 ? '' : 's'; ?>
+            <?php else: ?>
+                0 products
+            <?php endif; ?>
+        </p>
+        <?php if ($totalPages > 1): ?>
+            <div class="d-flex gap-2 align-items-center">
+                <a class="btn btn-sm btn-outline-secondary <?php echo $page <= 1 ? 'disabled' : ''; ?>" href="<?php echo app_escape($inventoryPageUrl(max(1, $page - 1))); ?>">&laquo; Prev</a>
+                <span class="text-muted small">Page <?php echo (int) $page; ?> of <?php echo (int) $totalPages; ?></span>
+                <a class="btn btn-sm btn-outline-secondary <?php echo $page >= $totalPages ? 'disabled' : ''; ?>" href="<?php echo app_escape($inventoryPageUrl(min($totalPages, $page + 1))); ?>">Next &raquo;</a>
+            </div>
+        <?php endif; ?>
     </div>
 </div>
 

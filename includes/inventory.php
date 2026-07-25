@@ -60,6 +60,74 @@ function inventory_log_transaction(PDO $pdo, int $productId, string $type, int $
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ');
     $stmt->execute([$productId, $variationId, $type, $quantity, $reason, $notes, $balanceAfter, $referenceType, $referenceId]);
+
+    inventory_queue_woocommerce_resync($productId);
+}
+
+/**
+ * Request-scoped queue of product ids touched by inventory_log_transaction() since the last
+ * flush/discard - the mechanism that lets ANY inventory-mutating code path (not just a
+ * hand-picked list) trigger a WooCommerce stock resync, without inventory_log_transaction()
+ * itself needing to know anything about WooCommerce beyond "a product's stock changed."
+ * Populated only by inventory_queue_woocommerce_resync(); read/cleared only by
+ * inventory_flush_woocommerce_resync() / inventory_discard_pending_woocommerce_resync().
+ * A plain static array is safe here because each HTTP request is its own PHP process/
+ * lifecycle - nothing in this registry persists or leaks between requests.
+ */
+function &inventory_pending_woocommerce_resync_registry(): array
+{
+    static $productIds = [];
+
+    return $productIds;
+}
+
+function inventory_queue_woocommerce_resync(int $productId): void
+{
+    $registry = &inventory_pending_woocommerce_resync_registry();
+    $registry[$productId] = true;
+}
+
+/** Call after $pdo->rollBack() so a failed transaction's queued product ids never leak into a later, unrelated flush() within the same request. */
+function inventory_discard_pending_woocommerce_resync(): void
+{
+    $registry = &inventory_pending_woocommerce_resync_registry();
+    $registry = [];
+}
+
+/**
+ * Call once, immediately after $pdo->commit(), from any code path that mutated inventory -
+ * pushes a WooCommerce stock resync for every distinct product touched since the last
+ * flush/discard, then clears the queue. Reuses wc_client_auto_sync_product()
+ * (includes/wc_client.php) completely unmodified - the exact function
+ * modules/products/create.php and edit.php already call after their own product-save commit,
+ * so Auto Sync gating, the unchanged-skip fingerprint, and failure logging
+ * (sync_log_failure(), visible on modules/integrations/woocommerce.php) all behave
+ * identically here. Never throws - wc_client_auto_sync_product() already catches everything
+ * internally, so a WooCommerce outage can never roll back or fail the inventory change that
+ * already committed. wc_client.php is required lazily, here, rather than at this file's top,
+ * because wc_client.php itself requires inventory.php - requiring it eagerly at the top of
+ * this file would create a load-order-dependent circular require.
+ */
+function inventory_flush_woocommerce_resync(PDO $pdo): void
+{
+    $registry = &inventory_pending_woocommerce_resync_registry();
+
+    if ($registry === []) {
+        return;
+    }
+
+    $productIds = array_keys($registry);
+    $registry = [];
+
+    require_once __DIR__ . '/wc_client.php';
+
+    if (!wc_client_auto_sync_enabled($pdo)) {
+        return;
+    }
+
+    foreach ($productIds as $productId) {
+        wc_client_auto_sync_product($pdo, $productId);
+    }
 }
 
 function inventory_order_items(PDO $pdo, int $orderId): array
@@ -288,75 +356,99 @@ function inventory_unit_unreserved_demand(PDO $pdo, int $productId, ?int $variat
 /**
  * The full Reservation Center queue: every ready-stock unit that currently has BOTH
  * available stock on hand AND outstanding unreserved demand for it.
+ *
+ * Set-based rewrite (Production Readiness Phase 1, Critical #3): the original queried every
+ * ready-stock product, then every variation of each, then ran inventory_get_or_create_row()
+ * and inventory_unit_unreserved_demand() (itself a per-order-item loop calling
+ * inventory_net_reserved()) per unit - a deeply nested N+1 on every dashboard load. This
+ * version computes available_quantity and need_reserve for every unit in one SQL query
+ * (inventory_net_reserved()'s own clamped-net-reserved logic reproduced as a correlated
+ * subquery), filters to just the qualifying units, and only then builds each variation's
+ * label - the one piece still requiring its own query, now only for the small qualifying set
+ * rather than every ready-stock unit in the catalog. Output shape is unchanged; the read-only
+ * inventory_get_or_create_row()-style auto-insert-if-missing side effect is dropped here since
+ * it was never observable from a listing (a product with no inventory row has zero available
+ * stock either way, which fails the "available >= 1" filter regardless).
  */
 function inventory_reservation_queue(PDO $pdo): array
 {
-    $productsStmt = $pdo->query("
-        SELECT id, sku, name, catalog_type, product_type
-        FROM products
-        WHERE product_type = 'ready_stock'
-        ORDER BY name ASC
-    ");
-    $products = $productsStmt->fetchAll(PDO::FETCH_ASSOC);
+    $sql = "
+        SELECT * FROM (
+            SELECT
+                p.id AS product_id, NULL AS variation_id, p.sku AS unit_sku,
+                p.sku AS product_sku, p.name AS product_name, p.catalog_type AS catalog_type,
+                COALESCE(inv.available_quantity, 0) AS available_quantity,
+                (
+                    SELECT COALESCE(SUM(GREATEST(oi.quantity - (
+                        SELECT GREATEST(COALESCE(SUM(CASE WHEN it.transaction_type = 'order_reserve' THEN it.quantity ELSE -it.quantity END), 0), 0)
+                        FROM inventory_transactions it
+                        WHERE it.reference_type = 'order' AND it.reference_id = oi.order_id
+                          AND it.product_id = p.id AND it.variation_id IS NULL
+                          AND it.transaction_type IN ('order_reserve', 'order_release', 'order_ship')
+                    ), 0)), 0)
+                    FROM mewmii_order_items oi
+                    INNER JOIN mewmii_orders o ON o.id = oi.order_id
+                    WHERE oi.product_id = p.id AND oi.variation_id IS NULL
+                      AND o.payment_status = 'paid' AND o.order_status <> 'cancelled' AND o.is_historical = 0
+                ) AS need_reserve
+            FROM products p
+            LEFT JOIN mewmii_inventory inv ON inv.product_id = p.id AND inv.variation_id IS NULL
+            WHERE p.product_type = 'ready_stock' AND p.catalog_type = 'simple'
 
-    $result = [];
-    foreach ($products as $product) {
-        $productId = (int) $product['id'];
-        $isVariable = $product['catalog_type'] === 'variable';
+            UNION ALL
 
-        $unitRows = [];
-        if ($isVariable) {
-            $variationsStmt = $pdo->prepare("SELECT id, sku FROM product_variations WHERE product_id = ? AND status <> 'archived' ORDER BY id ASC");
-            $variationsStmt->execute([$productId]);
-            foreach ($variationsStmt->fetchAll(PDO::FETCH_ASSOC) as $variation) {
-                $unitRows[] = [
-                    'variation_id' => (int) $variation['id'],
-                    'sku' => $variation['sku'],
-                    'label' => variation_build_full_label($pdo, (int) $variation['id']),
-                ];
-            }
-        } else {
-            $unitRows[] = ['variation_id' => null, 'sku' => $product['sku'], 'label' => null];
-        }
+            SELECT
+                p.id AS product_id, pv.id AS variation_id, pv.sku AS unit_sku,
+                p.sku AS product_sku, p.name AS product_name, p.catalog_type AS catalog_type,
+                COALESCE(inv.available_quantity, 0) AS available_quantity,
+                (
+                    SELECT COALESCE(SUM(GREATEST(oi.quantity - (
+                        SELECT GREATEST(COALESCE(SUM(CASE WHEN it.transaction_type = 'order_reserve' THEN it.quantity ELSE -it.quantity END), 0), 0)
+                        FROM inventory_transactions it
+                        WHERE it.reference_type = 'order' AND it.reference_id = oi.order_id
+                          AND it.product_id = p.id AND it.variation_id <=> pv.id
+                          AND it.transaction_type IN ('order_reserve', 'order_release', 'order_ship')
+                    ), 0)), 0)
+                    FROM mewmii_order_items oi
+                    INNER JOIN mewmii_orders o ON o.id = oi.order_id
+                    WHERE oi.product_id = p.id AND oi.variation_id <=> pv.id
+                      AND o.payment_status = 'paid' AND o.order_status <> 'cancelled' AND o.is_historical = 0
+                ) AS need_reserve
+            FROM products p
+            INNER JOIN product_variations pv ON pv.product_id = p.id AND pv.status <> 'archived'
+            LEFT JOIN mewmii_inventory inv ON inv.product_id = p.id AND inv.variation_id = pv.id
+            WHERE p.product_type = 'ready_stock' AND p.catalog_type = 'variable'
+        ) AS queue
+        WHERE available_quantity >= 1 AND need_reserve >= 1
+        ORDER BY product_name ASC, variation_id ASC
+    ";
+    $rows = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
 
-        $units = [];
-        foreach ($unitRows as $unitRow) {
-            $variationId = $unitRow['variation_id'];
-            $inventoryRow = inventory_get_or_create_row($pdo, $productId, $variationId);
-            $available = (int) $inventoryRow['available_quantity'];
+    $byProduct = [];
+    foreach ($rows as $row) {
+        $productId = (int) $row['product_id'];
+        $variationId = $row['variation_id'] !== null ? (int) $row['variation_id'] : null;
 
-            if ($available < 1) {
-                continue;
-            }
-
-            $needReserve = inventory_unit_unreserved_demand($pdo, $productId, $variationId);
-            if ($needReserve < 1) {
-                continue;
-            }
-
-            $units[] = [
-                'variation_id' => $variationId,
-                'sku' => $unitRow['sku'],
-                'label' => $unitRow['label'],
-                'available' => $available,
-                'need_reserve' => $needReserve,
+        if (!isset($byProduct[$productId])) {
+            $byProduct[$productId] = [
+                'product_id' => $productId,
+                'sku' => $row['product_sku'],
+                'name' => $row['product_name'],
+                'catalog_type' => $row['catalog_type'],
+                'units' => [],
             ];
         }
 
-        if ($units === []) {
-            continue;
-        }
-
-        $result[] = [
-            'product_id' => $productId,
-            'sku' => $product['sku'],
-            'name' => $product['name'],
-            'catalog_type' => $product['catalog_type'],
-            'units' => $units,
+        $byProduct[$productId]['units'][] = [
+            'variation_id' => $variationId,
+            'sku' => $row['unit_sku'],
+            'label' => $variationId !== null ? variation_build_full_label($pdo, $variationId) : null,
+            'available' => (int) $row['available_quantity'],
+            'need_reserve' => (int) $row['need_reserve'],
         ];
     }
 
-    return $result;
+    return array_values($byProduct);
 }
 
 /**

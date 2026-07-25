@@ -81,13 +81,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ->execute([$newStatus, $shipRequestId]);
 
                 $pdo->commit();
+                inventory_flush_woocommerce_resync($pdo);
 
                 app_redirect('/modules/ship-my-box/view.php?id=' . $shipRequestId . '&updated=1');
             } catch (RuntimeException $exception) {
                 $pdo->rollBack();
+                inventory_discard_pending_woocommerce_resync();
                 $error = $exception->getMessage();
             } catch (Exception $exception) {
                 $pdo->rollBack();
+                inventory_discard_pending_woocommerce_resync();
                 $error = 'Failed to update ship request.';
             }
         }

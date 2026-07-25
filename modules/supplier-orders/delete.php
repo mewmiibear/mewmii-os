@@ -25,12 +25,15 @@ $pdo->beginTransaction();
 try {
     supplier_order_delete_if_unreceived($pdo, $orderId);
     $pdo->commit();
+    inventory_flush_woocommerce_resync($pdo);
 
     app_redirect('/modules/supplier-orders/index.php?deleted=1');
 } catch (RuntimeException $exception) {
     $pdo->rollBack();
+    inventory_discard_pending_woocommerce_resync();
     app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&delete_error=' . urlencode($exception->getMessage()));
 } catch (Exception $exception) {
     $pdo->rollBack();
+    inventory_discard_pending_woocommerce_resync();
     app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&delete_error=1');
 }
