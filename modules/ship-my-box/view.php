@@ -148,10 +148,13 @@ $canManage = app_has_permission('ship-my-box.manage');
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-header d-flex justify-content-between align-items-center">
     <div>
-        <h2 class="mb-1">Ship Request <?php echo app_escape($shipRequest['request_number'] ?? ('#' . $shipRequest['id'])); ?></h2>
-        <p class="text-muted mb-0"><?php echo app_escape($shipRequest['customer_name']); ?> &middot; <?php echo app_escape($shipRequest['customer_email'] ?? '-'); ?></p>
+        <h2 class="mb-1">
+            Ship Request <?php echo app_escape($shipRequest['request_number'] ?? ('#' . $shipRequest['id'])); ?>
+            <?php echo ship_request_status_badge($shipRequest['status']); ?>
+        </h2>
+        <p class="page-description"><?php echo app_escape($shipRequest['customer_name']); ?> &middot; <?php echo app_escape($shipRequest['customer_email'] ?? '-'); ?></p>
     </div>
     <a class="btn btn-outline-secondary btn-sm" href="/modules/ship-my-box/index.php">Back to Ship My Box</a>
 </div>
@@ -171,11 +174,11 @@ require_once __DIR__ . '/../../includes/header.php';
 <div class="row g-4">
     <div class="col-lg-7">
         <div class="card p-4 mb-4">
-            <h5 class="mb-3">Shipment Status</h5>
+            <h5 class="mb-3"><i class="bi bi-info-circle"></i> Shipment Status</h5>
             <table class="table table-borderless mb-0">
                 <tr>
                     <th>Status</th>
-                    <td><?php echo app_escape(ship_request_status_emoji($shipRequest['status'])); ?> <?php echo app_escape(ship_request_status_label($shipRequest['status'])); ?></td>
+                    <td><?php echo ship_request_status_badge($shipRequest['status']); ?></td>
                 </tr>
                 <?php if ($linkedShipment !== null && !empty($linkedShipment['carrier'])): ?>
                     <tr><th>Courier</th><td><?php echo app_escape($linkedShipment['carrier']); ?></td></tr>
@@ -195,7 +198,7 @@ require_once __DIR__ . '/../../includes/header.php';
         </div>
 
         <div class="card p-4">
-            <h5 class="mb-3">Items</h5>
+            <h5 class="mb-3"><i class="bi bi-list-check"></i> Items</h5>
             <table class="table table-hover align-middle">
                 <thead>
                     <tr>
@@ -235,7 +238,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="col-lg-5">
         <?php if ($canManage): ?>
             <div class="card p-4 mb-4">
-                <h5 class="mb-3">Actions</h5>
+                <h5 class="mb-3"><i class="bi bi-lightning-charge"></i> Actions</h5>
                 <?php if (in_array($shipRequest['status'], $terminalStatuses, true)): ?>
                     <span class="badge bg-secondary">Final</span>
                 <?php else: ?>
@@ -266,7 +269,7 @@ require_once __DIR__ . '/../../includes/header.php';
         <?php endif; ?>
 
         <div class="card p-4 mb-4">
-            <h5 class="mb-3">Shipment Timeline</h5>
+            <h5 class="mb-3"><i class="bi bi-clock-history"></i> Shipment Timeline</h5>
             <ul class="list-unstyled mb-0">
                 <?php foreach ($timeline as $step): ?>
                     <li class="mb-3">
@@ -280,7 +283,7 @@ require_once __DIR__ . '/../../includes/header.php';
         </div>
 
         <div class="card p-4">
-            <h5 class="mb-3">Inventory Activity</h5>
+            <h5 class="mb-3"><i class="bi bi-box-seam"></i> Inventory Activity</h5>
             <ul class="list-unstyled mb-0">
                 <?php foreach ($activity as $tx): ?>
                     <li class="mb-3">

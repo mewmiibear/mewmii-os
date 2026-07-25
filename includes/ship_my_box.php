@@ -132,6 +132,28 @@ function ship_request_status_emoji(string $status): string
 }
 
 /**
+ * Badge for ship_requests.status (UI/UX Phase 5E.3) - same badge pattern as
+ * order_status_badge()/shipment_status_badge()/supplier_order_status_badge(), wrapping the
+ * existing ship_request_status_label() with a colour instead of the emoji+text pairing
+ * modules/ship-my-box/view.php used before. 'pending'/'processing' get the two "still needs
+ * admin action" colours (warning/info) since ship_request_next_action() returns a real next
+ * step for both; 'shipped'/'completed' get the two "nothing left to do" colours (primary/
+ * success), matching shipment_status_badge()'s own shipped/delivered choices exactly.
+ */
+function ship_request_status_badge(string $status): string
+{
+    $colors = [
+        'pending' => 'warning text-dark',
+        'processing' => 'info text-dark',
+        'shipped' => 'primary',
+        'completed' => 'success',
+    ];
+    $color = $colors[$status] ?? 'secondary';
+
+    return '<span class="badge bg-' . $color . '">' . htmlspecialchars(ship_request_status_label($status), ENT_QUOTES, 'UTF-8') . '</span>';
+}
+
+/**
  * The single next status-changing action available from $status - drives the one-button
  * workflow on modules/ship-my-box/view.php so the system controls the transition instead of
  * an admin picking freely from a dropdown. Returns null once there's nothing left to change
