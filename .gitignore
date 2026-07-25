@@ -1,4 +1,20 @@
 .env
+/config.php
+
+# User-uploaded content (product/variation images) - must never be tracked, and must never
+# be touched by any git-based clean/reset operation a deployment runs. See
+# includes/image_upload.php's image_upload_base_dir() for where this is written at runtime.
+# ROOT CAUSE (see investigation): this directory was NOT excluded before, and this repo's
+# automated commit-on-change history showed production's config.php being overwritten within
+# minutes of a local edit here - proving an active deploy pipeline exists. If that pipeline
+# resets the target directory to match this git tree (a full re-clone/rsync --delete style
+# deploy, not a plain in-place `git pull`), every deploy wipes every previously uploaded
+# image, because nothing under uploads/ was ever tracked and .gitignore didn't protect it
+# from a clean/reset step either. Excluding it here is necessary but may not be SUFFICIENT -
+# if the deploy mechanism does a full directory replace rather than an in-place git
+# pull/clean, uploads/ must also be explicitly preserved/excluded in that deploy
+# configuration itself (outside this repo), or moved to a location the deploy never touches.
+/uploads
 
 /vendor
 
