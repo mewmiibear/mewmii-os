@@ -33,8 +33,11 @@ app_require_permission('settings.manage');
  * Every child table below (order items/events, customer addresses/memberships/points/
  * birthday rewards/store credit, ship requests/shipments and their line items/events) is
  * deleted purely via its own existing ON DELETE CASCADE (see database/schema.sql) by
- * deleting the four top-level rows in reset_test_data_delete() - nothing here reimplements
- * that cascade by hand, so it can never drift out of sync with the schema.
+ * deleting the top-level customers/orders/supplier_orders rows in reset_test_data_delete() -
+ * nothing here reimplements that cascade by hand, so it can never drift out of sync with the
+ * schema. The one exception is ship_request_items.customer_storage_id, which is RESTRICT, not
+ * CASCADE - see reset_test_data_blocking_ship_request_items_condition_sql() for why those
+ * specific rows are deleted explicitly instead.
  */
 
 const RESET_TEST_DATA_CONFIRM_PHRASE = 'RESET TEST DATA';
@@ -47,6 +50,32 @@ function reset_test_data_customer_ids_sql(): string
 function reset_test_data_order_ids_sql(): string
 {
     return 'SELECT id FROM mewmii_orders WHERE woocommerce_order_id IS NULL';
+}
+
+/**
+ * ship_request_items.customer_storage_id has no ON DELETE action (RESTRICT/NO ACTION) -
+ * unlike every other FK this reset relies on, which is CASCADE or SET NULL (see
+ * database/schema.sql, which is not being changed here). `customers` cascades to BOTH
+ * customer_storage (directly) and ship_requests -> ship_request_items (transitively) inside
+ * the single DELETE FROM customers statement in reset_test_data_delete() - InnoDB does not
+ * guarantee a ship_request_items row is removed before the customer_storage row it points at
+ * is deleted in that same statement, so for a test customer who has a stored item already
+ * tied to a Ship My Box request, that delete could fail with a foreign key constraint error.
+ *
+ * The column is NOT NULL, so it can't be "detached" by nulling it out - removal is the only
+ * option. This targets exactly (and only) the ship_request_items rows that reference a
+ * customer_storage row owned by a customer this reset is about to delete: every one of them
+ * was already going to be cascade-deleted anyway once its own ship_request is removed by the
+ * same customer cascade, so pre-deleting them here changes nothing about what ultimately
+ * survives the reset - it only removes the specific ordering hazard.
+ */
+function reset_test_data_blocking_ship_request_items_condition_sql(): string
+{
+    // Deliberately only references customer_storage/customers, never ship_request_items
+    // itself - MySQL rejects "DELETE FROM t WHERE id IN (SELECT id FROM t ...)" (error 1093,
+    // "can't specify target table for update"), so this is used as a plain WHERE condition
+    // (not a self-referencing subquery) by both the preview count and the delete below.
+    return 'customer_storage_id IN (SELECT id FROM customer_storage WHERE customer_id IN (' . reset_test_data_customer_ids_sql() . '))';
 }
 
 function reset_test_data_count(PDO $pdo, string $sql): int
@@ -89,7 +118,8 @@ function reset_test_data_sections(PDO $pdo): array
                 ['label' => 'Memberships, loyalty points & birthday rewards', 'count' => $loyaltyCount, 'note' => null],
                 ['label' => 'Store credit balances & history', 'count' => $storeCreditCount, 'note' => null],
                 ['label' => 'Customer storage records (Ship My Box)', 'count' => reset_test_data_count($pdo, "SELECT COUNT(*) FROM customer_storage WHERE customer_id IN ({$customerIds})"), 'note' => null],
-                ['label' => 'Ship requests', 'count' => reset_test_data_count($pdo, "SELECT COUNT(*) FROM ship_requests WHERE customer_id IN ({$customerIds})"), 'note' => 'includes their line items'],
+                ['label' => 'Ship request line items referencing those storage records', 'count' => reset_test_data_count($pdo, 'SELECT COUNT(*) FROM ship_request_items WHERE ' . reset_test_data_blocking_ship_request_items_condition_sql()), 'note' => 'removed first so the storage cascade above cannot be blocked'],
+                ['label' => 'Ship requests', 'count' => reset_test_data_count($pdo, "SELECT COUNT(*) FROM ship_requests WHERE customer_id IN ({$customerIds})"), 'note' => 'includes their (other) line items'],
                 ['label' => 'Shipments', 'count' => reset_test_data_count($pdo, "SELECT COUNT(*) FROM shipments WHERE customer_id IN ({$customerIds})"), 'note' => 'includes their line items and status history'],
             ],
         ],
@@ -136,14 +166,21 @@ function reset_test_data_total(array $sections): int
 }
 
 /**
- * The actual wipe. Every child table is removed purely via its own ON DELETE CASCADE by
- * deleting these four top-level rows - see the file-level docblock. Statement order doesn't
- * affect correctness here (every FK touched by this is either CASCADE or ON DELETE SET NULL,
- * never RESTRICT), but orders/customers run first so their cascades fire before the
- * independent full-table wipes below. Caller is responsible for the transaction.
+ * The actual wipe. Almost every child table is removed purely via its own ON DELETE CASCADE
+ * by deleting the top-level rows below - see the file-level docblock. The one exception is
+ * ship_request_items.customer_storage_id, which is RESTRICT (see
+ * reset_test_data_blocking_ship_request_items_condition_sql()) - those specific rows are
+ * deleted explicitly, first, so the customer_storage cascade a few lines down cannot be
+ * blocked by it. Every other FK touched by this function is CASCADE or ON DELETE SET NULL.
+ * Orders/customers run before the independent full-table wipes below. Caller is responsible
+ * for the transaction.
  */
 function reset_test_data_delete(PDO $pdo): void
 {
+    // Must run before the customers delete below - see the docblock on
+    // reset_test_data_blocking_ship_request_items_condition_sql() for why.
+    $pdo->exec('DELETE FROM ship_request_items WHERE ' . reset_test_data_blocking_ship_request_items_condition_sql());
+
     $pdo->exec('DELETE FROM mewmii_orders WHERE woocommerce_order_id IS NULL');
     $pdo->exec('DELETE FROM customers WHERE woocommerce_customer_id IS NULL');
     $pdo->exec('DELETE FROM supplier_orders');
