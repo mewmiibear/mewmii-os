@@ -88,7 +88,13 @@ CREATE TABLE IF NOT EXISTS customers (
   address TEXT NULL,
   notes TEXT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_customers_email (email),
+  -- NULL-tolerant (InnoDB allows any number of NULL values in a unique index) - a customer
+  -- never created from a WooCommerce order simply never sets this column. See
+  -- database/migrate_production_hardening.php for how an existing install with dirty data
+  -- (duplicate values) gets merged before this constraint can be added.
+  UNIQUE KEY uq_customers_woocommerce_customer_id (woocommerce_customer_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS customer_addresses (
@@ -221,11 +227,18 @@ CREATE TABLE IF NOT EXISTS products (
   -- skip a product whose WooCommerce-relevant fields haven't changed since then, without a
   -- WooCommerce API call. NULL for a product that has never been pushed.
   woocommerce_sync_hash VARCHAR(64) NULL,
+  -- WooCommerce's own `date_modified` as of the last time Mewmii OS confirmed its local
+  -- state matched WooCommerce's (a successful import or a successful push) - see
+  -- wc_client_sync_if_changed()'s staleness check in includes/wc_client.php. NULL for a
+  -- product never imported from or pushed to WooCommerce.
+  woocommerce_last_seen_modified_at DATETIME NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_products_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE SET NULL,
   CONSTRAINT fk_products_brand FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE SET NULL,
-  INDEX idx_products_catalog_type (catalog_type)
+  INDEX idx_products_catalog_type (catalog_type),
+  INDEX idx_products_status (status),
+  INDEX idx_products_product_type (product_type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS product_tags (
@@ -518,6 +531,9 @@ CREATE TABLE IF NOT EXISTS mewmii_orders (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_mewmii_orders_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL,
   INDEX idx_mewmii_orders_payment_status (payment_status),
+  INDEX idx_mewmii_orders_order_status (order_status),
+  INDEX idx_mewmii_orders_order_date (order_date),
+  INDEX idx_mewmii_orders_created_at (created_at),
   -- Dedup key for the WooCommerce importer's "does this order already exist" lookup (see
   -- includes/wc_order_import.php). InnoDB unique indexes allow any number of NULL values -
   -- manually created orders (order_number 'ORD-...') never set this column and are unaffected.
@@ -568,7 +584,10 @@ CREATE TABLE IF NOT EXISTS supplier_orders (
   notes TEXT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT fk_supplier_orders_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE
+  CONSTRAINT fk_supplier_orders_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
+  INDEX idx_supplier_orders_status (status),
+  INDEX idx_supplier_orders_payment_status (payment_status),
+  INDEX idx_supplier_orders_expected_delivery_date (expected_delivery_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS supplier_order_events (
@@ -651,7 +670,8 @@ CREATE TABLE IF NOT EXISTS inventory_transactions (
   reference_id INT UNSIGNED NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_inventory_transactions_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
-  CONSTRAINT fk_inventory_transactions_variation FOREIGN KEY (variation_id) REFERENCES product_variations(id) ON DELETE SET NULL
+  CONSTRAINT fk_inventory_transactions_variation FOREIGN KEY (variation_id) REFERENCES product_variations(id) ON DELETE SET NULL,
+  INDEX idx_inventory_transactions_reference (reference_type, reference_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS customer_storage (

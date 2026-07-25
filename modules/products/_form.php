@@ -89,6 +89,13 @@
 <?php endif; ?>
 <?php if (($_GET['wc_sync'] ?? '') === 'synced'): ?>
     <div class="alert alert-success py-2">Saved and synced to WooCommerce.</div>
+<?php elseif (($_GET['wc_sync'] ?? '') === 'stale'): ?>
+    <div class="alert alert-warning py-2">
+        Product was saved locally, but WooCommerce has a newer edit than Mewmii OS has seen - sync was skipped to avoid overwriting it.
+        <?php if (app_has_permission('settings.manage')): ?>
+            <a href="/modules/sync-logs/index.php">View Sync Logs</a>.
+        <?php endif; ?>
+    </div>
 <?php elseif (($_GET['wc_sync'] ?? '') === 'failed'): ?>
     <div class="alert alert-warning py-2">
         Product was saved locally, but WooCommerce sync failed.

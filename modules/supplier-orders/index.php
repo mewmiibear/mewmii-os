@@ -26,15 +26,17 @@ $searchTerm = trim((string) ($_GET['q'] ?? ''));
 $allStatuses = array_merge(SUPPLIER_ORDER_WORKFLOW, ['partially_received', 'cancelled']);
 $filterStatus = isset($_GET['status']) && in_array($_GET['status'], $allStatuses, true) ? $_GET['status'] : null;
 
-$sql = '
-    SELECT DISTINCT so.id, so.purchase_number, so.status, so.payment_status, so.is_historical, so.estimated_cost, so.actual_cost, so.shipping_fee, so.order_date, so.expected_delivery_date, s.name AS supplier_name
+// FROM/JOIN/WHERE built once and shared between the COUNT and the paginated SELECT below -
+// same split already used by modules/products/index.php's $stockJoinSql/$whereSql, so the
+// two queries can never drift out of sync with each other.
+$fromSql = '
     FROM supplier_orders so
     INNER JOIN suppliers s ON s.id = so.supplier_id
 ';
 $conditions = [];
 $params = [];
 if ($filterProductId !== null) {
-    $sql .= ' INNER JOIN supplier_order_items soi ON soi.supplier_order_id = so.id AND soi.product_id = ?';
+    $fromSql .= ' INNER JOIN supplier_order_items soi ON soi.supplier_order_id = so.id AND soi.product_id = ?';
     $params[] = $filterProductId;
 
     $productLookupStmt = $pdo->prepare('SELECT name, sku FROM products WHERE id = ?');
@@ -55,10 +57,24 @@ if ($searchTerm !== '') {
     $params[] = $likeTerm;
     $params[] = $likeTerm;
 }
-if ($conditions !== []) {
-    $sql .= ' WHERE ' . implode(' AND ', $conditions);
-}
-$sql .= ' ORDER BY so.id DESC LIMIT 20';
+$whereSql = $conditions !== [] ? (' WHERE ' . implode(' AND ', $conditions)) : '';
+
+// Production Hardening Phase 2: this page used to be a hard `LIMIT 20` with no page
+// parameter at all - any supplier order beyond the 20 most recent (within whatever filters
+// were active) was simply unreachable. Real COUNT(*) + LIMIT/OFFSET pagination below, same
+// pattern already used by modules/products/index.php and modules/inventory/index.php.
+$countStmt = $pdo->prepare('SELECT COUNT(DISTINCT so.id) ' . $fromSql . $whereSql);
+$countStmt->execute($params);
+$totalCount = (int) $countStmt->fetchColumn();
+
+$perPage = 20;
+$totalPages = max(1, (int) ceil($totalCount / $perPage));
+$page = isset($_GET['page']) && ctype_digit((string) $_GET['page']) && (int) $_GET['page'] > 0 ? (int) $_GET['page'] : 1;
+$page = min($page, $totalPages);
+$offset = ($page - 1) * $perPage;
+
+$sql = 'SELECT DISTINCT so.id, so.purchase_number, so.status, so.payment_status, so.is_historical, so.estimated_cost, so.actual_cost, so.shipping_fee, so.order_date, so.expected_delivery_date, s.name AS supplier_name '
+    . $fromSql . $whereSql . " ORDER BY so.id DESC LIMIT {$perPage} OFFSET {$offset}";
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $supplierOrders = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -66,6 +82,16 @@ $supplierOrders = $stmt->fetchAll(PDO::FETCH_ASSOC);
 // Per-row overdue flag + days overdue for the badge below - same definition as the WHERE
 // clause above / the dashboard's Overdue card, just evaluated in PHP per row since a single
 // boolean column isn't enough here (the badge also needs the day count).
+//
+// blocked_order_count used to call supplier_order_blocked_customer_orders() once per row
+// (itself a query per line unit, then a query per matching customer order item) - now one
+// batch call for the whole current page instead of N+1 queries.
+$blockedOrderIds = array_values(array_map(static fn (array $order): int => (int) $order['id'], array_filter(
+    $supplierOrders,
+    static fn (array $order): bool => in_array($order['status'], ['ordered', 'partially_received'], true)
+)));
+$blockedOrdersBySupplierOrder = supplier_order_blocked_customer_orders_batch($pdo, $blockedOrderIds);
+
 foreach ($supplierOrders as &$supplierOrder) {
     $supplierOrder['is_overdue'] = $supplierOrder['expected_delivery_date'] !== null
         && strtotime($supplierOrder['expected_delivery_date']) < strtotime('today')
@@ -74,12 +100,7 @@ foreach ($supplierOrders as &$supplierOrder) {
         ? (int) floor((strtotime('today') - strtotime($supplierOrder['expected_delivery_date'])) / 86400)
         : 0;
 
-    // UI/UX Phase 5E.2: priority visibility - only computed for the two "receive this to
-    // unblock someone" statuses (same reasoning as modules/supplier-orders/view.php), so a
-    // draft or already-settled order never pays this extra lookup.
-    $supplierOrder['blocked_order_count'] = in_array($supplierOrder['status'], ['ordered', 'partially_received'], true)
-        ? count(supplier_order_blocked_customer_orders($pdo, (int) $supplierOrder['id']))
-        : 0;
+    $supplierOrder['blocked_order_count'] = count($blockedOrdersBySupplierOrder[(int) $supplierOrder['id']] ?? []);
 }
 unset($supplierOrder);
 
@@ -222,6 +243,30 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php endif; ?>
         </tbody>
     </table>
+    </div>
+
+    <?php
+    $supplierOrdersPageUrl = static function (int $targetPage): string {
+        return '/modules/supplier-orders/index.php?' . http_build_query(array_merge($_GET, ['page' => $targetPage]));
+    };
+    $supplierOrdersRangeStart = $totalCount === 0 ? 0 : (($page - 1) * $perPage) + 1;
+    $supplierOrdersRangeEnd = min($totalCount, $page * $perPage);
+    ?>
+    <div class="d-flex justify-content-between align-items-center mt-3">
+        <p class="text-muted small mb-0">
+            <?php if ($totalCount > 0): ?>
+                Showing <?php echo (int) $supplierOrdersRangeStart; ?>&ndash;<?php echo (int) $supplierOrdersRangeEnd; ?> of <?php echo (int) $totalCount; ?> supplier order<?php echo $totalCount === 1 ? '' : 's'; ?>
+            <?php else: ?>
+                0 supplier orders
+            <?php endif; ?>
+        </p>
+        <?php if ($totalPages > 1): ?>
+            <div class="d-flex gap-2 align-items-center">
+                <a class="btn btn-sm btn-outline-secondary <?php echo $page <= 1 ? 'disabled' : ''; ?>" href="<?php echo app_escape($supplierOrdersPageUrl(max(1, $page - 1))); ?>">&laquo; Prev</a>
+                <span class="text-muted small">Page <?php echo (int) $page; ?> of <?php echo (int) $totalPages; ?></span>
+                <a class="btn btn-sm btn-outline-secondary <?php echo $page >= $totalPages ? 'disabled' : ''; ?>" href="<?php echo app_escape($supplierOrdersPageUrl(min($totalPages, $page + 1))); ?>">Next &raquo;</a>
+            </div>
+        <?php endif; ?>
     </div>
 </div>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

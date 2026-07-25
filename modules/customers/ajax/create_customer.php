@@ -22,6 +22,22 @@ if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
     ajax_json(['error' => 'Enter a valid email address, or leave it blank.'], 400);
 }
 
+// Production Hardening Phase 2: this endpoint used to insert unconditionally, unlike
+// every other customer-creation path in the app (modules/customers/create.php,
+// modules/customers/import.php) - matching an email typed here to an existing customer
+// with different casing (or a second Quick Add for someone already in the system) would
+// silently create a duplicate customer record. Reuse the existing customer instead,
+// same case-insensitive match already used elsewhere.
+if ($email !== '') {
+    $existingStmt = $pdo->prepare('SELECT id, name, email FROM customers WHERE LOWER(email) = LOWER(?) LIMIT 1');
+    $existingStmt->execute([$email]);
+    $existing = $existingStmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($existing !== false) {
+        ajax_json(['id' => (int) $existing['id'], 'name' => $existing['name'], 'email' => (string) $existing['email'], 'reused' => true]);
+    }
+}
+
 try {
     $stmt = $pdo->prepare('INSERT INTO customers (name, email, phone, address) VALUES (?, ?, ?, ?)');
     $stmt->execute([

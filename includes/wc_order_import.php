@@ -321,7 +321,12 @@ function wc_order_import_match_customer(PDO $pdo, array $wcOrder): int
     }
 
     if ($email !== '') {
-        $stmt = $pdo->prepare('SELECT id, woocommerce_customer_id FROM customers WHERE email = ? LIMIT 1');
+        // Production Hardening Phase 2: case-insensitive, matching every other
+        // customer-creation path in the app (modules/customers/create.php,
+        // modules/customers/import.php, the Quick Add endpoint) - this tier used to be an
+        // exact-case match, so a WooCommerce billing email differing only in case from an
+        // existing customer record would silently fall through to creating a duplicate.
+        $stmt = $pdo->prepare('SELECT id, woocommerce_customer_id FROM customers WHERE LOWER(email) = LOWER(?) LIMIT 1');
         $stmt->execute([$email]);
         $existing = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($existing !== false) {

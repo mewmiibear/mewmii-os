@@ -234,6 +234,12 @@ function wc_import_upsert_product(PDO $pdo, array $wcProduct, bool $dryRun): arr
     $status = wc_import_map_product_status((string) ($wcProduct['status'] ?? 'draft'));
     $sellingPrice = wc_import_price_or_zero($wcProduct['regular_price'] ?? ($wcProduct['price'] ?? 0));
     $salePrice = wc_import_price_or_null($wcProduct['sale_price'] ?? null);
+    // Production Hardening Phase 2: WooCommerce's own last-modified timestamp for this
+    // product, stored as the staleness baseline wc_client_check_product_staleness() compares
+    // against before a later push - a successful import means Mewmii OS has now seen
+    // WooCommerce's current state, same as a successful push does from the other direction.
+    $wcModifiedAt = trim((string) ($wcProduct['date_modified'] ?? ''));
+    $wcModifiedAt = $wcModifiedAt !== '' ? $wcModifiedAt : null;
 
     if ($existing !== null) {
         if ($catalogType === 'simple') {
@@ -254,11 +260,12 @@ function wc_import_upsert_product(PDO $pdo, array $wcProduct, bool $dryRun): arr
         $pdo->prepare('
             UPDATE products
             SET name = ?, sku = ?, catalog_type = ?, selling_price = ?, sale_enabled = ?, sale_price = ?,
-                status = ?, woocommerce_product_id = ?, published_to_woocommerce = 1, updated_at = CURRENT_TIMESTAMP
+                status = ?, woocommerce_product_id = ?, published_to_woocommerce = 1,
+                woocommerce_last_seen_modified_at = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
         ')->execute([
             $name, $sku, $catalogType, $sellingPrice, $salePrice !== null ? 1 : 0, $salePrice,
-            $status, $wcId > 0 ? $wcId : null, $existing,
+            $status, $wcId > 0 ? $wcId : null, $wcModifiedAt, $existing,
         ]);
 
         return ['id' => $existing, 'created' => false];
@@ -274,8 +281,9 @@ function wc_import_upsert_product(PDO $pdo, array $wcProduct, bool $dryRun): arr
     $stmt = $pdo->prepare('
         INSERT INTO products
             (woocommerce_product_id, sku, name, short_description, description, catalog_type,
-             selling_price, sale_enabled, sale_price, status, published_to_woocommerce)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+             selling_price, sale_enabled, sale_price, status, published_to_woocommerce,
+             woocommerce_last_seen_modified_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
     ');
     $stmt->execute([
         $wcId > 0 ? $wcId : null,
@@ -288,6 +296,7 @@ function wc_import_upsert_product(PDO $pdo, array $wcProduct, bool $dryRun): arr
         $salePrice !== null ? 1 : 0,
         $salePrice,
         $status,
+        $wcModifiedAt,
     ]);
 
     return ['id' => (int) $pdo->lastInsertId(), 'created' => true];

@@ -212,9 +212,11 @@ require_once __DIR__ . '/../../includes/header.php';
                 <?php
                 $updatedCount = isset($_GET['updated']) ? (int) $_GET['updated'] : 0;
                 $skippedCount = isset($_GET['skipped']) ? (int) $_GET['skipped'] : 0;
+                $staleCount = isset($_GET['stale']) ? (int) $_GET['stale'] : 0;
                 $failedCount = isset($_GET['failed']) ? (int) $_GET['failed'] : 0;
 
                 echo 'WooCommerce sync completed. ' . $updatedCount . ' updated, ' . $skippedCount . ' unchanged (skipped)'
+                    . ($staleCount > 0 ? ', ' . $staleCount . ' skipped (WooCommerce has a newer edit - see Sync Logs)' : '')
                     . ($failedCount > 0 ? ', ' . $failedCount . ' failed.' : '.');
                 ?>
             </div>

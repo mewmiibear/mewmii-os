@@ -438,6 +438,76 @@ function supplier_order_adjust_incoming(PDO $pdo, int $productId, ?int $variatio
  * returns on its own. Purely additive/read-only - no receiving, status, or inventory-mutation
  * logic is touched, and neither reused function is modified.
  */
+/**
+ * Batch/list-page version of supplier_order_blocked_customer_orders() (Production
+ * Hardening Phase 2): modules/supplier-orders/index.php used to call the singular function
+ * once per row just to keep count() of its result - which itself ran a query per supplier
+ * order line unit, then a query per matching customer order item, on every page load. This
+ * computes the same "is a paid/outstanding customer order waiting on this supplier order"
+ * answer for every supplier order id given, in two set-based queries (mirroring the
+ * singular function's own two branches - ready_stock and preorder/early_bird - with
+ * inventory_net_reserved()'s and supplier_order_item_customer_storage_allocated()'s exact
+ * clamped-per-line arithmetic reproduced as correlated subqueries instead of a PHP loop
+ * issuing one query per row). Returns the exact same per-order shape
+ * ([{order_id, order_number}, ...]) as the singular function, keyed by supplier_order_id,
+ * so modules/supplier-orders/index.php can read count($batch[$id] ?? []) per row.
+ * modules/supplier-orders/view.php keeps calling the singular function unchanged - it's a
+ * single lookup for one order, not a loop, so it never had an N+1 problem to begin with.
+ */
+function supplier_order_blocked_customer_orders_batch(PDO $pdo, array $supplierOrderIds): array
+{
+    $supplierOrderIds = array_values(array_unique(array_map('intval', $supplierOrderIds)));
+    if ($supplierOrderIds === []) {
+        return [];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($supplierOrderIds), '?'));
+
+    $sql = "
+        SELECT soi.supplier_order_id, o.id AS order_id, o.order_number
+        FROM supplier_order_items soi
+        INNER JOIN products p ON p.id = soi.product_id AND p.product_type = 'ready_stock'
+        INNER JOIN mewmii_order_items oi ON oi.product_id = soi.product_id AND oi.variation_id <=> soi.variation_id
+        INNER JOIN mewmii_orders o ON o.id = oi.order_id
+        WHERE soi.supplier_order_id IN ({$placeholders})
+          AND o.payment_status = 'paid' AND o.order_status <> 'cancelled' AND o.is_historical = 0
+          AND (oi.quantity - (
+                SELECT GREATEST(COALESCE(SUM(CASE WHEN it.transaction_type = 'order_reserve' THEN it.quantity ELSE -it.quantity END), 0), 0)
+                FROM inventory_transactions it
+                WHERE it.reference_type = 'order' AND it.reference_id = oi.order_id
+                  AND it.product_id = soi.product_id AND it.variation_id <=> soi.variation_id
+                  AND it.transaction_type IN ('order_reserve', 'order_release', 'order_ship')
+              )) > 0
+
+        UNION ALL
+
+        SELECT soi.supplier_order_id, o.id AS order_id, o.order_number
+        FROM supplier_order_items soi
+        INNER JOIN products p ON p.id = soi.product_id AND p.product_type IN ('preorder', 'early_bird')
+        INNER JOIN mewmii_order_items oi ON oi.product_id = soi.product_id AND oi.variation_id <=> soi.variation_id
+        INNER JOIN mewmii_orders o ON o.id = oi.order_id
+        WHERE soi.supplier_order_id IN ({$placeholders})
+          AND o.order_status <> 'cancelled' AND o.is_historical = 0
+          AND (oi.quantity - (
+                SELECT COALESCE(SUM(cs.quantity), 0) FROM customer_storage cs WHERE cs.order_item_id = oi.id
+              )) > 0
+    ";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute(array_merge($supplierOrderIds, $supplierOrderIds));
+
+    $result = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $supplierOrderId = (int) $row['supplier_order_id'];
+        $orderId = (int) $row['order_id'];
+        // Keyed by order_id per supplier order, same dedup as the singular function - a
+        // supplier order can have both a ready_stock and a preorder line blocking the same
+        // customer order, and that order must still only be counted/listed once.
+        $result[$supplierOrderId][$orderId] = ['order_id' => $orderId, 'order_number' => $row['order_number']];
+    }
+
+    return array_map('array_values', $result);
+}
+
 function supplier_order_blocked_customer_orders(PDO $pdo, int $supplierOrderId): array
 {
     $unitsStmt = $pdo->prepare('

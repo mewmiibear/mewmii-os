@@ -40,7 +40,18 @@ if (trim((string) $product['sku']) === '') {
 }
 
 try {
-    wc_client_sync_if_changed($pdo, $product, true);
+    $result = wc_client_sync_if_changed($pdo, $product, true);
+
+    if ($result['action'] === 'stale') {
+        // Production Hardening Phase 2: $force bypasses the unchanged-fingerprint skip, but
+        // never the staleness/conflict check - a deliberate "Sync this Product" click must
+        // still never overwrite a newer WooCommerce-side edit. See
+        // wc_client_check_product_staleness()/wc_client_sync_if_changed()'s own docblocks.
+        sync_log_write($pdo, 'woocommerce_product_sync', 'warning', $productId, $result['warning'] ?? null);
+
+        app_redirect('/modules/products/edit.php?id=' . $productId . '&wc_sync=stale');
+    }
+
     sync_log_success($pdo, 'woocommerce_product_sync', $productId);
 
     app_redirect('/modules/products/edit.php?id=' . $productId . '&wc_sync=synced');

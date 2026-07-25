@@ -583,7 +583,10 @@ function wc_client_sync_product_from_mewmii(PDO $pdo, array $product): array
     ');
     $stmt->execute([$remoteProductId, $productId]);
 
-    return ['id' => $remoteProductId];
+    // date_modified is WooCommerce's own timestamp for the product as of THIS push - see
+    // wc_client_sync_if_changed()'s staleness baseline, which stores this so a later push
+    // can tell whether WooCommerce has since been edited by something other than Mewmii OS.
+    return ['id' => $remoteProductId, 'date_modified' => $response['date_modified'] ?? null];
 }
 
 /**
@@ -711,7 +714,9 @@ function wc_client_sync_variable_product_from_mewmii(PDO $pdo, array $product): 
         }
     }
 
-    return ['id' => $remoteProductId, 'variations_synced' => $syncedVariations];
+    // date_modified is WooCommerce's own timestamp for the PARENT product as of this push -
+    // same reasoning as wc_client_sync_product_from_mewmii()'s return value.
+    return ['id' => $remoteProductId, 'variations_synced' => $syncedVariations, 'date_modified' => $response['date_modified'] ?? null];
 }
 
 /**
@@ -791,6 +796,36 @@ function wc_client_product_sync_fingerprint(PDO $pdo, array $product): string
 }
 
 /**
+ * Production Hardening Phase 2 - WooCommerce conflict protection. Reads the LIVE WooCommerce
+ * product and compares its own `date_modified` against the timestamp Mewmii OS last
+ * confirmed matched (products.woocommerce_last_seen_modified_at, set after every successful
+ * import or push - see includes/wc_product_import.php and wc_client_sync_if_changed() below).
+ * If WooCommerce's copy has moved on since then, something other than Mewmii OS changed it
+ * (a direct edit in WordPress/WooCommerce) - pushing now would silently overwrite that edit.
+ *
+ * There is no webhook/event mechanism in this codebase, so detecting this costs one extra
+ * WooCommerce API read per push - accepted as the price of the guarantee being asked for.
+ * Fails OPEN (not stale) if WooCommerce doesn't return a usable `date_modified`, or if this
+ * product has never had a baseline recorded - a missing/unreadable signal must never block
+ * every future push.
+ *
+ * @return array{stale: bool, remote_modified_at: ?string}
+ */
+function wc_client_check_product_staleness(int $wooCommerceProductId, ?string $lastSeenModifiedAt): array
+{
+    $remote = wc_client_get('products/' . $wooCommerceProductId);
+    $remoteModifiedAt = trim((string) ($remote['date_modified'] ?? ''));
+
+    if ($remoteModifiedAt === '') {
+        return ['stale' => false, 'remote_modified_at' => null];
+    }
+
+    $stale = $lastSeenModifiedAt !== null && strtotime($remoteModifiedAt) > strtotime($lastSeenModifiedAt);
+
+    return ['stale' => $stale, 'remote_modified_at' => $remoteModifiedAt];
+}
+
+/**
  * Wraps wc_client_sync_any_product_from_mewmii() with a "skip if nothing WooCommerce-relevant
  * changed since the last successful sync" gate - reduces API calls on a bulk "Sync to
  * WooCommerce" run without touching the sync logic itself (see
@@ -801,10 +836,13 @@ function wc_client_product_sync_fingerprint(PDO $pdo, array $product): string
  * $force bypasses the unchanged-skip gate entirely (still recomputes and stores the hash
  * afterward) - for the explicit, single-product "Sync this Product"/"Retry" actions (see
  * modules/products/sync_one.php), where a deliberate click must always actually push, never
- * silently no-op just because nothing looked different.
+ * silently no-op just because nothing looked different. $force does NOT bypass the
+ * staleness/conflict check below - a deliberate click must still never overwrite a newer
+ * WooCommerce-side edit, it only means "push even if the Mewmii-side fingerprint looks
+ * unchanged."
  *
- * @return array{action: 'updated'|'skipped'} merged with wc_client_sync_any_product_from_mewmii()'s
- * own return value when action is 'updated'.
+ * @return array{action: 'updated'|'skipped'|'stale', warning?: string} merged with
+ * wc_client_sync_any_product_from_mewmii()'s own return value when action is 'updated'.
  */
 function wc_client_sync_if_changed(PDO $pdo, array $product, bool $force = false): array
 {
@@ -812,16 +850,35 @@ function wc_client_sync_if_changed(PDO $pdo, array $product, bool $force = false
     $fingerprint = wc_client_product_sync_fingerprint($pdo, $product);
 
     $storedHash = $product['woocommerce_sync_hash'] ?? null;
-    $alreadyPublished = !empty($product['woocommerce_product_id']);
+    $wooCommerceProductId = (int) ($product['woocommerce_product_id'] ?? 0);
+    $alreadyPublished = $wooCommerceProductId > 0;
 
     if (!$force && $alreadyPublished && $storedHash !== null && hash_equals($storedHash, $fingerprint)) {
         return ['action' => 'skipped'];
     }
 
+    $remoteModifiedAt = null;
+    if ($alreadyPublished) {
+        $staleness = wc_client_check_product_staleness($wooCommerceProductId, $product['woocommerce_last_seen_modified_at'] ?? null);
+
+        if ($staleness['stale']) {
+            return [
+                'action' => 'stale',
+                'warning' => 'WooCommerce has a newer edit for this product than Mewmii OS last saw - push skipped to avoid overwriting it. Review the product in WooCommerce, then retry.',
+            ];
+        }
+
+        $remoteModifiedAt = $staleness['remote_modified_at'];
+    }
+
     $result = wc_client_sync_any_product_from_mewmii($pdo, $product);
 
-    $pdo->prepare('UPDATE products SET woocommerce_sync_hash = ? WHERE id = ?')
-        ->execute([$fingerprint, $productId]);
+    // The push response's own date_modified (reflecting the state immediately AFTER this
+    // push) takes priority over the pre-push read above as the new baseline.
+    $newBaseline = $result['date_modified'] ?? $remoteModifiedAt;
+
+    $pdo->prepare('UPDATE products SET woocommerce_sync_hash = ?, woocommerce_last_seen_modified_at = ? WHERE id = ?')
+        ->execute([$fingerprint, $newBaseline, $productId]);
 
     return array_merge(['action' => 'updated'], $result);
 }
@@ -839,7 +896,7 @@ function wc_client_load_product_for_sync(PDO $pdo, int $productId): ?array
         SELECT id, sku, name, short_description, description, catalog_type, selling_price, product_type,
                status, availability_override, preorder_closing_date, preorder_reopened_at,
                estimated_arrival_date, estimated_release_month, sale_enabled, sale_price, sale_start_date,
-               woocommerce_product_id, woocommerce_sync_hash
+               woocommerce_product_id, woocommerce_sync_hash, woocommerce_last_seen_modified_at
         FROM products WHERE id = ? LIMIT 1
     ");
     $stmt->execute([$productId]);
@@ -863,9 +920,12 @@ function wc_client_load_product_for_sync(PDO $pdo, int $productId): ?array
  * woocommerce_product_id/woocommerce_sync_hash) so it always syncs exactly what was just
  * committed to the database, not what was posted.
  *
- * @return array{status: 'synced'|'skipped'|'failed', error: ?string} 'skipped' covers both "no
- * SKU yet" and wc_client_sync_if_changed()'s own unchanged-skip - neither is an error, and
- * callers should show no WooCommerce-specific notice for either.
+ * @return array{status: 'synced'|'skipped'|'stale'|'failed', error: ?string} 'skipped' covers
+ * both "no SKU yet" and wc_client_sync_if_changed()'s own unchanged-skip - neither is an
+ * error, and callers should show no WooCommerce-specific notice for either. 'stale' means
+ * WooCommerce has a newer edit than Mewmii OS has seen - the push was deliberately withheld
+ * (see wc_client_check_product_staleness()); callers should show $error as a warning, not an
+ * error, same severity as 'skipped' but worth surfacing since it needs a human to look.
  */
 function wc_client_auto_sync_product(PDO $pdo, int $productId): array
 {
@@ -882,6 +942,17 @@ function wc_client_auto_sync_product(PDO $pdo, int $productId): array
             sync_log_success($pdo, 'woocommerce_product_sync', $productId);
 
             return ['status' => 'synced', 'error' => null];
+        }
+
+        if ($result['action'] === 'stale') {
+            // Logged as its own 'warning' status (sync_logs.status is a plain VARCHAR, not
+            // an enum, so this needed no schema change) rather than 'failed' - nothing
+            // actually went wrong, the push was deliberately withheld to avoid overwriting
+            // a newer WooCommerce-side edit. Visible on modules/integrations/woocommerce.php
+            // alongside every other sync outcome.
+            sync_log_write($pdo, 'woocommerce_product_sync', 'warning', $productId, $result['warning'] ?? null);
+
+            return ['status' => 'stale', 'error' => $result['warning'] ?? null];
         }
 
         return ['status' => 'skipped', 'error' => null];

@@ -117,7 +117,9 @@ CREATE TABLE IF NOT EXISTS customers (
   address TEXT NULL,
   notes TEXT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_customers_email (email),
+  UNIQUE KEY uq_customers_woocommerce_customer_id (woocommerce_customer_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS customer_addresses (
@@ -239,11 +241,14 @@ CREATE TABLE IF NOT EXISTS products (
   status VARCHAR(50) NOT NULL DEFAULT 'coming_soon',
   availability_override VARCHAR(20) NOT NULL DEFAULT 'auto',
   published_to_woocommerce TINYINT(1) NOT NULL DEFAULT 0,
+  woocommerce_last_seen_modified_at DATETIME NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_products_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE SET NULL,
   CONSTRAINT fk_products_brand FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE SET NULL,
-  INDEX idx_products_catalog_type (catalog_type)
+  INDEX idx_products_catalog_type (catalog_type),
+  INDEX idx_products_status (status),
+  INDEX idx_products_product_type (product_type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS product_tags (
@@ -532,7 +537,10 @@ CREATE TABLE IF NOT EXISTS mewmii_orders (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_mewmii_orders_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL,
-  INDEX idx_mewmii_orders_payment_status (payment_status)
+  INDEX idx_mewmii_orders_payment_status (payment_status),
+  INDEX idx_mewmii_orders_order_status (order_status),
+  INDEX idx_mewmii_orders_order_date (order_date),
+  INDEX idx_mewmii_orders_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS mewmii_order_items (
@@ -579,7 +587,10 @@ CREATE TABLE IF NOT EXISTS supplier_orders (
   notes TEXT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT fk_supplier_orders_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE
+  CONSTRAINT fk_supplier_orders_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
+  INDEX idx_supplier_orders_status (status),
+  INDEX idx_supplier_orders_payment_status (payment_status),
+  INDEX idx_supplier_orders_expected_delivery_date (expected_delivery_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS supplier_order_events (
@@ -662,7 +673,8 @@ CREATE TABLE IF NOT EXISTS inventory_transactions (
   reference_id INT UNSIGNED NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_inventory_transactions_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
-  CONSTRAINT fk_inventory_transactions_variation FOREIGN KEY (variation_id) REFERENCES product_variations(id) ON DELETE SET NULL
+  CONSTRAINT fk_inventory_transactions_variation FOREIGN KEY (variation_id) REFERENCES product_variations(id) ON DELETE SET NULL,
+  INDEX idx_inventory_transactions_reference (reference_type, reference_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS customer_storage (
