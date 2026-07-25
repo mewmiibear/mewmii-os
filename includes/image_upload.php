@@ -109,6 +109,17 @@ function image_upload_process(array $file, string $subDir): string
     $info = image_upload_validate($file);
     $mime = (string) ($info['mime'] ?? '');
 
+    return image_upload_encode_webp($file['tmp_name'], $mime, $subDir);
+}
+
+/**
+ * Shared resize + WebP-encode + save pipeline behind image_upload_process() (a validated
+ * $_FILES upload) and image_upload_process_from_path() below (a file already on local disk,
+ * e.g. downloaded from a remote URL) - identical output either way, just a different
+ * source-file validation step in front of it.
+ */
+function image_upload_encode_webp(string $sourcePath, string $mime, string $subDir): string
+{
     $baseDir = image_upload_base_dir();
     image_upload_ensure_dir($baseDir);
     image_upload_ensure_htaccess($baseDir);
@@ -117,9 +128,9 @@ function image_upload_process(array $file, string $subDir): string
     $targetDir = $baseDir . '/' . $subDir;
     image_upload_ensure_dir($targetDir);
 
-    $image = image_upload_load_gd($file['tmp_name'], $mime);
+    $image = image_upload_load_gd($sourcePath, $mime);
     if ($image === false) {
-        throw new RuntimeException('Failed to read the uploaded image.');
+        throw new RuntimeException('Failed to read the image.');
     }
 
     // Preserve transparency (palette PNGs/GIFs) through the resize step.
@@ -156,6 +167,42 @@ function image_upload_process(array $file, string $subDir): string
     }
 
     return 'uploads/' . $subDir . '/' . $filename;
+}
+
+/**
+ * Same validate-resize-WebP pipeline as image_upload_process(), for a file that's already
+ * sitting on local disk (e.g. downloaded from a remote URL by cli/wc_product_import.php)
+ * rather than a live $_FILES upload - image_upload_validate()'s is_uploaded_file() check
+ * would always fail for a file PHP didn't itself receive as an HTTP upload, so this does its
+ * own equivalent validation (exists, size cap, real image header/MIME via getimagesize())
+ * instead. Does not delete $sourcePath afterward - the caller owns that file's lifecycle,
+ * same as image_upload_duplicate() leaving its source alone.
+ */
+function image_upload_process_from_path(string $sourcePath, string $subDir): string
+{
+    if (!function_exists('imagewebp')) {
+        throw new RuntimeException('The PHP GD extension (with WebP support) is required for image uploads.');
+    }
+
+    if (!is_file($sourcePath)) {
+        throw new RuntimeException('Source image file not found.');
+    }
+
+    if (filesize($sourcePath) > IMAGE_UPLOAD_MAX_BYTES) {
+        throw new RuntimeException('Image is too large (max ' . (int) (IMAGE_UPLOAD_MAX_BYTES / 1024 / 1024) . ' MB).');
+    }
+
+    $info = @getimagesize($sourcePath);
+    if ($info === false) {
+        throw new RuntimeException('File is not a valid image.');
+    }
+
+    $mime = (string) ($info['mime'] ?? '');
+    if (!in_array($mime, IMAGE_UPLOAD_ALLOWED_MIME, true)) {
+        throw new RuntimeException('Unsupported image type. Use JPEG, PNG, GIF, or WebP.');
+    }
+
+    return image_upload_encode_webp($sourcePath, $mime, $subDir);
 }
 
 /**
