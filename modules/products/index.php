@@ -260,13 +260,17 @@ require_once __DIR__ . '/../../includes/header.php';
             $staleCount = $syncResult['stale'] ?? (isset($_GET['stale']) ? (int) $_GET['stale'] : 0);
             $failedCount = $syncResult['failed'] ?? (isset($_GET['failed']) ? (int) $_GET['failed'] : 0);
             $syncFailureReasons = $syncResult['failure_reasons'] ?? [];
+            $syncMissingImageCount = $syncResult['missing_images'] ?? 0;
             ?>
-            <div class="alert <?php echo $failedCount > 0 ? 'alert-warning' : 'alert-info'; ?> mb-0">
+            <div class="alert <?php echo ($failedCount > 0 || $syncMissingImageCount > 0) ? 'alert-warning' : 'alert-info'; ?> mb-0">
                 <?php
                 echo 'WooCommerce sync completed. ' . $updatedCount . ' updated, ' . $skippedCount . ' unchanged (skipped)'
                     . ($staleCount > 0 ? ', ' . $staleCount . ' skipped (WooCommerce has a newer edit - see Sync Logs)' : '')
                     . ($failedCount > 0 ? ', ' . $failedCount . ' failed.' : '.');
                 ?>
+                <?php if ($syncMissingImageCount > 0): ?>
+                    <div class="small">&#9888; <?php echo (int) $syncMissingImageCount; ?> product(s) synced with one or more images skipped (file missing on disk) - see Sync Logs.</div>
+                <?php endif; ?>
                 <?php if ($syncFailureReasons !== []): ?>
                     <ul class="mb-0 small">
                         <?php foreach ($syncFailureReasons as $reason => $count): ?>
@@ -300,7 +304,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="alert alert-danger">Failed to duplicate product.</div>
 <?php endif; ?>
 <?php if ($bulkResult !== null): ?>
-    <div class="alert <?php echo $bulkResult['failed_count'] > 0 ? 'alert-warning' : 'alert-success'; ?>">
+    <div class="alert <?php echo ($bulkResult['failed_count'] > 0 || ($bulkResult['missing_images'] ?? 0) > 0) ? 'alert-warning' : 'alert-success'; ?>">
         <?php
         $bulkActionLabels = [
             'set_brand' => 'Set Brand',
@@ -322,6 +326,9 @@ require_once __DIR__ . '/../../includes/header.php';
         }
         echo '.';
         ?>
+        <?php if (($bulkResult['missing_images'] ?? 0) > 0): ?>
+            <div class="small">&#9888; <?php echo (int) $bulkResult['missing_images']; ?> product(s) synced with one or more images skipped (file missing on disk) - see Sync Logs.</div>
+        <?php endif; ?>
         <?php if (($bulkResult['failure_reasons'] ?? []) !== []): ?>
             <ul class="mb-0 small">
                 <?php foreach ($bulkResult['failure_reasons'] as $reason => $count): ?>

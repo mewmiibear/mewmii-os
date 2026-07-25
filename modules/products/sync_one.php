@@ -69,6 +69,16 @@ try {
 
     sync_log_success($pdo, 'woocommerce_product_sync', $productId);
 
+    // Bugfix pass - synced fine, but one or more images were skipped because the stored
+    // file is missing on disk (see wc_client_find_missing_images()) - logged as its own
+    // warning entry, and flagged in the redirect so the edit page can show it inline too.
+    $missingImages = $result['missing_images'] ?? [];
+    if ($missingImages !== []) {
+        sync_log_write($pdo, 'woocommerce_product_sync', 'warning', $productId, 'Synced, but skipped missing image file(s) for: ' . implode(', ', $missingImages) . '. Re-upload the affected image(s).');
+
+        app_redirect('/modules/products/edit.php?id=' . $productId . '&wc_sync=synced&wc_sync_missing_images=1');
+    }
+
     app_redirect('/modules/products/edit.php?id=' . $productId . '&wc_sync=synced');
 } catch (Throwable $exception) {
     try {

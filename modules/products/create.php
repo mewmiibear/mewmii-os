@@ -271,6 +271,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $autoSyncResult = wc_client_auto_sync_product($pdo, $productId);
                 if ($autoSyncResult['status'] !== 'skipped') {
                     $wcSyncStatus = '&wc_sync=' . $autoSyncResult['status'];
+                    if (($autoSyncResult['missing_images'] ?? []) !== []) {
+                        $wcSyncStatus .= '&wc_sync_missing_images=1';
+                    }
                 }
             }
 

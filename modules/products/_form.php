@@ -100,7 +100,17 @@
     <div class="alert alert-success">Product created.</div>
 <?php endif; ?>
 <?php if (($_GET['wc_sync'] ?? '') === 'synced'): ?>
-    <div class="alert alert-success py-2">Saved and synced to WooCommerce.</div>
+    <?php if (($_GET['wc_sync_missing_images'] ?? '') === '1'): ?>
+        <div class="alert alert-warning py-2">
+            Saved and synced to WooCommerce, but one or more images were skipped because the stored file is missing on disk.
+            <?php if (app_has_permission('settings.manage')): ?>
+                <a href="/modules/sync-logs/index.php">View Sync Logs</a>.
+            <?php endif; ?>
+            Re-upload the affected image(s) below and sync again.
+        </div>
+    <?php else: ?>
+        <div class="alert alert-success py-2">Saved and synced to WooCommerce.</div>
+    <?php endif; ?>
 <?php elseif (($_GET['wc_sync'] ?? '') === 'stale'): ?>
     <div class="alert alert-warning py-2">
         Product was saved locally, but WooCommerce has a newer edit than Mewmii OS has seen - sync was skipped to avoid overwriting it.

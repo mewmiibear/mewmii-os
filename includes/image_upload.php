@@ -74,10 +74,23 @@ function image_upload_load_gd(string $tmpPath, string $mime)
     }
 }
 
+/**
+ * Bugfix pass (product_images row referencing a file that was never actually written) -
+ * mkdir()'s return value was never checked before, so a directory-creation failure (bad
+ * permissions, disk full, a parent path that's actually a file) silently fell through as
+ * if the directory now existed; the imagewebp() write further down would then fail too,
+ * but with a generic "Failed to save the processed image" that didn't say why. This throws
+ * immediately with a specific, actionable message instead - covers uploads/products/ and
+ * uploads/variations/ equally, since both are created through this same function.
+ */
 function image_upload_ensure_dir(string $dir): void
 {
-    if (!is_dir($dir)) {
-        mkdir($dir, 0755, true);
+    if (is_dir($dir)) {
+        return;
+    }
+
+    if (!mkdir($dir, 0755, true) && !is_dir($dir)) {
+        throw new RuntimeException('Could not create the upload directory (' . $dir . '). Check filesystem permissions.');
     }
 }
 
@@ -166,6 +179,17 @@ function image_upload_encode_webp(string $sourcePath, string $mime, string $subD
         throw new RuntimeException('Failed to save the processed image.');
     }
 
+    // Bugfix pass - imagewebp() returning true is not by itself proof the file is actually
+    // sitting on disk (a full disk or a filesystem quirk can still leave a 0-byte or
+    // missing file behind while the GD call itself reports success). This is the actual
+    // "only save image_path after successful file write" guarantee - every caller of
+    // image_upload_process()/image_upload_process_from_path() inserts the returned path
+    // into product_images immediately afterward, so this is the last point where a bad
+    // write can still be caught before that row is ever created.
+    if (!is_file($fullPath) || filesize($fullPath) === 0) {
+        throw new RuntimeException('The processed image was not found on disk after saving - upload not completed.');
+    }
+
     return 'uploads/' . $subDir . '/' . $filename;
 }
 
@@ -234,6 +258,33 @@ function image_upload_duplicate(string $sourceRelativePath, string $subDir): str
     }
 
     return 'uploads/' . $subDir . '/' . $filename;
+}
+
+/**
+ * Bugfix pass (WooCommerce sync 404 - stored image_path with no file on disk) - the one
+ * place a stored relative image path is checked against the actual filesystem, not just
+ * trusted because a database row exists. Used before ever handing a path to WooCommerce
+ * (see includes/wc_client.php's wc_client_build_gallery_images()/
+ * wc_client_build_variation_image()) so a file that's gone missing (moved, deleted outside
+ * the app, wiped by a deployment that didn't preserve uploads/) is skipped with a clear
+ * warning instead of sent to WooCommerce as a URL that will 404. An already-absolute path
+ * (http(s):// or protocol-relative) is assumed present - it isn't ours to check on local
+ * disk (e.g. an image imported from an external source).
+ */
+function image_upload_exists(string $path): bool
+{
+    $path = trim($path);
+    if ($path === '') {
+        return false;
+    }
+
+    if (preg_match('#^(?:https?:)?//#i', $path) === 1) {
+        return true;
+    }
+
+    $fullPath = dirname(__DIR__) . '/' . ltrim($path, '/');
+
+    return is_file($fullPath);
 }
 
 /**

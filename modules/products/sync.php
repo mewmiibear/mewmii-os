@@ -16,6 +16,10 @@ $errors = [];
 // say *why* products failed (e.g. "Database error") instead of a bare count - this is what
 // silently swallowed the missing woocommerce_sync_hash column incident before.
 $failureReasons = [];
+// Bugfix pass: products that synced fine but had one or more images skipped because the
+// stored file is missing on disk (see wc_client_find_missing_images()) - a real, visible
+// count instead of staff only noticing WooCommerce shows fewer photos than Mewmii OS does.
+$missingImageCount = 0;
 
 try {
     // Production Hardening Phase 2: woocommerce_last_seen_modified_at added to this SELECT -
@@ -42,6 +46,12 @@ try {
             } else {
                 sync_log_success(app_db(), 'woocommerce_product_sync', (int) ($product['id'] ?? 0));
                 $updatedCount++;
+
+                $missingImages = $result['missing_images'] ?? [];
+                if ($missingImages !== []) {
+                    $missingImageCount++;
+                    sync_log_write(app_db(), 'woocommerce_product_sync', 'warning', (int) ($product['id'] ?? 0), 'Synced, but skipped missing image file(s) for: ' . implode(', ', $missingImages) . '. Re-upload the affected image(s).');
+                }
             }
         } catch (Throwable $e) {
             $failedCount++;
@@ -71,6 +81,7 @@ $_SESSION['products_sync_result'] = [
     'stale' => $staleCount,
     'failed' => $failedCount,
     'failure_reasons' => $failureReasons,
+    'missing_images' => $missingImageCount,
 ];
 
 app_redirect('/modules/products/index.php?sync=1&updated=' . $updatedCount . '&skipped=' . $skippedCount . '&stale=' . $staleCount . '&failed=' . $failedCount);

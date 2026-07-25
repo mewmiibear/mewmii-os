@@ -32,6 +32,9 @@ $errors = [];
 // Bugfix pass: categorized via wc_client_classify_sync_error() so the flash banner can show
 // *why* products failed (e.g. "Database error") instead of a bare count.
 $failureReasons = [];
+// Bugfix pass: products that synced fine but had one or more images skipped because the
+// stored file is missing on disk (see wc_client_find_missing_images()).
+$missingImageCount = 0;
 
 // Sprint 10 (Operator Experience): modeled directly on modules/orders/bulk_action.php - each
 // product mutated independently, wrapped in its own try/catch, so one bad row never aborts
@@ -156,6 +159,12 @@ switch ($action) {
                 } else {
                     sync_log_success($pdo, 'woocommerce_product_sync', $productId);
                     $successCount++;
+
+                    $missingImages = $result['missing_images'] ?? [];
+                    if ($missingImages !== []) {
+                        $missingImageCount++;
+                        sync_log_write($pdo, 'woocommerce_product_sync', 'warning', $productId, 'Synced, but skipped missing image file(s) for: ' . implode(', ', $missingImages) . '. Re-upload the affected image(s).');
+                    }
                 }
             } catch (Throwable $exception) {
                 $failedCount++;
@@ -178,6 +187,7 @@ $_SESSION['products_bulk_result'] = [
     'failed_count' => $failedCount,
     'errors' => $errors,
     'failure_reasons' => $failureReasons,
+    'missing_images' => $missingImageCount,
 ];
 
 app_redirect('/modules/products/index.php?bulk_result=1');

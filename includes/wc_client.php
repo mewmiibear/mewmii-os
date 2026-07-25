@@ -378,8 +378,17 @@ function wc_client_build_gallery_images(PDO $pdo, int $productId): array
 
     $images = [];
     foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $path) {
-        // Bugfix pass: image_path is stored as a bare relative path ("uploads/products/
-        // x.webp") - WooCommerce needs a real absolute URL it can fetch, see
+        // Bugfix pass: a row whose file no longer exists on disk (moved, deleted outside
+        // the app, wiped by a deployment that didn't preserve uploads/) is skipped here
+        // rather than sent to WooCommerce as a URL guaranteed to 404 - see
+        // wc_client_find_missing_images(), which callers use to attach a clear warning to
+        // an otherwise-successful sync instead of silently having fewer photos appear.
+        if (!image_upload_exists((string) $path)) {
+            continue;
+        }
+
+        // image_path is stored as a bare relative path ("uploads/products/x.webp") -
+        // WooCommerce needs a real absolute URL it can fetch, see
         // image_upload_public_url()'s own docblock for what used to go wrong here. A path
         // that can't be resolved to an absolute URL is skipped entirely rather than sent
         // malformed - the exact failure this fixes.
@@ -398,13 +407,48 @@ function wc_client_build_variation_image(PDO $pdo, int $variationId): ?array
     $stmt->execute([$variationId]);
     $path = $stmt->fetchColumn();
 
-    if ($path === false || $path === '') {
+    if ($path === false || $path === '' || !image_upload_exists((string) $path)) {
         return null;
     }
 
     $url = image_upload_public_url((string) $path);
 
     return $url !== '' ? ['src' => $url] : null;
+}
+
+/**
+ * Bugfix pass - lists every product_images row (main/gallery, and each variation's own
+ * image) belonging to this product whose stored image_path points at a file that no
+ * longer exists on disk. wc_client_build_gallery_images()/wc_client_build_variation_image()
+ * already silently skip these when building the actual WooCommerce payload (so a sync
+ * still succeeds), but skipping silently would leave staff wondering why WooCommerce shows
+ * fewer photos than Mewmii OS does - this is what lets a caller attach a visible warning to
+ * an otherwise-successful sync instead (see wc_client_sync_if_changed()).
+ *
+ * @return string[] human-readable descriptions, e.g. "main/gallery image" or "variation HK-PLUSH-001-M"
+ */
+function wc_client_find_missing_images(PDO $pdo, int $productId): array
+{
+    $stmt = $pdo->prepare("
+        SELECT pi.image_path, pi.variation_id, pv.sku AS variation_sku
+        FROM product_images pi
+        LEFT JOIN product_variations pv ON pv.id = pi.variation_id
+        WHERE pi.product_id = ?
+    ");
+    $stmt->execute([$productId]);
+
+    $missing = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        if (image_upload_exists((string) $row['image_path'])) {
+            continue;
+        }
+
+        $missing[] = $row['variation_sku'] !== null
+            ? ('variation ' . $row['variation_sku'])
+            : 'main/gallery image';
+    }
+
+    return $missing;
 }
 
 /**
@@ -935,7 +979,15 @@ function wc_client_sync_if_changed(PDO $pdo, array $product, bool $force = false
     $pdo->prepare('UPDATE products SET woocommerce_sync_hash = ?, woocommerce_last_seen_modified_at = ? WHERE id = ?')
         ->execute([$fingerprint, $newBaseline, $productId]);
 
-    return array_merge(['action' => 'updated'], $result);
+    // Bugfix pass - the push above already silently omitted any image whose file is
+    // missing on disk (see wc_client_build_gallery_images()/wc_client_build_variation_
+    // image()), so the sync itself never fails over this. Attached here so every entry
+    // point (bulk sync, single-product sync, Auto Sync) can log a visible warning on an
+    // otherwise-successful sync instead of staff only noticing WooCommerce has fewer
+    // photos than Mewmii OS days later.
+    $missingImages = wc_client_find_missing_images($pdo, $productId);
+
+    return array_merge(['action' => 'updated', 'missing_images' => $missingImages], $result);
 }
 
 /**
@@ -996,7 +1048,16 @@ function wc_client_auto_sync_product(PDO $pdo, int $productId): array
         if ($result['action'] === 'updated') {
             sync_log_success($pdo, 'woocommerce_product_sync', $productId);
 
-            return ['status' => 'synced', 'error' => null];
+            // Bugfix pass - the sync itself already succeeded (missing images are skipped,
+            // never a hard failure - see wc_client_find_missing_images()), but this still
+            // deserves its own visible warning entry rather than silently having fewer
+            // photos on WooCommerce than in Mewmii OS.
+            $missingImages = $result['missing_images'] ?? [];
+            if ($missingImages !== []) {
+                sync_log_write($pdo, 'woocommerce_product_sync', 'warning', $productId, 'Synced, but skipped missing image file(s) for: ' . implode(', ', $missingImages) . '. Re-upload the affected image(s).');
+            }
+
+            return ['status' => 'synced', 'error' => null, 'missing_images' => $missingImages];
         }
 
         if ($result['action'] === 'stale') {
