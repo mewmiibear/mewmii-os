@@ -52,6 +52,49 @@ function order_status_badge(string $status): string
 }
 
 /**
+ * Badge for mewmii_orders.payment_status (UI/UX Phase 5B) - same badge pattern as
+ * order_status_badge()/order_receipt_status_badge(), just for the one remaining status field
+ * on this app that was still rendered as plain text on the Orders list. Purely a display
+ * helper - the enum values themselves (pending|paid|refunded|failed) are untouched.
+ */
+function payment_status_badge(string $status): string
+{
+    $colors = [
+        'pending' => 'secondary',
+        'paid' => 'success',
+        'refunded' => 'info text-dark',
+        'failed' => 'danger',
+    ];
+    $color = $colors[$status] ?? 'secondary';
+
+    return '<span class="badge bg-' . $color . '">' . htmlspecialchars(ucfirst($status), ENT_QUOTES, 'UTF-8') . '</span>';
+}
+
+/**
+ * Human-facing label for mewmii_order_events.event_type (UI/UX Phase 5B) - the Order Timeline
+ * previously showed these raw enum strings verbatim (e.g. "payment_status_change") as the
+ * bold heading of every entry. Display only - the stored value and every INSERT that writes
+ * it (modules/orders/view.php, includes/order_fulfillment.php, includes/customer_storage.php,
+ * includes/order_import.php, includes/wc_order_import.php) are unchanged. Every event_type
+ * this app currently writes is listed explicitly; anything unrecognised falls back to a
+ * title-cased version of the raw value rather than failing.
+ */
+function order_event_type_label(string $eventType): string
+{
+    $labels = [
+        'payment_status_change' => 'Payment Status Changed',
+        'order_status_change' => 'Order Status Changed',
+        'receipt_status_change' => 'Receipt Status Changed',
+        'admin_note' => 'Note Added',
+        'preorder_allocated' => 'Preorder Allocated',
+        'wc_import' => 'Imported from WooCommerce',
+        'imported' => 'Imported (Historical)',
+    ];
+
+    return $labels[$eventType] ?? ucwords(str_replace('_', ' ', $eventType));
+}
+
+/**
  * Human-facing formatting for mewmii_orders.order_number - display only, never the stored
  * value itself (see includes/wc_order_import.php, which still writes the literal 'WC-16712'
  * into the column - untouched by this function). A WooCommerce-imported order's order_number

@@ -161,10 +161,10 @@ uasort($groups, static fn (array $a, array $b): int => strcmp($a['supplier_name'
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-header d-flex justify-content-between align-items-center">
     <div>
         <h2 class="mb-1">Generate Supplier Order</h2>
-        <p class="text-muted mb-0">Products where Need &gt; 0, grouped by supplier. Order Qty is pre-filled MOQ-rounded - review and adjust before generating. Expand a row for the calculation breakdown.</p>
+        <p class="page-description">Products where Need &gt; 0, grouped by supplier. Order Qty is pre-filled MOQ-rounded - review and adjust before generating.</p>
     </div>
     <div class="action-bar">
         <a class="btn btn-outline-secondary btn-sm" href="/modules/inventory/index.php">Back to Inventory</a>
@@ -244,10 +244,8 @@ require_once __DIR__ . '/../../includes/header.php';
                                 <th>Expected Delivery</th>
                                 <th>MOQ</th>
                                 <th>Order Qty</th>
-                                <th>Left</th>
                                 <th>Unit Cost</th>
                                 <th>Total</th>
-                                <th></th>
                             </tr>
                         </thead>
                         <tbody>
@@ -256,12 +254,6 @@ require_once __DIR__ . '/../../includes/header.php';
                                 $rowKey = $need['key'];
                                 $safeRowKey = str_replace(':', '-', $rowKey);
                                 $disabled = (int) $groupKey === 0;
-                                // Left = Order Qty - (Demand - Stock - Incoming) = suggested_quantity - raw_need,
-                                // which is exactly the MOQ top-up already computed by purchase_planning_needs() -
-                                // reused here rather than re-derived. Reflects the pre-filled Order Qty; if the
-                                // admin edits Order Qty before submitting, this display value doesn't recompute
-                                // live (same convention already used by the Total column below).
-                                $left = $need['moq_top_up'];
                                 ?>
                                 <?php $isHighlighted = $highlightProductId !== null && (int) $need['product_id'] === $highlightProductId; ?>
                                 <tr id="need-<?php echo app_escape($safeRowKey); ?>" <?php echo $isHighlighted ? 'class="table-warning"' : ''; ?>>
@@ -276,6 +268,7 @@ require_once __DIR__ . '/../../includes/header.php';
                                     </td>
                                     <td>
                                         <?php echo app_escape($need['label'] !== null ? ($need['sku'] . ' - ' . $need['label']) : $need['sku']); ?>
+                                        <div class="text-muted small"><?php echo app_escape($productTypeLabels[$need['product_type']] ?? $need['product_type']); ?></div>
                                     </td>
                                     <td><?php echo app_escape($need['sku']); ?></td>
                                     <td><?php echo app_escape((string) $need['customer_demand']); ?></td>
@@ -287,22 +280,22 @@ require_once __DIR__ . '/../../includes/header.php';
                                     <td><?php echo app_escape((string) $need['moq']); ?></td>
                                     <td>
                                         <input type="number" class="form-control form-control-sm" style="width:90px;" name="quantity[<?php echo app_escape($rowKey); ?>]" min="1" value="<?php echo (int) $need['suggested_quantity']; ?>" <?php echo $disabled ? 'disabled' : ''; ?>>
+                                        <?php
+                                        // UI/UX Phase 5B: the "why" behind the pre-filled quantity, always visible instead of
+                                        // hidden behind a "Details" click - Need/Shortage and MOQ top-up are the exact same
+                                        // raw_need/moq_top_up values purchase_planning_needs() already computed, just no
+                                        // longer requiring an extra click to see. Reflects the pre-filled Order Qty, same
+                                        // "doesn't recompute live if the admin edits the input" convention as the Total column.
+                                        ?>
+                                        <div class="text-muted small">Need: <?php echo app_escape((string) $need['raw_need']); ?></div>
+                                        <?php if ((int) $need['moq_top_up'] > 0): ?>
+                                            <div class="small"><span class="badge bg-warning text-dark">+<?php echo (int) $need['moq_top_up']; ?> MOQ top-up</span></div>
+                                        <?php endif; ?>
                                     </td>
-                                    <td class="text-muted"><?php echo app_escape((string) $left); ?></td>
                                     <td>
                                         <input type="number" step="0.01" min="0" class="form-control form-control-sm" style="width:100px;" name="unit_cost[<?php echo app_escape($rowKey); ?>]" value="<?php echo app_escape(number_format((float) $need['cost_price'], 2, '.', '')); ?>" <?php echo $disabled ? 'disabled' : ''; ?>>
                                     </td>
                                     <td class="text-muted">RM <?php echo app_escape(number_format($need['suggested_quantity'] * (float) $need['cost_price'], 2)); ?></td>
-                                    <td>
-                                        <button type="button" class="btn btn-sm btn-link p-0" data-bs-toggle="collapse" data-bs-target="#detail-<?php echo app_escape($safeRowKey); ?>">Details</button>
-                                    </td>
-                                </tr>
-                                <tr class="collapse" id="detail-<?php echo app_escape($safeRowKey); ?>">
-                                    <td colspan="13" class="text-muted small py-2">
-                                        Type: <?php echo app_escape($productTypeLabels[$need['product_type']] ?? $need['product_type']); ?>
-                                        &nbsp;&middot;&nbsp; Need / Shortage: <?php echo app_escape((string) $need['raw_need']); ?>
-                                        &nbsp;&middot;&nbsp; MOQ top-up: <?php echo app_escape((string) $need['moq_top_up']); ?>
-                                    </td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -311,7 +304,10 @@ require_once __DIR__ . '/../../includes/header.php';
             </div>
         <?php endforeach; ?>
 
-        <button type="submit" class="btn btn-primary">Generate Supplier Order(s)</button>
+        <div class="card p-4 d-flex flex-row justify-content-between align-items-center">
+            <p class="text-muted small mb-0">Creates one draft supplier order per supplier for every checked row above - review quantities and costs before submitting.</p>
+            <button type="submit" class="btn btn-primary btn-lg">Generate Supplier Order(s)</button>
+        </div>
     </form>
 <?php endif; ?>
 <?php if ($highlightProductId !== null): ?>

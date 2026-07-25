@@ -247,6 +247,66 @@ foreach ($inventory as &$product) {
 }
 unset($product);
 
+// UI/UX Phase 5B: attention summary counts - a plain PHP count over the SAME already-fetched/
+// merged $inventory array above (before the stock_status/stage/needs_ordering filters further
+// below narrow it), using the identical ready_stock/override/threshold rule
+// inventory_stock_badges() already applies per-row. No new query, no new threshold logic -
+// reflects whatever catalog_type/product_type/supplier/category/search filters are already
+// active, same as the table itself.
+$attentionLowStockCount = 0;
+$attentionOutOfStockCount = 0;
+foreach ($inventory as $attentionProduct) {
+    if ($attentionProduct['product_type'] !== 'ready_stock') {
+        continue;
+    }
+    $attentionThreshold = $attentionProduct['min_stock_threshold'] !== null ? (int) $attentionProduct['min_stock_threshold'] : null;
+    $attentionOverride = $attentionProduct['availability_override'] ?? 'auto';
+    $attentionUnits = $attentionProduct['catalog_type'] === 'variable' ? ($attentionProduct['variations'] ?? []) : [$attentionProduct];
+
+    foreach ($attentionUnits as $attentionUnit) {
+        if ($attentionOverride === 'available') {
+            continue;
+        }
+        $attentionQty = (int) $attentionUnit['stock_quantity'];
+        if ($attentionOverride === 'out_of_stock' || $attentionQty === 0) {
+            $attentionOutOfStockCount++;
+        } elseif ($attentionThreshold !== null && $attentionQty < $attentionThreshold) {
+            $attentionLowStockCount++;
+        }
+    }
+}
+
+// Earliest expected delivery date already on file for a product's incoming stock - same
+// read-only lookup pattern already used on modules/purchase-planning/generate.php (same
+// query shape, same supplier_order_items/supplier_orders join), just batched here for
+// whatever products in THIS filtered list currently have incoming_stock > 0. Purely
+// informational context next to the existing Incoming number - never affects any quantity.
+$incomingProductIds = [];
+foreach ($inventory as $incomingProduct) {
+    if ((int) $incomingProduct['incoming_stock'] > 0) {
+        $incomingProductIds[] = (int) $incomingProduct['id'];
+    }
+}
+$incomingProductIds = array_values(array_unique($incomingProductIds));
+$earliestDeliveryByProductVariation = [];
+if ($incomingProductIds !== []) {
+    $incomingPlaceholders = implode(',', array_fill(0, count($incomingProductIds), '?'));
+    $incomingDeliveryStmt = $pdo->prepare("
+        SELECT soi.product_id, soi.variation_id, MIN(so.expected_delivery_date) AS earliest_expected
+        FROM supplier_order_items soi
+        INNER JOIN supplier_orders so ON so.id = soi.supplier_order_id
+        WHERE so.status NOT IN ('received', 'cancelled')
+          AND so.expected_delivery_date IS NOT NULL
+          AND soi.product_id IN ({$incomingPlaceholders})
+        GROUP BY soi.product_id, soi.variation_id
+    ");
+    $incomingDeliveryStmt->execute($incomingProductIds);
+    foreach ($incomingDeliveryStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $key = $row['product_id'] . ':' . (int) ($row['variation_id'] ?? 0);
+        $earliestDeliveryByProductVariation[$key] = $row['earliest_expected'];
+    }
+}
+
 /**
  * Stock Status (ready_stock only - mirrors inventory_stock_badges() below) or Inventory
  * Stage (any bucket with a positive quantity, any product type) - used to filter both
@@ -416,10 +476,10 @@ function inventory_availability_phrase(string $productType, string $overrideValu
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-header d-flex justify-content-between align-items-center">
     <div>
         <h2 class="mb-1">Inventory</h2>
-        <p class="text-muted mb-0">Current stock at a glance - adjustments and history stay one click away.</p>
+        <p class="page-description">Current stock at a glance - adjustments and history stay one click away.</p>
     </div>
     <div class="action-bar">
         <a class="btn btn-outline-primary" href="/modules/inventory/allocation-center.php">Allocate Preorders</a>
@@ -433,6 +493,22 @@ require_once __DIR__ . '/../../includes/header.php';
         <?php endif; ?>
     </div>
 </div>
+
+<?php if ($attentionOutOfStockCount > 0 || $attentionLowStockCount > 0): ?>
+    <div class="attention-item tone-danger d-flex justify-content-between align-items-center p-3 mb-4">
+        <span>
+            <?php if ($attentionOutOfStockCount > 0): ?>
+                <strong><?php echo (int) $attentionOutOfStockCount; ?></strong> out of stock
+            <?php endif; ?>
+            <?php if ($attentionOutOfStockCount > 0 && $attentionLowStockCount > 0): ?> &middot; <?php endif; ?>
+            <?php if ($attentionLowStockCount > 0): ?>
+                <strong><?php echo (int) $attentionLowStockCount; ?></strong> low stock
+            <?php endif; ?>
+            <?php echo ($filterCatalogType !== null || $filterProductType !== null || $filterSupplierId !== null || $filterCategoryId !== null || $searchTerm !== '') ? 'within the current filters' : 'across ready-stock products'; ?>
+        </span>
+        <a class="btn btn-outline-primary btn-sm" href="/modules/inventory/index.php?stock_status=low_stock">Review &rarr;</a>
+    </div>
+<?php endif; ?>
 
 <?php if (isset($_GET['adjusted'])): ?>
     <div class="alert alert-success">Inventory adjusted.</div>
@@ -557,8 +633,17 @@ require_once __DIR__ . '/../../includes/header.php';
                 $overrideValue = $product['availability_override'] ?? 'auto';
                 $isOrderable = catalog_product_is_orderable($product);
                 $availabilityPhrase = inventory_availability_phrase($product['product_type'], $overrideValue, $isOrderable);
+                // UI/UX Phase 5B: row highlight reuses inventory_stock_badges()'s own verdict
+                // (captured once, then both echoed as the badge AND used to color the row) -
+                // not a second stock-status rule, the exact same function call this row already
+                // made, just assigned to a variable first instead of echoed inline immediately.
+                $stockBadgeHtml = !$isVariable
+                    ? inventory_stock_badges($product['product_type'], $product['stock_quantity'], $product['min_stock_threshold'] !== null ? (int) $product['min_stock_threshold'] : null, $overrideValue)
+                    : '';
+                $rowAttentionClass = $stockBadgeHtml !== '' ? ' table-danger' : '';
+                $productDeliveryKey = (int) $product['id'] . ':0';
                 ?>
-                <tr class="<?php echo $isVariable ? 'table-light js-inventory-parent' : ''; ?>"
+                <tr class="<?php echo $isVariable ? 'table-light js-inventory-parent' : $rowAttentionClass; ?>"
                     <?php if ($isVariable): ?>
                         data-group="<?php echo app_escape($groupKey); ?>" data-expanded="<?php echo $autoExpand ? '1' : '0'; ?>" style="cursor:pointer;"
                     <?php endif; ?>
@@ -589,13 +674,16 @@ require_once __DIR__ . '/../../includes/header.php';
                         <?php else: ?>
                             <?php echo app_escape((string) $product['stock_quantity']); ?>
                             <?php if (!$isVariable): ?>
-                                <?php echo inventory_stock_badges($product['product_type'], $product['stock_quantity'], $product['min_stock_threshold'] !== null ? (int) $product['min_stock_threshold'] : null, $overrideValue); ?>
+                                <?php echo $stockBadgeHtml; ?>
                             <?php endif; ?>
                         <?php endif; ?>
                     </td>
                     <td data-label="Reserved"<?php echo $isVariable ? ' class="text-muted"' : ''; ?>><?php echo app_escape((string) $product['reserved_stock']); ?></td>
                     <td data-label="Incoming"<?php echo $isVariable ? ' class="text-muted"' : ''; ?>>
                         <?php echo app_escape((string) $product['incoming_stock']); ?>
+                        <?php if (!$isVariable && (int) $product['incoming_stock'] > 0 && isset($earliestDeliveryByProductVariation[$productDeliveryKey])): ?>
+                            <div class="text-muted small">Expected <?php echo app_escape($earliestDeliveryByProductVariation[$productDeliveryKey]); ?></div>
+                        <?php endif; ?>
                     </td>
                     <td data-label="Arrived"<?php echo $isVariable ? ' class="text-muted"' : ''; ?>><?php echo app_escape((string) $product['arrived_stock']); ?></td>
                     <td data-label="Last Updated" class="text-muted small"><?php echo $product['updated_at'] !== null ? app_escape($product['updated_at']) : '&mdash;'; ?></td>
@@ -621,8 +709,10 @@ require_once __DIR__ . '/../../includes/header.php';
                         <?php
                         $unitKey = (int) $product['id'] . ':' . (int) $variation['variation_id'];
                         $variationThumb = variation_effective_image($pdo, (int) $product['id'], (int) $variation['variation_id']);
+                        $variationBadgeHtml = inventory_stock_badges($product['product_type'], (int) $variation['stock_quantity'], $product['min_stock_threshold'] !== null ? (int) $product['min_stock_threshold'] : null, $overrideValue);
+                        $variationDeliveryKey = (int) $product['id'] . ':' . (int) $variation['variation_id'];
                         ?>
-                        <tr class="inventory-variation-row<?php echo $autoExpand ? '' : ' d-none'; ?>" data-group="<?php echo app_escape($groupKey); ?>">
+                        <tr class="inventory-variation-row<?php echo $autoExpand ? '' : ' d-none'; ?><?php echo $variationBadgeHtml !== '' ? ' table-danger' : ''; ?>" data-group="<?php echo app_escape($groupKey); ?>">
                             <td data-label="">
                                 <?php if ($variationThumb !== null): ?>
                                     <img src="/<?php echo app_escape($variationThumb); ?>" alt="" style="width:32px;height:32px;object-fit:cover;border-radius:6px;">
@@ -640,12 +730,15 @@ require_once __DIR__ . '/../../includes/header.php';
                                     <span class="text-muted"><?php echo app_escape($availabilityPhrase); ?></span>
                                 <?php else: ?>
                                     <?php echo app_escape((string) $variation['stock_quantity']); ?>
-                                    <?php echo inventory_stock_badges($product['product_type'], (int) $variation['stock_quantity'], $product['min_stock_threshold'] !== null ? (int) $product['min_stock_threshold'] : null, $overrideValue); ?>
+                                    <?php echo $variationBadgeHtml; ?>
                                 <?php endif; ?>
                             </td>
                             <td data-label="Reserved"><?php echo app_escape((string) $variation['reserved_stock']); ?></td>
                             <td data-label="Incoming">
                                 <?php echo app_escape((string) $variation['incoming_stock']); ?>
+                                <?php if ((int) $variation['incoming_stock'] > 0 && isset($earliestDeliveryByProductVariation[$variationDeliveryKey])): ?>
+                                    <div class="text-muted small">Expected <?php echo app_escape($earliestDeliveryByProductVariation[$variationDeliveryKey]); ?></div>
+                                <?php endif; ?>
                             </td>
                             <td data-label="Arrived"><?php echo app_escape((string) $variation['arrived_stock']); ?></td>
                             <td data-label="Last Updated" class="text-muted small"><?php echo $variation['updated_at'] !== null ? app_escape($variation['updated_at']) : '&mdash;'; ?></td>

@@ -382,15 +382,16 @@ $canViewCustomers = app_has_permission('customers.view');
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-header d-flex justify-content-between align-items-center">
     <div>
         <h2 class="mb-1">
             Order <?php echo app_escape(order_display_number($order['order_number'])); ?>
             <?php if (!empty($order['is_historical'])): ?>
                 <span class="badge bg-secondary">Historical</span>
             <?php endif; ?>
+            <?php echo order_status_badge($order['order_status']); ?>
         </h2>
-        <p class="text-muted mb-0">
+        <p class="page-description">
             <?php if ($order['customer_name'] === null): ?>
                 Unknown customer
             <?php elseif ($canViewCustomers && $order['customer_id'] !== null): ?>
@@ -442,7 +443,7 @@ require_once __DIR__ . '/../../includes/header.php';
             <h5 class="mb-3">Order Summary</h5>
             <table class="table table-borderless mb-0">
                 <tr><th>Status</th><td><?php echo order_status_badge($order['order_status']); ?></td></tr>
-                <tr><th>Payment Status</th><td><?php echo app_escape($order['payment_status']); ?></td></tr>
+                <tr><th>Payment Status</th><td><?php echo payment_status_badge($order['payment_status']); ?></td></tr>
                 <?php if (($order['receipt_status'] ?? null) !== null): ?>
                     <tr>
                         <th>Receipt</th>
@@ -480,17 +481,6 @@ require_once __DIR__ . '/../../includes/header.php';
             <div class="card p-4 mb-4">
                 <h5 class="mb-3">Internal Note <span class="badge bg-secondary">Staff Only</span></h5>
                 <p class="mb-0"><?php echo nl2br(app_escape($order['internal_note'])); ?></p>
-            </div>
-        <?php endif; ?>
-
-        <?php if (!empty($order['tracking_number'])): ?>
-            <div class="card p-4 mb-4">
-                <h5 class="mb-3">Shipping</h5>
-                <table class="table table-borderless mb-0">
-                    <tr><th>Carrier</th><td><?php echo $order['shipping_carrier'] !== null ? app_escape($order['shipping_carrier']) : '&mdash;'; ?></td></tr>
-                    <tr><th>Tracking Number</th><td><?php echo app_escape($order['tracking_number']); ?></td></tr>
-                    <tr><th>Shipped Date</th><td><?php echo $order['shipped_at'] !== null ? app_escape(date('j F Y', strtotime($order['shipped_at']))) : '&mdash;'; ?></td></tr>
-                </table>
             </div>
         <?php endif; ?>
 
@@ -563,6 +553,22 @@ require_once __DIR__ . '/../../includes/header.php';
     </div>
 
     <div class="col-lg-5">
+        <?php if ($order['customer_name'] !== null): ?>
+            <div class="card p-4 mb-4">
+                <h5 class="mb-3">Customer</h5>
+                <div class="fw-semibold">
+                    <?php if ($canViewCustomers && $order['customer_id'] !== null): ?>
+                        <a href="/modules/customers/view.php?id=<?php echo (int) $order['customer_id']; ?>"><?php echo app_escape($order['customer_name']); ?></a>
+                    <?php else: ?>
+                        <?php echo app_escape($order['customer_name']); ?>
+                    <?php endif; ?>
+                </div>
+                <?php if (!empty($order['customer_email'])): ?>
+                    <div class="text-muted small"><?php echo app_escape($order['customer_email']); ?></div>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
+
         <div class="card p-4 mb-4">
             <h5 class="mb-3">Receipt</h5>
             <?php if (!empty($order['receipt_url'])): ?>
@@ -645,7 +651,7 @@ require_once __DIR__ . '/../../includes/header.php';
 
             <div class="card p-4 mb-4">
                 <h5 class="mb-3">Payment Status</h5>
-                <div class="text-muted small mb-2">Current: <?php echo app_escape((string) $order['payment_status']); ?></div>
+                <div class="mb-2">Current: <?php echo payment_status_badge((string) $order['payment_status']); ?></div>
 
                 <?php if (in_array($order['payment_status'], $statusFields['payment_status']['terminal'], true)): ?>
                     <span class="badge bg-secondary">Final</span>
@@ -711,6 +717,13 @@ require_once __DIR__ . '/../../includes/header.php';
 
         <div class="card p-4 mb-4">
             <h5 class="mb-3">Shipments</h5>
+            <?php if (!empty($order['tracking_number'])): ?>
+                <div class="text-muted small mb-3 pb-3 border-bottom">
+                    Legacy tracking: <?php echo app_escape($order['tracking_number']); ?>
+                    <?php if ($order['shipping_carrier'] !== null): ?> (<?php echo app_escape($order['shipping_carrier']); ?>)<?php endif; ?>
+                    <?php if ($order['shipped_at'] !== null): ?> &middot; Shipped <?php echo app_escape(date('j F Y', strtotime($order['shipped_at']))); ?><?php endif; ?>
+                </div>
+            <?php endif; ?>
             <ul class="list-unstyled mb-0">
                 <?php foreach ($orderShipments as $shipment): ?>
                     <li class="mb-3">
@@ -744,7 +757,7 @@ require_once __DIR__ . '/../../includes/header.php';
             <ul class="list-unstyled mb-0">
                 <?php foreach ($events as $event): ?>
                     <li class="mb-3">
-                        <div class="fw-semibold"><?php echo app_escape($event['event_type']); ?></div>
+                        <div class="fw-semibold"><?php echo app_escape(order_event_type_label($event['event_type'])); ?></div>
                         <div><?php echo app_escape($event['description'] ?? ''); ?></div>
                         <div class="text-muted small">
                             <?php echo app_escape($event['created_at']); ?>
