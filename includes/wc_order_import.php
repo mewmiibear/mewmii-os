@@ -246,12 +246,24 @@ function wc_order_import_extract_receipt_fields(array $wcOrder): array
  * 'pending' exactly like every other not-yet-paid WooCommerce status. WooCommerce remains the
  * source of truth for which of the two the order is actually in; Mewmii OS only needs to know
  * "not paid yet" to run its own operational workflow correctly.
+ *
+ * 'shipped' is a custom order status added by a shipping/tracking plugin (e.g. Advanced
+ * Shipment Tracking) - not a default WooCommerce status. An order cannot reach "shipped"
+ * without having been paid first, so it maps to 'paid' exactly like 'processing'/'completed'.
+ * This is a payment_status mapping fix only: it does not feed mewmii_orders.order_status,
+ * which remains entirely computed by order_recompute_status() (includes/order_fulfillment.php,
+ * unchanged) from Mewmii OS's own fulfillment state - WooCommerce's status is never consulted
+ * for that column, before or after this change. Before this fix, an order WooCommerce moved to
+ * 'shipped' matched no key here, returned null, and was skipped entirely on every subsequent
+ * sync (see wc_order_import_single()) - not just its status but its totals/receipt fields too
+ * stopped updating the moment WooCommerce marked it shipped.
  */
 function wc_order_import_map_payment_status(string $wcStatus): ?string
 {
     $map = [
         'processing' => 'paid',
         'completed' => 'paid',
+        'shipped' => 'paid',
         'pending' => 'pending',
         'on-hold' => 'pending',
         'rcpt-review' => 'pending',
