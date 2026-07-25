@@ -78,7 +78,7 @@
     <div class="alert alert-danger"><?php echo app_escape($error); ?></div>
 <?php endif; ?>
 
-<form method="post" enctype="multipart/form-data" id="product-form">
+<form method="post" enctype="multipart/form-data" id="product-form" data-validate="1" novalidate>
     <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
 
     <div class="card p-4 mb-4">
@@ -103,10 +103,12 @@
             <div class="col-md-4">
                 <label class="form-label">SKU</label>
                 <input type="text" class="form-control" name="sku" value="<?php echo app_escape($form['sku']); ?>" maxlength="100" required>
+                <div class="invalid-feedback">SKU is required.</div>
             </div>
             <div class="col-md-8">
                 <label class="form-label">Product Name</label>
                 <input type="text" class="form-control" name="name" value="<?php echo app_escape($form['name']); ?>" maxlength="255" required>
+                <div class="invalid-feedback">Product name is required.</div>
             </div>
 
             <div class="col-12">
@@ -154,6 +156,7 @@
                     <option value="preorder" <?php echo $form['product_type'] === 'preorder' ? 'selected' : ''; ?>>Preorder</option>
                     <option value="early_bird" <?php echo $form['product_type'] === 'early_bird' ? 'selected' : ''; ?>>Early Bird</option>
                 </select>
+                <div class="invalid-feedback">Availability type is required.</div>
             </div>
             <div class="col-md-6">
                 <label class="form-label">Availability Override</label>
@@ -276,10 +279,12 @@
             <div class="col-md-3">
                 <label class="form-label">Cost Price (RM)</label>
                 <input type="number" step="0.01" min="0" class="form-control" name="product_cost" value="<?php echo app_escape($form['product_cost']); ?>" required>
+                <div class="invalid-feedback">Cost price is required.</div>
             </div>
             <div class="col-md-3">
                 <label class="form-label">Regular Price (RM)</label>
                 <input type="number" step="0.01" min="0" class="form-control" name="selling_price" value="<?php echo app_escape($form['selling_price']); ?>" required>
+                <div class="invalid-feedback">Regular price is required.</div>
             </div>
             <div class="col-md-6 d-flex align-items-end">
                 <label class="form-check">
@@ -532,5 +537,8 @@
 <?php
 $productFormJsPath = __DIR__ . '/../../assets/js/product-form.js';
 $productFormJsVersion = is_file($productFormJsPath) ? filemtime($productFormJsPath) : time();
+$entryFormJsPath = __DIR__ . '/../../assets/js/entry-form-validation.js';
+$entryFormJsVersion = is_file($entryFormJsPath) ? filemtime($entryFormJsPath) : time();
 ?>
 <script src="/assets/js/product-form.js?v=<?php echo (int) $productFormJsVersion; ?>"></script>
+<script src="/assets/js/entry-form-validation.js?v=<?php echo (int) $entryFormJsVersion; ?>"></script>
