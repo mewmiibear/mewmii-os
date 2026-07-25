@@ -210,14 +210,12 @@ require_once __DIR__ . '/../../includes/header.php';
         <?php if (isset($_GET['sync'])): ?>
             <div class="alert alert-info mb-0">
                 <?php
-                $successCount = isset($_GET['success']) ? (int) $_GET['success'] : 0;
+                $updatedCount = isset($_GET['updated']) ? (int) $_GET['updated'] : 0;
+                $skippedCount = isset($_GET['skipped']) ? (int) $_GET['skipped'] : 0;
                 $failedCount = isset($_GET['failed']) ? (int) $_GET['failed'] : 0;
 
-                if ($failedCount > 0) {
-                    echo 'WooCommerce sync completed. ' . $successCount . ' succeeded and ' . $failedCount . ' failed.';
-                } else {
-                    echo 'WooCommerce sync completed for ' . $successCount . ' product(s).';
-                }
+                echo 'WooCommerce sync completed. ' . $updatedCount . ' updated, ' . $skippedCount . ' unchanged (skipped)'
+                    . ($failedCount > 0 ? ', ' . $failedCount . ' failed.' : '.');
                 ?>
             </div>
         <?php endif; ?>

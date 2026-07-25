@@ -12,6 +12,39 @@
 require_once __DIR__ . '/inventory.php';
 require_once __DIR__ . '/catalog.php';
 require_once __DIR__ . '/product_variations.php';
+require_once __DIR__ . '/sync_log.php';
+
+// Reuses the existing, previously-unused generic `settings` key-value table - same pattern as
+// WC_ORDER_IMPORT_SETTING_LAST_SYNCED_AT (includes/wc_order_import.php) and
+// WC_PRODUCT_IMPORT_SETTING_LAST_SYNCED_AT (includes/wc_product_import.php). When enabled,
+// saving a product in Mewmii OS (modules/products/create.php/edit.php) pushes just that one
+// product to WooCommerce automatically - see wc_client_auto_sync_product(). Off by default
+// (wc_client_auto_sync_enabled() treats anything other than the literal string '1' as
+// disabled), so installs that only ever use the manual "Sync to WooCommerce" button see no
+// behavior change until an admin explicitly turns this on.
+const WC_CLIENT_AUTO_SYNC_SETTING_KEY = 'woocommerce_auto_sync_enabled';
+
+function wc_client_get_setting(PDO $pdo, string $key): ?string
+{
+    $stmt = $pdo->prepare('SELECT setting_value FROM settings WHERE setting_key = ?');
+    $stmt->execute([$key]);
+    $value = $stmt->fetchColumn();
+
+    return $value !== false ? (string) $value : null;
+}
+
+function wc_client_set_setting(PDO $pdo, string $key, string $value): void
+{
+    $pdo->prepare('
+        INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)
+        ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)
+    ')->execute([$key, $value]);
+}
+
+function wc_client_auto_sync_enabled(PDO $pdo): bool
+{
+    return wc_client_get_setting($pdo, WC_CLIENT_AUTO_SYNC_SETTING_KEY) === '1';
+}
 
 function wc_client_config(): array
 {
@@ -194,6 +227,101 @@ function wc_client_find_variation_by_sku(int $parentWcId, string $sku): ?array
     return null;
 }
 
+/**
+ * Direct lookup by WooCommerce product id - a single GET /products/{id}, no search involved.
+ * Returns null (never throws) on any failure, so callers can fall back to a SKU search - the
+ * stored id may be stale (e.g. the product was deleted on the WooCommerce side since the last
+ * sync) without that being treated as a hard error.
+ */
+function wc_client_find_product_by_id(int $wcId): ?array
+{
+    if ($wcId < 1) {
+        return null;
+    }
+
+    try {
+        $product = wc_client_get('products/' . $wcId);
+    } catch (Throwable $e) {
+        return null;
+    }
+
+    return ((int) ($product['id'] ?? 0) === $wcId) ? $product : null;
+}
+
+/** Same as wc_client_find_product_by_id(), for one variation under a known parent product. */
+function wc_client_find_variation_by_id(int $parentWcId, int $wcVariationId): ?array
+{
+    if ($parentWcId < 1 || $wcVariationId < 1) {
+        return null;
+    }
+
+    try {
+        $variation = wc_client_get('products/' . $parentWcId . '/variations/' . $wcVariationId);
+    } catch (Throwable $e) {
+        return null;
+    }
+
+    return ((int) ($variation['id'] ?? 0) === $wcVariationId) ? $variation : null;
+}
+
+/**
+ * Resolves the existing WooCommerce product (if any) a Mewmii product row should be synced
+ * against - woocommerce_product_id PREFERRED (a single direct GET, no search), SKU used only
+ * as a fallback when that id is missing, or when it's set but no longer resolves on the
+ * WooCommerce side (e.g. deleted there since the last sync). This is what makes a SKU edit in
+ * Mewmii OS safe to sync: once a product has a woocommerce_product_id, a later SKU change can
+ * never cause the SKU-search fallback to silently miss it and create a duplicate - the id
+ * lookup already found (and will keep using) the correct product regardless of what its SKU
+ * is on either side.
+ */
+function wc_client_resolve_existing_product(array $product, string $sku): ?array
+{
+    $wcId = (int) ($product['woocommerce_product_id'] ?? 0);
+
+    if ($wcId > 0) {
+        $existing = wc_client_find_product_by_id($wcId);
+        if ($existing !== null) {
+            return $existing;
+        }
+    }
+
+    return wc_client_find_product_by_sku($sku);
+}
+
+/** Same id-preferred, SKU-fallback resolution as wc_client_resolve_existing_product(), for one variation. */
+function wc_client_resolve_existing_variation(int $remoteProductId, array $variation, string $variationSku): ?array
+{
+    $wcVariationId = (int) ($variation['woocommerce_variation_id'] ?? 0);
+
+    if ($wcVariationId > 0) {
+        $existing = wc_client_find_variation_by_id($remoteProductId, $wcVariationId);
+        if ($existing !== null) {
+            return $existing;
+        }
+    }
+
+    return wc_client_find_variation_by_sku($remoteProductId, $variationSku);
+}
+
+/**
+ * Mewmii products.status -> WooCommerce product status. The inverse of
+ * wc_import_map_product_status() (includes/wc_product_import.php), kept consistent with it:
+ * active <-> publish, hidden <-> private. 'draft' maps straight across. 'archived' has no
+ * WooCommerce equivalent - mapped to 'draft' (hidden from the storefront, but never WordPress
+ * 'trash', which carries its own auto-delete behavior far more destructive than intended here).
+ */
+function wc_client_map_product_status_for_woocommerce(string $mewmiiStatus): string
+{
+    switch ($mewmiiStatus) {
+        case 'active':
+            return 'publish';
+        case 'hidden':
+            return 'private';
+        default: // draft, archived, or anything unrecognized - never force-publish by default.
+            return 'draft';
+    }
+}
+
 function wc_client_build_gallery_images(PDO $pdo, int $productId): array
 {
     // Main image first (if any), then gallery images in order - matches WooCommerce's
@@ -373,7 +501,7 @@ function wc_client_build_product_payload(array $product, PDO $pdo): array
         'description' => $description,
         'regular_price' => $price,
         'price' => $price,
-        'status' => 'publish',
+        'status' => wc_client_map_product_status_for_woocommerce((string) ($product['status'] ?? 'draft')),
     ];
 
     if (in_array($product['product_type'] ?? 'ready_stock', ['preorder', 'early_bird'], true)) {
@@ -438,7 +566,7 @@ function wc_client_sync_product_from_mewmii(PDO $pdo, array $product): array
     $payload = wc_client_build_product_payload($product, $pdo);
     $payload['sku'] = $sku;
 
-    $existingProduct = wc_client_find_product_by_sku($sku);
+    $existingProduct = wc_client_resolve_existing_product($product, $sku);
     $response = $existingProduct !== null
         ? wc_client_put('products/' . (int) ($existingProduct['id'] ?? 0), $payload)
         : wc_client_post('products', $payload);
@@ -486,7 +614,7 @@ function wc_client_sync_variable_product_from_mewmii(PDO $pdo, array $product): 
         'type' => 'variable',
         'description' => trim((string) ($product['description'] ?? '')),
         'sku' => $sku,
-        'status' => 'publish',
+        'status' => wc_client_map_product_status_for_woocommerce((string) ($product['status'] ?? 'draft')),
         'attributes' => wc_client_build_variable_attributes_payload($pdo, $productId),
     ];
 
@@ -502,7 +630,7 @@ function wc_client_sync_variable_product_from_mewmii(PDO $pdo, array $product): 
         $payload['images'] = $images;
     }
 
-    $existingProduct = wc_client_find_product_by_sku($sku);
+    $existingProduct = wc_client_resolve_existing_product($product, $sku);
     $response = $existingProduct !== null
         ? wc_client_put('products/' . (int) ($existingProduct['id'] ?? 0), $payload)
         : wc_client_post('products', $payload);
@@ -570,7 +698,7 @@ function wc_client_sync_variable_product_from_mewmii(PDO $pdo, array $product): 
             $variationPayload['image'] = $image;
         }
 
-        $existingVariation = wc_client_find_variation_by_sku($remoteProductId, $variationSku);
+        $existingVariation = wc_client_resolve_existing_variation($remoteProductId, $variation, $variationSku);
         $variationResponse = $existingVariation !== null
             ? wc_client_put('products/' . $remoteProductId . '/variations/' . (int) ($existingVariation['id'] ?? 0), $variationPayload)
             : wc_client_post('products/' . $remoteProductId . '/variations', $variationPayload);
@@ -596,4 +724,144 @@ function wc_client_sync_any_product_from_mewmii(PDO $pdo, array $product): array
     }
 
     return wc_client_sync_product_from_mewmii($pdo, $product);
+}
+
+/**
+ * A stable fingerprint of every field wc_client_sync_any_product_from_mewmii() actually pushes
+ * to WooCommerce - built from the same raw Mewmii data wc_client_build_product_payload()/
+ * wc_client_sync_variable_product_from_mewmii() read, not the WooCommerce-shaped payload
+ * itself, so this never needs to duplicate that shaping logic (reuses
+ * product_effective_stock(), wc_client_build_gallery_images(), variation_list_for_product(),
+ * wc_client_build_variation_attributes_payload() exactly as the real sync does). Used by
+ * wc_client_sync_if_changed() to skip a product whose WooCommerce-relevant fields haven't
+ * changed since its last successful sync, without an API call.
+ */
+function wc_client_product_sync_fingerprint(PDO $pdo, array $product): string
+{
+    $productId = (int) ($product['id'] ?? 0);
+    $catalogType = ($product['catalog_type'] ?? 'simple') === 'variable' ? 'variable' : 'simple';
+
+    $parts = [
+        $product['name'] ?? '',
+        $product['description'] ?? '',
+        $product['short_description'] ?? '',
+        $product['sku'] ?? '',
+        $product['selling_price'] ?? '',
+        $product['sale_enabled'] ?? '',
+        $product['sale_price'] ?? '',
+        $product['sale_start_date'] ?? '',
+        $product['preorder_closing_date'] ?? '',
+        $product['preorder_reopened_at'] ?? '',
+        $product['product_type'] ?? '',
+        $product['status'] ?? '',
+        $product['availability_override'] ?? '',
+        $product['estimated_release_month'] ?? '',
+        $catalogType,
+    ];
+
+    if ($catalogType === 'simple') {
+        $stock = product_effective_stock($pdo, $productId);
+        $parts[] = (int) $stock['available_quantity'];
+    }
+
+    // Images (main + gallery) - path and order, since either changing should trigger a re-sync.
+    foreach (wc_client_build_gallery_images($pdo, $productId) as $image) {
+        $parts[] = $image['src'];
+    }
+
+    if ($catalogType === 'variable') {
+        foreach (variation_list_for_product($pdo, $productId) as $variation) {
+            if ($variation['status'] === 'archived') {
+                continue;
+            }
+
+            $parts[] = implode('|', [
+                $variation['id'], $variation['sku'], $variation['price_mode'], $variation['custom_price'],
+                $variation['weight'], $variation['status'], $variation['available_quantity'],
+                $variation['image_path'] ?? '',
+            ]);
+
+            foreach (wc_client_build_variation_attributes_payload($pdo, (int) $variation['id']) as $attribute) {
+                $parts[] = $attribute['name'] . '=' . $attribute['option'];
+            }
+        }
+    }
+
+    return hash('sha256', json_encode($parts));
+}
+
+/**
+ * Wraps wc_client_sync_any_product_from_mewmii() with a "skip if nothing WooCommerce-relevant
+ * changed since the last successful sync" gate - reduces API calls on a bulk "Sync to
+ * WooCommerce" run without touching the sync logic itself (see
+ * wc_client_product_sync_fingerprint()). A product that has never been synced
+ * (woocommerce_product_id not yet set) is always synced regardless of the stored hash, since
+ * a NULL/stale hash must never be mistaken for "nothing to do" on a first-time push.
+ *
+ * @return array{action: 'updated'|'skipped'} merged with wc_client_sync_any_product_from_mewmii()'s
+ * own return value when action is 'updated'.
+ */
+function wc_client_sync_if_changed(PDO $pdo, array $product): array
+{
+    $productId = (int) ($product['id'] ?? 0);
+    $fingerprint = wc_client_product_sync_fingerprint($pdo, $product);
+
+    $storedHash = $product['woocommerce_sync_hash'] ?? null;
+    $alreadyPublished = !empty($product['woocommerce_product_id']);
+
+    if ($alreadyPublished && $storedHash !== null && hash_equals($storedHash, $fingerprint)) {
+        return ['action' => 'skipped'];
+    }
+
+    $result = wc_client_sync_any_product_from_mewmii($pdo, $product);
+
+    $pdo->prepare('UPDATE products SET woocommerce_sync_hash = ? WHERE id = ?')
+        ->execute([$fingerprint, $productId]);
+
+    return array_merge(['action' => 'updated'], $result);
+}
+
+/**
+ * Pushes exactly one product to WooCommerce via wc_client_sync_if_changed() - the "Auto Sync
+ * to WooCommerce" action (see wc_client_auto_sync_enabled()), called from
+ * modules/products/create.php/edit.php right after a successful local save, when the setting
+ * is on. Deliberately never throws: a WooCommerce-side failure must never block the save it's
+ * reacting to, or the redirect that follows it - logged to sync_logs exactly like the manual
+ * "Sync to WooCommerce" button (same sync_type), so a failure is still visible on
+ * modules/integrations/woocommerce.php, just never disruptive to the person saving the
+ * product. Re-reads the product row itself (rather than trusting the caller's own in-memory
+ * $form array, which isn't shaped like a full `products` row and doesn't carry
+ * woocommerce_product_id/woocommerce_sync_hash) so it always syncs exactly what was just
+ * committed to the database, not what was posted.
+ */
+function wc_client_auto_sync_product(PDO $pdo, int $productId): void
+{
+    try {
+        $stmt = $pdo->prepare("
+            SELECT id, sku, name, short_description, description, catalog_type, selling_price, product_type,
+                   status, availability_override, preorder_closing_date, preorder_reopened_at,
+                   estimated_arrival_date, estimated_release_month, sale_enabled, sale_price, sale_start_date,
+                   woocommerce_product_id, woocommerce_sync_hash
+            FROM products WHERE id = ? LIMIT 1
+        ");
+        $stmt->execute([$productId]);
+        $product = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($product === false || trim((string) $product['sku']) === '') {
+            return;
+        }
+
+        $result = wc_client_sync_if_changed($pdo, $product);
+
+        if ($result['action'] === 'updated') {
+            sync_log_success($pdo, 'woocommerce_product_sync', $productId);
+        }
+    } catch (Throwable $e) {
+        // The logging call itself is also guarded - this function's whole point is that
+        // NOTHING it does may ever propagate back to the save it's reacting to.
+        try {
+            sync_log_failure($pdo, 'woocommerce_product_sync', $e->getMessage(), $productId);
+        } catch (Throwable $loggingFailure) {
+        }
+    }
 }

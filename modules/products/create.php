@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/catalog.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
+require_once __DIR__ . '/../../includes/wc_client.php';
 app_require_permission('products.manage');
 
 $appTitle = 'Add Product';
@@ -259,6 +260,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $pdo->commit();
+
+            // Strictly after commit, never inside the transaction above - see the identical
+            // comment in modules/products/edit.php.
+            if (wc_client_auto_sync_enabled($pdo)) {
+                wc_client_auto_sync_product($pdo, $productId);
+            }
 
             app_redirect('/modules/products/edit.php?id=' . $productId . '&created=1');
         } catch (RuntimeException $exception) {

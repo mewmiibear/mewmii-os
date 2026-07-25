@@ -210,6 +210,11 @@ CREATE TABLE IF NOT EXISTS products (
   status VARCHAR(50) NOT NULL DEFAULT 'coming_soon',
   availability_override VARCHAR(20) NOT NULL DEFAULT 'auto',
   published_to_woocommerce TINYINT(1) NOT NULL DEFAULT 0,
+  -- Fingerprint of every field the last successful "Sync to WooCommerce" push actually sent
+  -- (see wc_client_product_sync_fingerprint() in includes/wc_client.php) - lets a bulk sync
+  -- skip a product whose WooCommerce-relevant fields haven't changed since then, without a
+  -- WooCommerce API call. NULL for a product that has never been pushed.
+  woocommerce_sync_hash VARCHAR(64) NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_products_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE SET NULL,

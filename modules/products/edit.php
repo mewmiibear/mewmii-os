@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/catalog.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
+require_once __DIR__ . '/../../includes/wc_client.php';
 app_require_permission('products.manage');
 
 $appTitle = 'Edit Product';
@@ -292,6 +293,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $pdo->commit();
+
+            // Strictly after commit, never inside the transaction above - a WooCommerce push
+            // can't be undone by a later rollback, so it must only ever happen once the local
+            // save is truly final. See wc_client_auto_sync_product()'s own docblock for why
+            // this can never fail the request itself.
+            if (wc_client_auto_sync_enabled($pdo)) {
+                wc_client_auto_sync_product($pdo, $productId);
+            }
 
             app_redirect('/modules/products/edit.php?id=' . $productId . '&updated=1');
         } catch (RuntimeException $exception) {
