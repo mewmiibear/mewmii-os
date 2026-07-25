@@ -26,6 +26,12 @@ $filterStatus = in_array($_GET['status'] ?? '', $statusOptions, true) ? $_GET['s
 // replacement (see catalog_product_lifecycle_stage()), not an addition on top of it.
 $quick = in_array($_GET['quick'] ?? '', ['ready_stock', 'preorder', 'early_bird', 'low_stock'], true) ? $_GET['quick'] : null;
 $searchTerm = trim((string) ($_GET['q'] ?? ''));
+// Sprint 12: Tags (match ANY selected tag) and Stock Status - independent of the lifecycle
+// "quick" chips above (which describe preorder/early_bird/ready_stock stage, not raw
+// available_quantity), so both can be combined with every other filter on this page.
+$stockStatusOptions = ['in_stock', 'low_stock', 'out_of_stock'];
+$filterTagIds = array_values(array_unique(array_filter(array_map('intval', $_GET['tag_ids'] ?? []), static fn (int $id): bool => $id > 0)));
+$filterStockStatus = in_array($_GET['stock_status'] ?? '', $stockStatusOptions, true) ? $_GET['stock_status'] : null;
 
 // --- Sorting: whitelisted field -> safe SQL expression, never string-built from raw input.
 // 'stock' sorts on the same batched available_quantity used for the new stock columns below,
@@ -96,6 +102,23 @@ if ($searchTerm !== '') {
     $params[] = $likeTerm;
     $params[] = $likeTerm;
     $params[] = $likeTerm;
+}
+if ($filterTagIds !== []) {
+    $tagPlaceholders = implode(',', array_fill(0, count($filterTagIds), '?'));
+    $whereSql .= " AND EXISTS (SELECT 1 FROM product_tag_relationships r WHERE r.product_id = p.id AND r.tag_id IN ({$tagPlaceholders}))";
+    foreach ($filterTagIds as $tagId) {
+        $params[] = $tagId;
+    }
+}
+// Same batched stock.available_quantity used for display/sorting/quick=low_stock above -
+// a raw on-hand-quantity view, independent of the lifecycle "quick" chips (preorder/early
+// bird availability never depends on quantity - see catalog_product_availability_status()).
+if ($filterStockStatus === 'in_stock') {
+    $whereSql .= ' AND COALESCE(stock.available_quantity, 0) > 0';
+} elseif ($filterStockStatus === 'out_of_stock') {
+    $whereSql .= ' AND COALESCE(stock.available_quantity, 0) <= 0';
+} elseif ($filterStockStatus === 'low_stock') {
+    $whereSql .= ' AND p.min_stock_threshold IS NOT NULL AND COALESCE(stock.available_quantity, 0) > 0 AND COALESCE(stock.available_quantity, 0) < p.min_stock_threshold';
 }
 // quick=low_stock is a plain numeric comparison against the same batched stock.available_quantity
 // used for display/sorting above - not a re-derivation of a different formula, so it composes
@@ -171,6 +194,7 @@ $filterCategories = catalog_list_categories_tree($pdo);
 $filterBrands = catalog_list_brands($pdo);
 $filterCollections = catalog_list_collections($pdo);
 $filterSuppliers = $pdo->query('SELECT id, name FROM suppliers ORDER BY name ASC')->fetchAll(PDO::FETCH_ASSOC);
+$filterTagsList = catalog_list_tags($pdo);
 
 $chipActive = static function (array $chipParams): bool {
     foreach ($chipParams as $key => $value) {
@@ -275,7 +299,7 @@ require_once __DIR__ . '/../../includes/header.php';
 
 <?php render_saved_views_widget($pdo, 'products'); ?>
 
-<?php $filterKeys = ['category_id', 'brand_id', 'collection_id', 'supplier_id', 'catalog_type', 'status', 'quick', 'q']; ?>
+<?php $filterKeys = ['category_id', 'brand_id', 'collection_id', 'supplier_id', 'catalog_type', 'status', 'quick', 'q', 'tag_ids', 'stock_status']; ?>
 <div class="d-flex flex-wrap gap-2 mb-3">
     <?php foreach ($chips as $chip): ?>
         <?php
@@ -357,6 +381,29 @@ require_once __DIR__ . '/../../includes/header.php';
                     <option value="<?php echo (int) $supplier['id']; ?>" <?php echo $filterSupplierId === (int) $supplier['id'] ? 'selected' : ''; ?>><?php echo app_escape($supplier['name']); ?></option>
                 <?php endforeach; ?>
             </select>
+        </div>
+
+        <div class="col-md-2">
+            <label class="form-label small mb-1">Stock Status</label>
+            <select name="stock_status" class="form-select form-select-sm">
+                <option value="">All</option>
+                <option value="in_stock" <?php echo $filterStockStatus === 'in_stock' ? 'selected' : ''; ?>>In Stock</option>
+                <option value="low_stock" <?php echo $filterStockStatus === 'low_stock' ? 'selected' : ''; ?>>Low Stock</option>
+                <option value="out_of_stock" <?php echo $filterStockStatus === 'out_of_stock' ? 'selected' : ''; ?>>Out of Stock</option>
+            </select>
+        </div>
+
+        <div class="col-md-2">
+            <div class="d-flex justify-content-between align-items-center">
+                <label class="form-label small mb-1">Tags</label>
+                <a class="small" href="/modules/catalog/index.php?tab=tags" target="_blank" rel="noopener">Manage &#8599;</a>
+            </div>
+            <select name="tag_ids[]" class="form-select form-select-sm" multiple size="4">
+                <?php foreach ($filterTagsList as $tag): ?>
+                    <option value="<?php echo (int) $tag['id']; ?>" <?php echo in_array((int) $tag['id'], $filterTagIds, true) ? 'selected' : ''; ?>><?php echo app_escape($tag['name']); ?></option>
+                <?php endforeach; ?>
+            </select>
+            <div class="form-text">Ctrl/Cmd-click to select multiple. Matches any.</div>
         </div>
 
         <div class="col-md-2">

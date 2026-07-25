@@ -268,7 +268,7 @@ function catalog_tab_tags_render(array $ctx): void
                 <?php foreach ($displayedTags as $tag): ?>
                     <tr>
                         <td><?php echo app_escape($tag['name']); ?></td>
-                        <td><?php echo (int) $tag['product_count']; ?></td>
+                        <td><a href="/modules/products/index.php?<?php echo http_build_query(['tag_ids' => [(int) $tag['id']]]); ?>"><?php echo (int) $tag['product_count']; ?></a></td>
                         <td class="text-end">
                             <?php if ($canManage): ?>
                                 <div class="d-flex gap-1 justify-content-end">

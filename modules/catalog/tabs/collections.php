@@ -287,6 +287,8 @@ function catalog_tab_collections_render(array $ctx): void
         </div>
     <?php endif; ?>
 
+    <p class="text-muted small">To assign products to a collection, select them on the <a href="/modules/products/index.php">Products</a> list and use the "Set Collection" bulk action. The count below links to that collection's currently-assigned products.</p>
+
     <div class="card p-4 mb-4 filter-card">
         <form method="get" class="row g-2 align-items-end" action="/modules/catalog/index.php">
             <input type="hidden" name="tab" value="collections">
@@ -320,7 +322,7 @@ function catalog_tab_collections_render(array $ctx): void
                 <?php foreach ($displayedCollections as $collection): ?>
                     <tr>
                         <td><?php echo app_escape($collection['name']); ?></td>
-                        <td><?php echo (int) $collection['product_count']; ?></td>
+                        <td><a href="/modules/products/index.php?collection_id=<?php echo (int) $collection['id']; ?>"><?php echo (int) $collection['product_count']; ?></a></td>
                         <td><?php echo $collection['created_at'] !== null ? app_escape($collection['created_at']) : '-'; ?></td>
                         <td class="text-end">
                             <?php if ($canManage): ?>

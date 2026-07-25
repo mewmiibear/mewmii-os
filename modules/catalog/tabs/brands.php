@@ -321,7 +321,7 @@ function catalog_tab_brands_render(array $ctx): void
                 <?php foreach ($displayedBrands as $brand): ?>
                     <tr>
                         <td><?php echo app_escape($brand['name']); ?></td>
-                        <td><?php echo (int) $brand['product_count']; ?></td>
+                        <td><a href="/modules/products/index.php?brand_id=<?php echo (int) $brand['id']; ?>"><?php echo (int) $brand['product_count']; ?></a></td>
                         <td><?php echo $brand['created_at'] !== null ? app_escape($brand['created_at']) : '-'; ?></td>
                         <td class="text-end">
                             <?php if ($canManage): ?>
