@@ -205,6 +205,11 @@ CREATE TABLE IF NOT EXISTS products (
   internal_code VARCHAR(100) NULL,
   selling_price DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   product_cost DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  -- Costing prep (Sprint 13) - no calculation logic reads these yet; product_cost stays
+  -- authoritative everywhere. See database/migrate_product_costing.php for the intended
+  -- converted-cost/landed-cost formula this is scaffolding for.
+  cost_currency VARCHAR(10) NULL,
+  exchange_rate DECIMAL(10,4) NULL,
   sale_enabled TINYINT(1) NOT NULL DEFAULT 0,
   sale_price DECIMAL(12,2) NULL,
   min_stock_threshold INT UNSIGNED NULL,
@@ -623,6 +628,10 @@ CREATE TABLE IF NOT EXISTS supplier_order_items (
   total_quantity INT UNSIGNED NOT NULL DEFAULT 0,
   supplier_price DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   subtotal DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  -- Costing prep (Sprint 13) - this line's share of its PO's shipping_fee; not yet
+  -- computed/used anywhere. See products.exchange_rate's comment above for the intended
+  -- landed-cost formula.
+  shipping_allocated DECIMAL(12,2) NULL,
   CONSTRAINT fk_supplier_order_items_order FOREIGN KEY (supplier_order_id) REFERENCES supplier_orders(id) ON DELETE CASCADE,
   CONSTRAINT fk_supplier_order_items_product FOREIGN KEY (product_id) REFERENCES products(id),
   CONSTRAINT fk_supplier_order_items_variation FOREIGN KEY (variation_id) REFERENCES product_variations(id)

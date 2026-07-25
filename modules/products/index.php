@@ -32,6 +32,9 @@ $searchTerm = trim((string) ($_GET['q'] ?? ''));
 $stockStatusOptions = ['in_stock', 'low_stock', 'out_of_stock'];
 $filterTagIds = array_values(array_unique(array_filter(array_map('intval', $_GET['tag_ids'] ?? []), static fn (int $id): bool => $id > 0)));
 $filterStockStatus = in_array($_GET['stock_status'] ?? '', $stockStatusOptions, true) ? $_GET['stock_status'] : null;
+// Sprint 13: missing-image detection - a product with no main image at all (the same
+// image_type = 'main' row modules/products/_form.php's "Product Image" field manages).
+$filterMissingImage = ($_GET['missing_image'] ?? '') === '1';
 
 // --- Sorting: whitelisted field -> safe SQL expression, never string-built from raw input.
 // 'stock' sorts on the same batched available_quantity used for the new stock columns below,
@@ -119,6 +122,9 @@ if ($filterStockStatus === 'in_stock') {
     $whereSql .= ' AND COALESCE(stock.available_quantity, 0) <= 0';
 } elseif ($filterStockStatus === 'low_stock') {
     $whereSql .= ' AND p.min_stock_threshold IS NOT NULL AND COALESCE(stock.available_quantity, 0) > 0 AND COALESCE(stock.available_quantity, 0) < p.min_stock_threshold';
+}
+if ($filterMissingImage) {
+    $whereSql .= " AND NOT EXISTS (SELECT 1 FROM product_images pi3 WHERE pi3.product_id = p.id AND pi3.variation_id IS NULL AND pi3.image_type = 'main')";
 }
 // quick=low_stock is a plain numeric comparison against the same batched stock.available_quantity
 // used for display/sorting above - not a re-derivation of a different formula, so it composes
@@ -231,6 +237,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <?php if ($canManage): ?>
         <div class="action-bar">
             <a class="btn btn-primary" href="/modules/products/create.php">Add Product</a>
+            <a class="btn btn-outline-secondary" href="/modules/products/import.php">Import CSV</a>
         </div>
     <?php endif; ?>
 </div>
@@ -299,7 +306,7 @@ require_once __DIR__ . '/../../includes/header.php';
 
 <?php render_saved_views_widget($pdo, 'products'); ?>
 
-<?php $filterKeys = ['category_id', 'brand_id', 'collection_id', 'supplier_id', 'catalog_type', 'status', 'quick', 'q', 'tag_ids', 'stock_status']; ?>
+<?php $filterKeys = ['category_id', 'brand_id', 'collection_id', 'supplier_id', 'catalog_type', 'status', 'quick', 'q', 'tag_ids', 'stock_status', 'missing_image']; ?>
 <div class="d-flex flex-wrap gap-2 mb-3">
     <?php foreach ($chips as $chip): ?>
         <?php
@@ -404,6 +411,13 @@ require_once __DIR__ . '/../../includes/header.php';
                 <?php endforeach; ?>
             </select>
             <div class="form-text">Ctrl/Cmd-click to select multiple. Matches any.</div>
+        </div>
+
+        <div class="col-md-2 d-flex align-items-center">
+            <div class="form-check mt-2">
+                <input type="checkbox" class="form-check-input" id="missing-image-toggle" name="missing_image" value="1" <?php echo $filterMissingImage ? 'checked' : ''; ?> onchange="this.form.submit()">
+                <label class="form-check-label small" for="missing-image-toggle">Missing image only</label>
+            </div>
         </div>
 
         <div class="col-md-2">
