@@ -112,10 +112,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-header d-flex justify-content-between align-items-center">
     <div>
         <h2 class="mb-1">Edit Supplier</h2>
-        <p class="text-muted mb-0"><?php echo app_escape($supplier['name']); ?></p>
+        <p class="page-description"><?php echo app_escape($supplier['name']); ?></p>
     </div>
     <a class="btn btn-outline-secondary btn-sm" href="/modules/suppliers/index.php">Back to Suppliers</a>
 </div>
@@ -128,56 +128,77 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="alert alert-danger"><?php echo app_escape($error); ?></div>
 <?php endif; ?>
 
-<div class="card p-4">
-    <form method="post">
-        <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+<form method="post" data-validate="1" novalidate>
+    <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
 
+    <div class="card p-4 mb-4">
+        <h5 class="mb-3">Company Info</h5>
         <div class="row g-3">
-            <div class="col-md-6">
-                <label class="form-label">Name</label>
+            <div class="col-md-4">
+                <label class="form-label">Supplier Name</label>
                 <input type="text" class="form-control" name="name" value="<?php echo app_escape($form['name']); ?>" maxlength="120" required>
+                <div class="invalid-feedback">Supplier name is required.</div>
             </div>
-
-            <div class="col-md-6">
+            <div class="col-md-4">
                 <label class="form-label">Contact</label>
                 <input type="text" class="form-control" name="contact" value="<?php echo app_escape($form['contact']); ?>" maxlength="120">
             </div>
-
-            <div class="col-md-6">
+            <div class="col-md-4">
                 <label class="form-label">Country</label>
                 <input type="text" class="form-control" name="country" value="<?php echo app_escape($form['country']); ?>" maxlength="100">
             </div>
+        </div>
+    </div>
 
-            <div class="col-12"><hr class="my-1"></div>
-
-            <div class="col-md-6">
-                <label class="form-label">Contact Person</label>
+    <div class="card p-4 mb-4">
+        <h5 class="mb-3">Contact Person</h5>
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label">Name</label>
                 <input type="text" class="form-control" name="contact_person" value="<?php echo app_escape($form['contact_person']); ?>" maxlength="120">
             </div>
-            <div class="col-md-6">
+            <div class="col-md-4">
                 <label class="form-label">Phone</label>
                 <input type="text" class="form-control" name="phone" value="<?php echo app_escape($form['phone']); ?>" maxlength="50">
             </div>
             <div class="col-md-4">
                 <label class="form-label">Email</label>
-                <input type="email" class="form-control" name="email" value="<?php echo app_escape($form['email']); ?>" maxlength="190">
+                <div class="input-group has-validation">
+                    <span class="input-group-text">@</span>
+                    <input type="email" class="form-control" name="email" value="<?php echo app_escape($form['email']); ?>" maxlength="190">
+                    <div class="invalid-feedback">Enter a valid email address.</div>
+                </div>
             </div>
-            <div class="col-md-4">
+        </div>
+    </div>
+
+    <div class="card p-4 mb-4">
+        <h5 class="mb-3">Financials &amp; Terms</h5>
+        <div class="row g-3">
+            <div class="col-md-6">
                 <label class="form-label">Currency</label>
                 <input type="text" class="form-control" name="currency" value="<?php echo app_escape($form['currency']); ?>" maxlength="10" placeholder="e.g. RM, USD, CNY">
             </div>
-            <div class="col-md-4">
+            <div class="col-md-6">
                 <label class="form-label">Payment Terms</label>
                 <input type="text" class="form-control" name="payment_terms" value="<?php echo app_escape($form['payment_terms']); ?>" maxlength="100" placeholder="e.g. Net 30, 50% deposit">
             </div>
-
-            <div class="col-12">
-                <label class="form-label">Notes</label>
-                <textarea class="form-control" name="notes" rows="3"><?php echo app_escape($form['notes']); ?></textarea>
-            </div>
         </div>
+    </div>
 
-        <button class="btn btn-primary mt-4" type="submit">Save Changes</button>
-    </form>
-</div>
+    <div class="card p-4 mb-4">
+        <h5 class="mb-3">Notes</h5>
+        <textarea class="form-control" name="notes" rows="3"><?php echo app_escape($form['notes']); ?></textarea>
+    </div>
+
+    <div class="d-flex gap-2 py-3" style="position: sticky; bottom: 0; background: #fff; z-index: 1020; border-top: 1px solid #dee2e6;">
+        <button class="btn btn-primary" type="submit">Save Changes</button>
+        <a class="btn btn-outline-secondary" href="/modules/suppliers/index.php">Cancel</a>
+    </div>
+</form>
+<?php
+$entryFormJsPath = __DIR__ . '/../../assets/js/entry-form-validation.js';
+$entryFormJsVersion = is_file($entryFormJsPath) ? filemtime($entryFormJsPath) : time();
+?>
+<script src="/assets/js/entry-form-validation.js?v=<?php echo (int) $entryFormJsVersion; ?>"></script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
