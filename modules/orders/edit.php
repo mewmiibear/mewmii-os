@@ -220,7 +220,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1">Edit Order <?php echo app_escape(order_display_number($order['order_number'])); ?></h2>
+        <h2 class="mb-1">Edit Order <?php echo app_escape(order_display_number_compact($order['order_number'])); ?></h2>
         <p class="text-muted mb-0"><?php echo order_status_badge($order['order_status']); ?></p>
     </div>
     <a class="btn btn-outline-secondary btn-sm" href="/modules/orders/view.php?id=<?php echo (int) $orderId; ?>">Back to Order</a>

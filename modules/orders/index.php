@@ -172,7 +172,7 @@ unset($_SESSION['orders_bulk_result']);
         <?php if ($bulkFailedResults !== []): ?>
             <ul class="mb-0 small mt-1">
                 <?php foreach ($bulkFailedResults as $failure): ?>
-                    <li><?php echo app_escape(order_display_number((string) $failure['order_number'])); ?>: <?php echo app_escape($failure['message']); ?></li>
+                    <li><?php echo app_escape(order_display_number_compact((string) $failure['order_number'])); ?>: <?php echo app_escape($failure['message']); ?></li>
                 <?php endforeach; ?>
             </ul>
         <?php endif; ?>
@@ -278,7 +278,7 @@ foreach ($orders as $order) {
                             </td>
                         <?php endif; ?>
                         <td data-label="Order #">
-                            <?php echo app_escape(order_display_number($order['order_number'])); ?>
+                            <?php echo app_escape(order_display_number_compact($order['order_number'])); ?>
                             <?php echo order_source_badge($order); ?>
                         </td>
                         <td data-label="Customer">

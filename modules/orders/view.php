@@ -418,7 +418,7 @@ require_once __DIR__ . '/../../includes/header.php';
 <div class="page-header d-flex justify-content-between align-items-center">
     <div>
         <h2 class="mb-1">
-            Order <?php echo app_escape(order_display_number($order['order_number'])); ?>
+            Order <?php echo app_escape(order_display_number_compact($order['order_number'])); ?>
             <?php echo order_source_badge($order); ?>
             <?php echo order_status_badge($order['order_status']); ?>
         </h2>

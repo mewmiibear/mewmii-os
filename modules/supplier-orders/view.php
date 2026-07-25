@@ -393,9 +393,9 @@ require_once __DIR__ . '/../../includes/header.php';
         <div class="d-flex flex-wrap gap-2">
             <?php foreach ($blockedCustomerOrders as $blocked): ?>
                 <?php if ($canViewOrders): ?>
-                    <a class="badge bg-danger text-decoration-none" href="/modules/orders/view.php?id=<?php echo (int) $blocked['order_id']; ?>"><?php echo app_escape(order_display_number((string) $blocked['order_number'])); ?></a>
+                    <a class="badge bg-danger text-decoration-none" href="/modules/orders/view.php?id=<?php echo (int) $blocked['order_id']; ?>"><?php echo app_escape(order_display_number_compact((string) $blocked['order_number'])); ?></a>
                 <?php else: ?>
-                    <span class="badge bg-danger"><?php echo app_escape(order_display_number((string) $blocked['order_number'])); ?></span>
+                    <span class="badge bg-danger"><?php echo app_escape(order_display_number_compact((string) $blocked['order_number'])); ?></span>
                 <?php endif; ?>
             <?php endforeach; ?>
         </div>

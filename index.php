@@ -507,7 +507,7 @@ if ($canViewShipments) {
                     <?php foreach ($recentActivity as $event): ?>
                         <li class="mb-3 pb-3 border-bottom">
                             <div class="small">
-                                <a href="/modules/orders/view.php?id=<?php echo (int) $event['order_id']; ?>"><?php echo app_escape(order_display_number($event['order_number'])); ?></a>
+                                <a href="/modules/orders/view.php?id=<?php echo (int) $event['order_id']; ?>"><?php echo app_escape(order_display_number_compact($event['order_number'])); ?></a>
                                 &mdash; <?php echo app_escape($event['description']); ?>
                             </div>
                             <div class="text-muted small mt-1">

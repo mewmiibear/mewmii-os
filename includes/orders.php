@@ -234,7 +234,7 @@ function order_event_type_label(string $eventType): string
 function order_source_badge(array $order): string
 {
     if (!empty($order['woocommerce_order_id'])) {
-        return '<span class="badge" style="background-color:#8B5CF6;color:#fff;">&#128995; W</span>';
+        return '<span class="badge" style="background-color:#8B5CF6;color:#fff;">W</span>';
     }
     if (!empty($order['is_historical'])) {
         return '<span class="badge bg-secondary">Historical</span>';
@@ -256,6 +256,26 @@ function order_display_number(string $orderNumber): string
 {
     if (str_starts_with($orderNumber, 'WC-')) {
         return 'WooCommerce Order #' . substr($orderNumber, 3);
+    }
+
+    return $orderNumber;
+}
+
+/**
+ * Compact HTML-display counterpart to order_display_number() (UI/UX Order Display Cleanup) -
+ * "#16712" instead of "WooCommerce Order #16712". A separate function rather than an edit to
+ * order_display_number() itself, which stays exactly as it was (still used as plain text in
+ * order_build_status_messages(), the RuntimeException messages in modules/inventory/allocate.php,
+ * and the JSON response in modules/inventory/ajax/history.php - none of those are touched by
+ * this function existing). Reads the same 'WC-' prefix convention order_display_number()
+ * reads, independently - not a second calculation, just a shorter rendering of the same fact.
+ * Every non-WooCommerce order_number (manual 'ORD-...', historical imports) is returned
+ * unchanged, same as order_display_number().
+ */
+function order_display_number_compact(string $orderNumber): string
+{
+    if (str_starts_with($orderNumber, 'WC-')) {
+        return '#' . substr($orderNumber, 3);
     }
 
     return $orderNumber;
