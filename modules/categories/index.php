@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/catalog.php';
+require_once __DIR__ . '/../../includes/image_upload.php';
 app_require_permission('products.view');
 
 $appTitle = 'Categories';
@@ -27,17 +28,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($action === 'add') {
             $name = trim((string) ($_POST['name'] ?? ''));
             $parentId = ((string) ($_POST['parent_id'] ?? '')) !== '' ? (int) $_POST['parent_id'] : null;
+            $description = trim((string) ($_POST['description'] ?? ''));
 
             if ($name === '') {
                 $error = 'Enter a category name.';
-            } else {
+            }
+
+            if ($error === '') {
                 $pdo->beginTransaction();
 
                 try {
-                    catalog_get_or_create_category($pdo, $name, $parentId);
+                    $newId = catalog_get_or_create_category($pdo, $name, $parentId);
+
+                    if ($description !== '') {
+                        $pdo->prepare('UPDATE categories SET description = ? WHERE id = ?')->execute([$description, $newId]);
+                    }
+                    if (!empty($_FILES['image']['name'])) {
+                        $imagePath = image_upload_process($_FILES['image'], 'categories');
+                        $pdo->prepare('UPDATE categories SET image_path = ? WHERE id = ?')->execute([$imagePath, $newId]);
+                    }
+
                     $pdo->commit();
 
                     app_redirect('/modules/categories/index.php?created=1');
+                } catch (RuntimeException $exception) {
+                    $pdo->rollBack();
+                    $error = $exception->getMessage();
                 } catch (Exception $exception) {
                     $pdo->rollBack();
                     $error = 'Failed to create category.';
@@ -112,6 +128,15 @@ $walkCategories = static function (int $parentKey, int $depth) use (&$walkCatego
 };
 $walkCategories(0, 0);
 
+$search = trim((string) ($_GET['q'] ?? ''));
+$displayedCategories = $orderedCategories;
+if ($search !== '') {
+    $needle = strtolower($search);
+    $displayedCategories = array_values(array_filter($displayedCategories, static function (array $category) use ($needle): bool {
+        return strpos(strtolower($category['name']), $needle) !== false;
+    }));
+}
+
 require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -143,7 +168,7 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php if ($canManage): ?>
     <div class="card p-4 mb-4">
         <h5 class="mb-3">Add Category</h5>
-        <form method="post" class="row g-2 align-items-end">
+        <form method="post" enctype="multipart/form-data" class="row g-2 align-items-end">
             <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
             <input type="hidden" name="action" value="add">
             <div class="col-md-5">
@@ -162,9 +187,34 @@ require_once __DIR__ . '/../../includes/header.php';
             <div class="col-md-2">
                 <button type="submit" class="btn btn-primary w-100">Add</button>
             </div>
+            <div class="col-md-8">
+                <label class="form-label">Description (optional)</label>
+                <textarea class="form-control" name="description" rows="2"></textarea>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Image (optional)</label>
+                <input type="file" class="form-control" name="image" accept="image/*">
+            </div>
         </form>
     </div>
 <?php endif; ?>
+
+<div class="card p-4 mb-4">
+    <form method="get" class="row g-2 align-items-end">
+        <div class="col-md-6">
+            <label class="form-label">Search</label>
+            <input type="text" class="form-control" name="q" value="<?php echo app_escape($search); ?>" placeholder="Search categories by name&hellip;">
+        </div>
+        <div class="col-md-2">
+            <button type="submit" class="btn btn-outline-secondary w-100">Search</button>
+        </div>
+        <?php if ($search !== ''): ?>
+            <div class="col-md-2">
+                <a class="btn btn-outline-secondary w-100" href="/modules/categories/index.php">Clear</a>
+            </div>
+        <?php endif; ?>
+    </form>
+</div>
 
 <div class="card p-4">
     <div class="table-responsive">
@@ -178,7 +228,7 @@ require_once __DIR__ . '/../../includes/header.php';
             </tr>
         </thead>
         <tbody>
-            <?php foreach ($orderedCategories as $category): ?>
+            <?php foreach ($displayedCategories as $category): ?>
                 <tr>
                     <td><?php echo str_repeat('&mdash; ', $category['depth']); ?><?php echo app_escape($category['name']); ?></td>
                     <td><?php echo (int) $category['product_count']; ?></td>
@@ -202,12 +252,16 @@ require_once __DIR__ . '/../../includes/header.php';
                     </td>
                 </tr>
             <?php endforeach; ?>
-            <?php if ($orderedCategories === []): ?>
+            <?php if ($displayedCategories === []): ?>
                 <tr>
                     <td colspan="4">
                         <div class="empty-state">
-                            <div class="empty-state-title">No Categories Yet</div>
-                            <p class="empty-state-text">Categories help organise your product catalogue - add one to get started.</p>
+                            <?php if ($search !== ''): ?>
+                                <div class="empty-state-title">No Categories Match "<?php echo app_escape($search); ?>"</div>
+                            <?php else: ?>
+                                <div class="empty-state-title">No Categories Yet</div>
+                                <p class="empty-state-text">Categories help organise your product catalogue - add one to get started.</p>
+                            <?php endif; ?>
                         </div>
                     </td>
                 </tr>

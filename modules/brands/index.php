@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/catalog.php';
+require_once __DIR__ . '/../../includes/image_upload.php';
 app_require_permission('products.view');
 
 $appTitle = 'Brands';
@@ -26,17 +27,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($action === 'add') {
             $name = trim((string) ($_POST['name'] ?? ''));
+            $description = trim((string) ($_POST['description'] ?? ''));
 
             if ($name === '') {
                 $error = 'Enter a brand name.';
-            } else {
+            }
+
+            if ($error === '') {
                 $pdo->beginTransaction();
 
                 try {
-                    catalog_get_or_create_brand($pdo, $name);
+                    $newId = catalog_get_or_create_brand($pdo, $name);
+
+                    if ($description !== '') {
+                        $pdo->prepare('UPDATE brands SET description = ? WHERE id = ?')->execute([$description, $newId]);
+                    }
+                    if (!empty($_FILES['logo']['name'])) {
+                        $logoPath = image_upload_process($_FILES['logo'], 'brands');
+                        $pdo->prepare('UPDATE brands SET logo_path = ? WHERE id = ?')->execute([$logoPath, $newId]);
+                    }
+
                     $pdo->commit();
 
                     app_redirect('/modules/brands/index.php?created=1');
+                } catch (RuntimeException $exception) {
+                    $pdo->rollBack();
+                    $error = $exception->getMessage();
                 } catch (Exception $exception) {
                     $pdo->rollBack();
                     $error = 'Failed to create brand.';
@@ -91,7 +107,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+// $brands stays the full, unfiltered list - it also feeds the Move modal's destination
+// dropdown below, which must always be able to move products to any brand, not just ones
+// matching the current search. $displayedBrands is the search-filtered subset shown in the
+// table itself.
+$search = trim((string) ($_GET['q'] ?? ''));
 $brands = catalog_list_brands_with_counts($pdo);
+$displayedBrands = $brands;
+if ($search !== '') {
+    $needle = strtolower($search);
+    $displayedBrands = array_values(array_filter($brands, static function (array $brand) use ($needle): bool {
+        return strpos(strtolower($brand['name']), $needle) !== false;
+    }));
+}
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
@@ -124,7 +152,7 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php if ($canManage): ?>
     <div class="card p-4 mb-4">
         <h5 class="mb-3">Add Brand</h5>
-        <form method="post" class="row g-2 align-items-end">
+        <form method="post" enctype="multipart/form-data" class="row g-2 align-items-end">
             <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
             <input type="hidden" name="action" value="add">
             <div class="col-md-10">
@@ -134,9 +162,34 @@ require_once __DIR__ . '/../../includes/header.php';
             <div class="col-md-2">
                 <button type="submit" class="btn btn-primary w-100">Add</button>
             </div>
+            <div class="col-md-8">
+                <label class="form-label">Description (optional)</label>
+                <textarea class="form-control" name="description" rows="2"></textarea>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Logo (optional)</label>
+                <input type="file" class="form-control" name="logo" accept="image/*">
+            </div>
         </form>
     </div>
 <?php endif; ?>
+
+<div class="card p-4 mb-4">
+    <form method="get" class="row g-2 align-items-end">
+        <div class="col-md-6">
+            <label class="form-label">Search</label>
+            <input type="text" class="form-control" name="q" value="<?php echo app_escape($search); ?>" placeholder="Search brands by name&hellip;">
+        </div>
+        <div class="col-md-2">
+            <button type="submit" class="btn btn-outline-secondary w-100">Search</button>
+        </div>
+        <?php if ($search !== ''): ?>
+            <div class="col-md-2">
+                <a class="btn btn-outline-secondary w-100" href="/modules/brands/index.php">Clear</a>
+            </div>
+        <?php endif; ?>
+    </form>
+</div>
 
 <div class="card p-4">
     <div class="table-responsive">
@@ -150,7 +203,7 @@ require_once __DIR__ . '/../../includes/header.php';
             </tr>
         </thead>
         <tbody>
-            <?php foreach ($brands as $brand): ?>
+            <?php foreach ($displayedBrands as $brand): ?>
                 <tr>
                     <td><?php echo app_escape($brand['name']); ?></td>
                     <td><?php echo (int) $brand['product_count']; ?></td>
@@ -174,12 +227,16 @@ require_once __DIR__ . '/../../includes/header.php';
                     </td>
                 </tr>
             <?php endforeach; ?>
-            <?php if ($brands === []): ?>
+            <?php if ($displayedBrands === []): ?>
                 <tr>
                     <td colspan="4">
                         <div class="empty-state">
-                            <div class="empty-state-title">No Brands Yet</div>
-                            <p class="empty-state-text">Brands help customers browse your catalogue - add one to get started.</p>
+                            <?php if ($search !== ''): ?>
+                                <div class="empty-state-title">No Brands Match "<?php echo app_escape($search); ?>"</div>
+                            <?php else: ?>
+                                <div class="empty-state-title">No Brands Yet</div>
+                                <p class="empty-state-text">Brands help customers browse your catalogue - add one to get started.</p>
+                            <?php endif; ?>
                         </div>
                     </td>
                 </tr>

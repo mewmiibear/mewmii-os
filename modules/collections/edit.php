@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/catalog.php';
+require_once __DIR__ . '/../../includes/image_upload.php';
 app_require_permission('products.manage');
 
 $appTitle = 'Edit Collection';
@@ -30,7 +31,10 @@ if (!$collection) {
     exit;
 }
 
-$form = ['name' => $collection['name']];
+$form = [
+    'name' => $collection['name'],
+    'description' => (string) ($collection['description'] ?? ''),
+];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
@@ -40,6 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $form['name'] = trim((string) ($_POST['name'] ?? ''));
+    $form['description'] = trim((string) ($_POST['description'] ?? ''));
 
     if ($error === '' && ($form['name'] === '' || strlen($form['name']) > 120)) {
         $error = 'Name is required and must be 120 characters or fewer.';
@@ -58,10 +63,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         try {
             // Slug is left untouched on rename - see modules/categories/edit.php's note.
-            $pdo->prepare('UPDATE collections SET name = ? WHERE id = ?')->execute([$form['name'], $collectionId]);
+            $pdo->prepare('UPDATE collections SET name = ?, description = ? WHERE id = ?')
+                ->execute([$form['name'], $form['description'] !== '' ? $form['description'] : null, $collectionId]);
+
+            if (!empty($_POST['remove_image'])) {
+                image_upload_delete($collection['image_path']);
+                $pdo->prepare('UPDATE collections SET image_path = NULL WHERE id = ?')->execute([$collectionId]);
+            }
+            if (!empty($_FILES['image']['name'])) {
+                $newImagePath = image_upload_process($_FILES['image'], 'collections');
+                image_upload_delete($collection['image_path']);
+                $pdo->prepare('UPDATE collections SET image_path = ? WHERE id = ?')->execute([$newImagePath, $collectionId]);
+            }
+
             $pdo->commit();
 
             app_redirect('/modules/collections/edit.php?id=' . $collectionId . '&updated=1');
+        } catch (RuntimeException $exception) {
+            $pdo->rollBack();
+            $error = $exception->getMessage();
         } catch (Exception $exception) {
             $pdo->rollBack();
             $error = 'Failed to update collection.';
@@ -89,7 +109,7 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php endif; ?>
 
 <div class="card p-4">
-    <form method="post">
+    <form method="post" enctype="multipart/form-data">
         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
 
         <div class="row g-3">
@@ -101,6 +121,22 @@ require_once __DIR__ . '/../../includes/header.php';
                 <label class="form-label">Slug</label>
                 <input type="text" class="form-control" value="<?php echo app_escape($collection['slug']); ?>" disabled>
                 <div class="form-text">The slug isn't editable here - it may already be synced to WooCommerce.</div>
+            </div>
+            <div class="col-12">
+                <label class="form-label">Description</label>
+                <textarea class="form-control" name="description" rows="3"><?php echo app_escape($form['description']); ?></textarea>
+            </div>
+            <div class="col-12">
+                <label class="form-label">Image</label>
+                <?php if ($collection['image_path'] !== null && $collection['image_path'] !== ''): ?>
+                    <div class="mb-2">
+                        <img src="/<?php echo app_escape($collection['image_path']); ?>" alt="" style="max-width: 140px; max-height: 140px;" class="border rounded d-block mb-2">
+                        <label class="d-block small">
+                            <input type="checkbox" name="remove_image" value="1"> Remove current image
+                        </label>
+                    </div>
+                <?php endif; ?>
+                <input type="file" class="form-control" name="image" accept="image/*" style="max-width: 400px;">
             </div>
         </div>
 

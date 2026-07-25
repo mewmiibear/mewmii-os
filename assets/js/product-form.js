@@ -294,113 +294,13 @@
     }
 
     // ---------------------------------------------------------------------------------
-    // Generic "+ Add" modal (brand / category / collection / tag / attribute / value).
+    // Catalog Management (modules/attributes, modules/{categories,brands,collections,tags})
+    // is now the single source of truth for brands/categories/collections/tags/attributes/
+    // attribute values - this form only ever SELECTS from what's already there via the
+    // searchable <select>s below, it never creates a new one. (Previously this section held
+    // an inline "+ Add" modal that POSTed to modules/products/ajax/create_*.php; both the
+    // modal and those endpoints are gone - manage catalog metadata from its own page instead.)
     // ---------------------------------------------------------------------------------
-    var modalEl = null;
-    function ensureModal() {
-        if (modalEl) {
-            return modalEl;
-        }
-        modalEl = document.createElement('div');
-        modalEl.className = 'add-modal-overlay position-fixed top-0 start-0 w-100 h-100 d-none';
-        modalEl.style.background = 'rgba(0,0,0,0.4)';
-        modalEl.style.zIndex = '1050';
-        modalEl.innerHTML =
-            '<div class="add-modal-box bg-white rounded p-4 mx-auto mt-5" style="max-width:420px;">' +
-            '<h5 class="add-modal-title mb-3"></h5>' +
-            '<div class="add-modal-fields"></div>' +
-            '<div class="add-modal-error text-danger small mb-2 d-none"></div>' +
-            '<div class="d-flex gap-2 justify-content-end">' +
-            '<button type="button" class="btn btn-outline-secondary btn-sm add-modal-cancel">Cancel</button>' +
-            '<button type="button" class="btn btn-primary btn-sm add-modal-save">Save</button>' +
-            '</div></div>';
-        document.body.appendChild(modalEl);
-        modalEl.querySelector('.add-modal-cancel').addEventListener('click', closeModal);
-        modalEl.addEventListener('click', function (event) {
-            if (event.target === modalEl) {
-                closeModal();
-            }
-        });
-        return modalEl;
-    }
-
-    function closeModal() {
-        if (modalEl) {
-            modalEl.classList.add('d-none');
-        }
-    }
-
-    /**
-     * config: { title, fields: [{name, label, type: 'text'|'select', options}], onSave: fn(values) }
-     * onSave should return a Promise; on success the modal closes, on rejection the
-     * error message is shown inline.
-     */
-    function openAddModal(modalConfig) {
-        var modal = ensureModal();
-        modal.querySelector('.add-modal-title').textContent = modalConfig.title;
-        var fieldsContainer = modal.querySelector('.add-modal-fields');
-        fieldsContainer.innerHTML = '';
-        var errorBox = modal.querySelector('.add-modal-error');
-        errorBox.classList.add('d-none');
-
-        var inputs = {};
-        modalConfig.fields.forEach(function (field) {
-            var wrap = document.createElement('div');
-            wrap.className = 'mb-2';
-            var label = document.createElement('label');
-            label.className = 'form-label small';
-            label.textContent = field.label;
-            wrap.appendChild(label);
-
-            var input;
-            if (field.type === 'select') {
-                input = document.createElement('select');
-                input.className = 'form-select form-select-sm';
-                var emptyOption = document.createElement('option');
-                emptyOption.value = '';
-                emptyOption.textContent = field.emptyLabel || 'None';
-                input.appendChild(emptyOption);
-                (field.options || []).forEach(function (option) {
-                    var opt = document.createElement('option');
-                    opt.value = option.value;
-                    opt.textContent = option.label;
-                    input.appendChild(opt);
-                });
-            } else {
-                input = document.createElement('input');
-                input.type = 'text';
-                input.className = 'form-control form-control-sm';
-            }
-            wrap.appendChild(input);
-            fieldsContainer.appendChild(wrap);
-            inputs[field.name] = input;
-        });
-
-        var saveBtn = modal.querySelector('.add-modal-save');
-        var newSaveBtn = saveBtn.cloneNode(true);
-        saveBtn.parentNode.replaceChild(newSaveBtn, saveBtn);
-        newSaveBtn.addEventListener('click', function () {
-            var values = {};
-            Object.keys(inputs).forEach(function (name) {
-                values[name] = inputs[name].value;
-            });
-            newSaveBtn.disabled = true;
-            modalConfig.onSave(values).then(function () {
-                newSaveBtn.disabled = false;
-                closeModal();
-            }).catch(function (error) {
-                newSaveBtn.disabled = false;
-                errorBox.textContent = error.message || 'Failed to save.';
-                errorBox.classList.remove('d-none');
-            });
-        });
-
-        modal.classList.remove('d-none');
-        var firstInput = fieldsContainer.querySelector('input, select');
-        if (firstInput) {
-            firstInput.focus();
-        }
-    }
 
     function appendOption(select, value, label, extra) {
         var option = document.createElement('option');
@@ -413,109 +313,6 @@
         select.value = value;
         select.dispatchEvent(new Event('optionsChanged'));
         select.dispatchEvent(new Event('change'));
-    }
-
-    function initAddButtons() {
-        document.querySelectorAll('[data-add-modal]').forEach(function (button) {
-            button.addEventListener('click', function () {
-                var kind = button.dataset.addModal;
-
-                if (kind === 'brand') {
-                    openAddModal({
-                        title: 'Add Brand',
-                        fields: [{ name: 'name', label: 'Brand name', type: 'text' }],
-                        onSave: function (values) {
-                            return postJson(config.urls.createBrand, { name: values.name }).then(function (result) {
-                                appendOption(document.getElementById('brand-select'), result.id, result.name);
-                            });
-                        }
-                    });
-                } else if (kind === 'collection') {
-                    openAddModal({
-                        title: 'Add Collection',
-                        fields: [{ name: 'name', label: 'Collection name', type: 'text' }],
-                        onSave: function (values) {
-                            return postJson(config.urls.createCollection, { name: values.name }).then(function (result) {
-                                appendOption(document.getElementById('collection-select'), result.id, result.name);
-                            });
-                        }
-                    });
-                } else if (kind === 'category') {
-                    var categorySelect = document.getElementById('category-select');
-                    var parentOptions = [];
-                    Array.prototype.forEach.call(categorySelect.options, function (option) {
-                        if (option.value !== '') {
-                            parentOptions.push({ value: option.value, label: option.textContent });
-                        }
-                    });
-                    openAddModal({
-                        title: 'Add Category',
-                        fields: [
-                            { name: 'name', label: 'Category name', type: 'text' },
-                            { name: 'parent_id', label: 'Parent category (optional)', type: 'select', options: parentOptions, emptyLabel: 'Top level' }
-                        ],
-                        onSave: function (values) {
-                            return postJson(config.urls.createCategory, { name: values.name, parent_id: values.parent_id }).then(function (result) {
-                                var depth = 0;
-                                if (values.parent_id) {
-                                    var parentOption = categorySelect.querySelector('option[value="' + values.parent_id + '"]');
-                                    depth = parentOption ? (parseInt(parentOption.dataset.depth || '0', 10) + 1) : 1;
-                                }
-                                appendOption(categorySelect, result.id, '— '.repeat(depth) + result.name, { depth: depth });
-                            });
-                        }
-                    });
-                } else if (kind === 'tag') {
-                    openAddModal({
-                        title: 'Add Tag',
-                        fields: [{ name: 'name', label: 'Tag name', type: 'text' }],
-                        onSave: function (values) {
-                            return postJson(config.urls.createTag, { name: values.name }).then(function (result) {
-                                var container = document.getElementById('tags-checkbox-list');
-                                var label = document.createElement('label');
-                                label.className = 'checkbox-item me-3';
-                                label.innerHTML = '<input type="checkbox" name="tag_ids[]" value="' + result.id + '" checked> ' + result.name;
-                                container.appendChild(label);
-                            });
-                        }
-                    });
-                } else if (kind === 'attribute') {
-                    openAddModal({
-                        title: 'Add Attribute',
-                        fields: [{ name: 'name', label: 'Attribute name (e.g. Character)', type: 'text' }],
-                        onSave: function (values) {
-                            return postJson(config.urls.createAttribute, { name: values.name }).then(function (result) {
-                                attributesById[result.id] = { id: result.id, name: result.name, values: [] };
-                                (config.attributes || []).push(attributesById[result.id]);
-                                document.querySelectorAll('.attribute-picker').forEach(function (select) {
-                                    appendOption(select, result.id, result.name);
-                                });
-                            });
-                        }
-                    });
-                } else if (kind === 'attribute_value') {
-                    var attributeId = parseInt(button.dataset.attributeId, 10);
-                    openAddModal({
-                        title: 'Add Value',
-                        fields: [
-                            { name: 'value', label: 'Value (e.g. Cinnamoroll)', type: 'text' },
-                            { name: 'code', label: 'SKU Prefix (e.g. CN) - max 5 letters/numbers, required', type: 'text' }
-                        ],
-                        onSave: function (values) {
-                            return postJson(config.urls.createAttributeValue, { attribute_id: attributeId, value: values.value, code: values.code }).then(function (result) {
-                                var attr = attributesById[attributeId];
-                                if (attr) {
-                                    attr.values.push({ id: result.id, value: result.value, code: result.code });
-                                }
-                                document.querySelectorAll('.attribute-values-container[data-attribute-id="' + attributeId + '"]').forEach(function (container) {
-                                    addValueCheckbox(container, attributeId, result.id, result.value, true, result.code);
-                                });
-                            });
-                        }
-                    });
-                }
-            });
-        });
     }
 
     // ---------------------------------------------------------------------------------
@@ -608,10 +405,7 @@
             '</div>' +
             '<button type="button" class="btn btn-sm btn-outline-danger ms-2 remove-attribute-block">&times;</button>' +
             '</div>' +
-            '<div class="d-flex justify-content-between align-items-center mb-1">' +
-            '<label class="form-label small mb-0">Values</label>' +
-            '<button type="button" class="btn btn-sm btn-link add-value-btn p-0" data-add-modal="attribute_value">+ Add Value</button>' +
-            '</div>' +
+            '<label class="form-label small mb-1">Values</label>' +
             '<div class="attribute-values-container" data-filterable-checkboxes="1"></div>';
         container.appendChild(block);
 
@@ -644,7 +438,6 @@
 
         makeSearchableSelect(picker);
         initFilterableCheckboxLists(block);
-        initAddButtons();
 
         return block;
     }
@@ -1353,7 +1146,6 @@
         initSaleFields();
         initSearchableSelects();
         initFilterableCheckboxLists();
-        initAddButtons();
         initAttributeBuilder();
         initGenerateVariations();
         initBulkActions();

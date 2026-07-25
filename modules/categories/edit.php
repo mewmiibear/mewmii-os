@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/catalog.php';
+require_once __DIR__ . '/../../includes/image_upload.php';
 app_require_permission('products.manage');
 
 $appTitle = 'Edit Category';
@@ -33,6 +34,7 @@ if (!$category) {
 $form = [
     'name' => $category['name'],
     'parent_id' => $category['parent_id'] !== null ? (string) $category['parent_id'] : '',
+    'description' => (string) ($category['description'] ?? ''),
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -44,6 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $form['name'] = trim((string) ($_POST['name'] ?? ''));
     $form['parent_id'] = (string) ($_POST['parent_id'] ?? '');
+    $form['description'] = trim((string) ($_POST['description'] ?? ''));
     $parentId = $form['parent_id'] !== '' ? (int) $form['parent_id'] : null;
 
     if ($error === '') {
@@ -68,12 +71,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             // Slug is left untouched on rename - it may already be synced to WooCommerce
             // (categories.woocommerce_term_id), so only the display name changes here.
-            $pdo->prepare('UPDATE categories SET name = ?, parent_id = ? WHERE id = ?')
-                ->execute([$form['name'], $parentId, $categoryId]);
+            $pdo->prepare('UPDATE categories SET name = ?, parent_id = ?, description = ? WHERE id = ?')
+                ->execute([$form['name'], $parentId, $form['description'] !== '' ? $form['description'] : null, $categoryId]);
+
+            if (!empty($_POST['remove_image'])) {
+                image_upload_delete($category['image_path']);
+                $pdo->prepare('UPDATE categories SET image_path = NULL WHERE id = ?')->execute([$categoryId]);
+            }
+            if (!empty($_FILES['image']['name'])) {
+                $newImagePath = image_upload_process($_FILES['image'], 'categories');
+                image_upload_delete($category['image_path']);
+                $pdo->prepare('UPDATE categories SET image_path = ? WHERE id = ?')->execute([$newImagePath, $categoryId]);
+            }
 
             $pdo->commit();
 
             app_redirect('/modules/categories/edit.php?id=' . $categoryId . '&updated=1');
+        } catch (RuntimeException $exception) {
+            $pdo->rollBack();
+            $error = $exception->getMessage();
         } catch (Exception $exception) {
             $pdo->rollBack();
             $error = 'Failed to update category.';
@@ -118,7 +134,7 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php endif; ?>
 
 <div class="card p-4">
-    <form method="post">
+    <form method="post" enctype="multipart/form-data">
         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
 
         <div class="row g-3">
@@ -139,6 +155,22 @@ require_once __DIR__ . '/../../includes/header.php';
                 <label class="form-label">Slug</label>
                 <input type="text" class="form-control" value="<?php echo app_escape($category['slug']); ?>" disabled>
                 <div class="form-text">The slug isn't editable here - it may already be synced to WooCommerce.</div>
+            </div>
+            <div class="col-12">
+                <label class="form-label">Description</label>
+                <textarea class="form-control" name="description" rows="3"><?php echo app_escape($form['description']); ?></textarea>
+            </div>
+            <div class="col-12">
+                <label class="form-label">Image</label>
+                <?php if ($category['image_path'] !== null && $category['image_path'] !== ''): ?>
+                    <div class="mb-2">
+                        <img src="/<?php echo app_escape($category['image_path']); ?>" alt="" style="max-width: 140px; max-height: 140px;" class="border rounded d-block mb-2">
+                        <label class="d-block small">
+                            <input type="checkbox" name="remove_image" value="1"> Remove current image
+                        </label>
+                    </div>
+                <?php endif; ?>
+                <input type="file" class="form-control" name="image" accept="image/*" style="max-width: 400px;">
             </div>
         </div>
 

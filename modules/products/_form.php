@@ -231,7 +231,7 @@
             <div class="col-md-4">
                 <div class="d-flex justify-content-between align-items-center">
                     <label class="form-label mb-1">Brand</label>
-                    <button type="button" class="btn btn-sm btn-link p-0" data-add-modal="brand">+ Add Brand</button>
+                    <a class="small" href="/modules/brands/index.php" target="_blank" rel="noopener">Manage Brands &#8599;</a>
                 </div>
                 <select class="form-select" name="brand_id" id="brand-select" data-searchable="1">
                     <option value="">None</option>
@@ -244,7 +244,7 @@
             <div class="col-md-4">
                 <div class="d-flex justify-content-between align-items-center">
                     <label class="form-label mb-1">Category</label>
-                    <button type="button" class="btn btn-sm btn-link p-0" data-add-modal="category">+ Add Category</button>
+                    <a class="small" href="/modules/categories/index.php" target="_blank" rel="noopener">Manage Categories &#8599;</a>
                 </div>
                 <select class="form-select" name="category_id" id="category-select" data-searchable="1">
                     <option value="">None</option>
@@ -259,7 +259,7 @@
             <div class="col-md-4">
                 <div class="d-flex justify-content-between align-items-center">
                     <label class="form-label mb-1">Collection</label>
-                    <button type="button" class="btn btn-sm btn-link p-0" data-add-modal="collection">+ Add Collection</button>
+                    <a class="small" href="/modules/collections/index.php" target="_blank" rel="noopener">Manage Collections &#8599;</a>
                 </div>
                 <select class="form-select" name="collection_id" id="collection-select" data-searchable="1">
                     <option value="">None</option>
@@ -272,7 +272,7 @@
             <div class="col-12">
                 <div class="d-flex justify-content-between align-items-center">
                     <label class="form-label mb-1">Tags</label>
-                    <button type="button" class="btn btn-sm btn-link p-0" data-add-modal="tag">+ Add Tag</button>
+                    <a class="small" href="/modules/tags/index.php" target="_blank" rel="noopener">Manage Tags &#8599;</a>
                 </div>
                 <div id="tags-checkbox-list" data-filterable-checkboxes="1">
                     <?php foreach ($tags as $tag): ?>
@@ -428,9 +428,9 @@
 
     <div class="card p-4 mb-4 js-variable-section">
         <h5 class="mb-1">Variable Product: Attribute Builder</h5>
-        <p class="text-muted small">Character, Color, Size, and any other attribute are managed the same way - Character is not a separate list, it's just an attribute. Each value has its own editable SKU prefix (max 5 letters/numbers) used to build variation SKUs - see catalog_attribute_value_sku_code().</p>
+        <p class="text-muted small">Character, Color, Size, and any other attribute are managed the same way - Character is not a separate list, it's just an attribute. Each value's SKU prefix (used to build variation SKUs - see catalog_attribute_value_sku_code()) can still be edited inline below, but new attributes and values are added from Catalog &gt; Attributes, not here.</p>
         <div class="d-flex justify-content-between align-items-center mb-2">
-            <button type="button" class="btn btn-sm btn-link p-0" data-add-modal="attribute">+ Add Attribute (new global attribute)</button>
+            <a class="small" href="/modules/attributes/index.php" target="_blank" rel="noopener">Manage Attributes &#8599;</a>
         </div>
         <div id="attribute-builder-blocks"></div>
         <button type="button" class="btn btn-outline-secondary btn-sm" id="add-attribute-block-btn">Add Another Attribute</button>
@@ -549,12 +549,11 @@
     'existingAssignments' => $existingAssignments,
     'variations' => $variations,
     'urls' => [
-        'createBrand' => '/modules/products/ajax/create_brand.php',
-        'createCategory' => '/modules/products/ajax/create_category.php',
-        'createCollection' => '/modules/products/ajax/create_collection.php',
-        'createTag' => '/modules/products/ajax/create_tag.php',
-        'createAttribute' => '/modules/products/ajax/create_attribute.php',
-        'createAttributeValue' => '/modules/products/ajax/create_attribute_value.php',
+        // No createBrand/createCategory/createCollection/createTag/createAttribute/
+        // createAttributeValue here - Catalog Management (modules/attributes,
+        // modules/{categories,brands,collections,tags}) is the only place those get created
+        // now. updateAttributeValue is kept: editing an existing value's SKU prefix inline
+        // while building variations is still supported (see assets/js/product-form.js).
         'updateAttributeValue' => '/modules/products/ajax/update_attribute_value.php',
         'saveAttributes' => '/modules/products/ajax/save_attributes.php',
         'generateVariations' => '/modules/products/ajax/generate_variations.php',

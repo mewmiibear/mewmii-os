@@ -724,6 +724,106 @@ function catalog_get_or_create_attribute_value(PDO $pdo, int $attributeId, strin
     return (int) $pdo->lastInsertId();
 }
 
+/**
+ * Every attribute with its value count and how many products currently have it assigned -
+ * the Catalog Management > Attributes list (modules/attributes/index.php). One query each,
+ * not per-attribute, same non-N+1 shape as catalog_list_brands_with_counts() etc.
+ */
+function catalog_list_attributes_with_counts(PDO $pdo): array
+{
+    return $pdo->query('
+        SELECT pa.id, pa.name, pa.slug, pa.created_at,
+               COALESCE(values_count.cnt, 0) AS value_count,
+               COALESCE(products_count.cnt, 0) AS product_count
+        FROM product_attributes pa
+        LEFT JOIN (
+            SELECT attribute_id, COUNT(*) AS cnt FROM product_attribute_values GROUP BY attribute_id
+        ) values_count ON values_count.attribute_id = pa.id
+        LEFT JOIN (
+            SELECT attribute_id, COUNT(DISTINCT product_id) AS cnt FROM product_attribute_assignments GROUP BY attribute_id
+        ) products_count ON products_count.attribute_id = pa.id
+        ORDER BY pa.name ASC
+    ')->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function catalog_get_attribute(PDO $pdo, int $attributeId): ?array
+{
+    $stmt = $pdo->prepare('SELECT * FROM product_attributes WHERE id = ?');
+    $stmt->execute([$attributeId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    return $row !== false ? $row : null;
+}
+
+function catalog_get_attribute_value(PDO $pdo, int $valueId): ?array
+{
+    $stmt = $pdo->prepare('SELECT * FROM product_attribute_values WHERE id = ?');
+    $stmt->execute([$valueId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    return $row !== false ? $row : null;
+}
+
+/**
+ * How many distinct products currently have this attribute assigned (Attribute Builder) -
+ * same "safe to delete" signal catalog_brand_product_count() etc. already use.
+ */
+function catalog_attribute_product_count(PDO $pdo, int $attributeId): int
+{
+    $stmt = $pdo->prepare('SELECT COUNT(DISTINCT product_id) FROM product_attribute_assignments WHERE attribute_id = ?');
+    $stmt->execute([$attributeId]);
+
+    return (int) $stmt->fetchColumn();
+}
+
+/** Same as catalog_attribute_product_count(), scoped to one specific value of an attribute. */
+function catalog_attribute_value_product_count(PDO $pdo, int $valueId): int
+{
+    $stmt = $pdo->prepare('
+        SELECT COUNT(DISTINCT paa.product_id)
+        FROM product_attribute_assignment_values paav
+        INNER JOIN product_attribute_assignments paa ON paa.id = paav.assignment_id
+        WHERE paav.attribute_value_id = ?
+    ');
+    $stmt->execute([$valueId]);
+
+    return (int) $stmt->fetchColumn();
+}
+
+/**
+ * Deletes an attribute, but only if no product currently has it assigned (Attribute
+ * Builder) - otherwise throws the admin-facing message, same convention as
+ * catalog_brand_delete_if_unused() etc. If clear, deleting cascades (ON DELETE CASCADE) to
+ * its values, any (already-unused, by definition) assignments, and variation attribute
+ * links - nothing attribute-specific is left behind.
+ */
+function catalog_attribute_delete_if_unused(PDO $pdo, int $attributeId): void
+{
+    $productCount = catalog_attribute_product_count($pdo, $attributeId);
+    if ($productCount > 0) {
+        throw new RuntimeException('This attribute is assigned to ' . $productCount . ' product(s). Please remove it from those products first.');
+    }
+
+    $pdo->prepare('DELETE FROM product_attributes WHERE id = ?')->execute([$attributeId]);
+    activity_log($pdo, 'attributes', 'delete', $attributeId, 'Deleted attribute #' . $attributeId);
+}
+
+/**
+ * Deletes one attribute value, but only if no product currently has it selected - same
+ * "safe to delete" check as catalog_attribute_delete_if_unused(), scoped to this one value
+ * rather than the whole attribute. A sibling value under the same attribute is unaffected.
+ */
+function catalog_attribute_value_delete_if_unused(PDO $pdo, int $valueId): void
+{
+    $productCount = catalog_attribute_value_product_count($pdo, $valueId);
+    if ($productCount > 0) {
+        throw new RuntimeException('This value is selected on ' . $productCount . ' product(s). Please remove it from those products first.');
+    }
+
+    $pdo->prepare('DELETE FROM product_attribute_values WHERE id = ?')->execute([$valueId]);
+    activity_log($pdo, 'attributes', 'delete_value', $valueId, 'Deleted attribute value #' . $valueId);
+}
+
 // --- Which attributes/values apply to a given product ---------------------------------
 
 function catalog_get_product_attribute_assignments(PDO $pdo, int $productId): array

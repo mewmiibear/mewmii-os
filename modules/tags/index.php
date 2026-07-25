@@ -91,7 +91,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+// $tags stays the full, unfiltered list - it also feeds the Merge modal's destination
+// dropdown below. $displayedTags is the search-filtered subset shown in the table.
+$search = trim((string) ($_GET['q'] ?? ''));
 $tags = catalog_list_tags_with_counts($pdo);
+$displayedTags = $tags;
+if ($search !== '') {
+    $needle = strtolower($search);
+    $displayedTags = array_values(array_filter($tags, static function (array $tag) use ($needle): bool {
+        return strpos(strtolower($tag['name']), $needle) !== false;
+    }));
+}
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
@@ -138,6 +148,23 @@ require_once __DIR__ . '/../../includes/header.php';
     </div>
 <?php endif; ?>
 
+<div class="card p-4 mb-4">
+    <form method="get" class="row g-2 align-items-end">
+        <div class="col-md-6">
+            <label class="form-label">Search</label>
+            <input type="text" class="form-control" name="q" value="<?php echo app_escape($search); ?>" placeholder="Search tags by name&hellip;">
+        </div>
+        <div class="col-md-2">
+            <button type="submit" class="btn btn-outline-secondary w-100">Search</button>
+        </div>
+        <?php if ($search !== ''): ?>
+            <div class="col-md-2">
+                <a class="btn btn-outline-secondary w-100" href="/modules/tags/index.php">Clear</a>
+            </div>
+        <?php endif; ?>
+    </form>
+</div>
+
 <div class="card p-4">
     <div class="table-responsive">
     <table class="table table-hover align-middle">
@@ -149,7 +176,7 @@ require_once __DIR__ . '/../../includes/header.php';
             </tr>
         </thead>
         <tbody>
-            <?php foreach ($tags as $tag): ?>
+            <?php foreach ($displayedTags as $tag): ?>
                 <tr>
                     <td><?php echo app_escape($tag['name']); ?></td>
                     <td><?php echo (int) $tag['product_count']; ?></td>
@@ -172,12 +199,16 @@ require_once __DIR__ . '/../../includes/header.php';
                     </td>
                 </tr>
             <?php endforeach; ?>
-            <?php if ($tags === []): ?>
+            <?php if ($displayedTags === []): ?>
                 <tr>
                     <td colspan="3">
                         <div class="empty-state">
-                            <div class="empty-state-title">No Tags Yet</div>
-                            <p class="empty-state-text">Tags help you label and filter products - add one to get started.</p>
+                            <?php if ($search !== ''): ?>
+                                <div class="empty-state-title">No Tags Match "<?php echo app_escape($search); ?>"</div>
+                            <?php else: ?>
+                                <div class="empty-state-title">No Tags Yet</div>
+                                <p class="empty-state-text">Tags help you label and filter products - add one to get started.</p>
+                            <?php endif; ?>
                         </div>
                     </td>
                 </tr>
