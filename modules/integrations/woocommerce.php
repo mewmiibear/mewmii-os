@@ -2,15 +2,17 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/wc_client.php';
 require_once __DIR__ . '/../../includes/wc_order_import.php';
+require_once __DIR__ . '/../../includes/wc_product_import.php';
 app_require_permission('settings.manage');
 
 /**
- * WooCommerce order import diagnostics + manual trigger (Phase 1: polling only, no webhook).
- * Read-only status page plus two POST actions (Test Connection, Import Orders Now) - all the
- * actual import logic lives in includes/wc_order_import.php, this file is presentation only.
+ * WooCommerce sync diagnostics + manual triggers (Phase 1: polling only, no webhook).
+ * Read-only status page plus three POST actions (Test Connection, Import Orders Now, Import
+ * Products Now) - all the actual import logic lives in includes/wc_order_import.php and
+ * includes/wc_product_import.php, this file is presentation only.
  */
 
-$appTitle = 'WooCommerce Orders';
+$appTitle = 'WooCommerce Sync';
 $pdo = app_db();
 $error = '';
 
@@ -57,6 +59,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (Throwable $exception) {
             app_redirect('/modules/integrations/woocommerce.php?imported=1&created=0&updated=0&skipped=0&failed=0&message=' . urlencode($exception->getMessage()));
         }
+    } elseif ($error === '' && !empty($_POST['import_products'])) {
+        try {
+            $summary = wc_product_import_run($pdo);
+            app_redirect('/modules/integrations/woocommerce.php?product_imported=1&created=' . $summary['products_created'] . '&updated=' . $summary['products_updated'] . '&skipped=' . $summary['products_skipped'] . '&failed=' . $summary['products_failed']);
+        } catch (Throwable $exception) {
+            app_redirect('/modules/integrations/woocommerce.php?product_imported=1&created=0&updated=0&skipped=0&failed=0&message=' . urlencode($exception->getMessage()));
+        }
     }
 }
 
@@ -99,12 +108,42 @@ if (!is_array($lastRunSummary)) {
 // docblock for why this is measured against the cursor, not sync_logs' failure counts.
 $syncHealth = wc_order_import_sync_health($lastSyncCursor);
 
+// --- Product import stats - same shape as the order stats above, just scoped to
+// woocommerce_product_import (see includes/wc_product_import.php). ---
+$productStatsStmt = $pdo->prepare("
+    SELECT
+        SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS success_count,
+        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_count,
+        MAX(created_at) AS last_sync_at
+    FROM sync_logs
+    WHERE sync_type = ?
+");
+$productStatsStmt->execute([WC_PRODUCT_IMPORT_SYNC_TYPE]);
+$productStats = $productStatsStmt->fetch(PDO::FETCH_ASSOC);
+
+$recentProductLogsStmt = $pdo->prepare('
+    SELECT id, reference_id, status, error_message, created_at
+    FROM sync_logs
+    WHERE sync_type = ?
+    ORDER BY id DESC
+    LIMIT 10
+');
+$recentProductLogsStmt->execute([WC_PRODUCT_IMPORT_SYNC_TYPE]);
+$recentProductLogs = $recentProductLogsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$lastProductSyncCursor = wc_product_import_get_setting($pdo, WC_PRODUCT_IMPORT_SETTING_LAST_SYNCED_AT);
+$lastProductRunSummaryRaw = wc_product_import_get_setting($pdo, WC_PRODUCT_IMPORT_SETTING_LAST_RUN_SUMMARY);
+$lastProductRunSummary = $lastProductRunSummaryRaw !== null ? json_decode($lastProductRunSummaryRaw, true) : null;
+if (!is_array($lastProductRunSummary)) {
+    $lastProductRunSummary = null;
+}
+
 require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1">WooCommerce Orders</h2>
-        <p class="text-muted mb-0">Import orders from mewmiibear.com into Mewmii OS. Manual, admin-triggered - no webhook yet.</p>
+        <h2 class="mb-1">WooCommerce Sync</h2>
+        <p class="text-muted mb-0">Import orders and products between mewmiibear.com and Mewmii OS. Manual, admin-triggered - no webhook yet.</p>
     </div>
     <div class="action-bar">
         <form method="post" class="d-inline">
@@ -116,6 +155,11 @@ require_once __DIR__ . '/../../includes/header.php';
             <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
             <input type="hidden" name="import_orders" value="1">
             <button type="submit" class="btn btn-primary" <?php echo $isConfigured ? '' : 'disabled'; ?>>Import Orders Now</button>
+        </form>
+        <form method="post" class="d-inline">
+            <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+            <input type="hidden" name="import_products" value="1">
+            <button type="submit" class="btn btn-primary" <?php echo $isConfigured ? '' : 'disabled'; ?>>Import Products Now</button>
         </form>
     </div>
 </div>
@@ -134,15 +178,27 @@ require_once __DIR__ . '/../../includes/header.php';
 
 <?php if (isset($_GET['imported'])): ?>
     <?php if (isset($_GET['message'])): ?>
-        <div class="alert alert-danger">Import failed: <?php echo app_escape($_GET['message']); ?></div>
+        <div class="alert alert-danger">Order import failed: <?php echo app_escape($_GET['message']); ?></div>
     <?php else: ?>
         <div class="alert alert-success">
-            Import finished - <?php echo (int) $_GET['created']; ?> created, <?php echo (int) $_GET['updated']; ?> updated,
+            Order import finished - <?php echo (int) $_GET['created']; ?> created, <?php echo (int) $_GET['updated']; ?> updated,
             <?php echo (int) $_GET['skipped']; ?> skipped, <?php echo (int) $_GET['failed']; ?> failed.
         </div>
     <?php endif; ?>
 <?php endif; ?>
 
+<?php if (isset($_GET['product_imported'])): ?>
+    <?php if (isset($_GET['message'])): ?>
+        <div class="alert alert-danger">Product import failed: <?php echo app_escape($_GET['message']); ?></div>
+    <?php else: ?>
+        <div class="alert alert-success">
+            Product import finished - <?php echo (int) $_GET['created']; ?> created, <?php echo (int) $_GET['updated']; ?> updated,
+            <?php echo (int) $_GET['skipped']; ?> skipped, <?php echo (int) $_GET['failed']; ?> failed.
+        </div>
+    <?php endif; ?>
+<?php endif; ?>
+
+<h5 class="mb-3">Orders</h5>
 <div class="row g-3 mb-4">
     <div class="col-md-3">
         <div class="card stat-card p-4 h-100 d-flex flex-column">
@@ -259,6 +315,114 @@ require_once __DIR__ . '/../../includes/header.php';
                         <div class="empty-state">
                             <div class="empty-state-title">No Import Activity Yet</div>
                             <p class="empty-state-text">Click "Import Orders Now" to pull recent orders from WooCommerce.</p>
+                        </div>
+                    </td>
+                </tr>
+            <?php endif; ?>
+        </tbody>
+    </table>
+    </div>
+</div>
+
+<h5 class="mb-3 mt-5">Products</h5>
+<p class="text-muted small">
+    v1 imports products, variations, images, prices, and stock from WooCommerce. Brand,
+    category, and collection assignments are not imported yet - a product's existing
+    (or blank) assignment in Mewmii OS is left untouched either way.
+</p>
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card stat-card p-4 h-100 d-flex flex-column">
+            <div class="stat-label">Last Product Sync Run</div>
+            <div class="stat-value" style="font-size: 1.5rem;">
+                <?php echo app_escape(wc_order_import_format_gmt_setting($lastProductRunSummary['ran_at'] ?? null) ?? 'Never'); ?>
+            </div>
+            <div class="stat-helper mb-0">When the product importer last attempted to run (manual or automated).</div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card stat-card p-4 h-100 d-flex flex-column">
+            <div class="stat-label">Product Sync Cursor</div>
+            <div class="stat-value" style="font-size: 1.5rem;">
+                <?php echo app_escape(wc_order_import_format_gmt_setting($lastProductSyncCursor) ?? 'Not synced yet'); ?>
+            </div>
+            <div class="stat-helper mb-0">Only products modified after this point are fetched on the next import.</div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card stat-card p-4 h-100 d-flex flex-column">
+            <div class="stat-label">Products Processed (Last Run)</div>
+            <div class="stat-value">
+                <?php echo $lastProductRunSummary !== null ? (int) $lastProductRunSummary['imported'] : 0; ?>
+            </div>
+            <div class="stat-helper mb-0">
+                <?php if ($lastProductRunSummary !== null): ?>
+                    <?php echo (int) $lastProductRunSummary['created']; ?> created, <?php echo (int) $lastProductRunSummary['updated']; ?> updated,
+                    <?php echo (int) $lastProductRunSummary['skipped']; ?> skipped, <?php echo (int) $lastProductRunSummary['failed']; ?> failed.
+                <?php else: ?>
+                    No sync run yet.
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-6">
+        <div class="card stat-card p-4 h-100 d-flex flex-column">
+            <div class="stat-label">Imported Products</div>
+            <div class="stat-value"><?php echo (int) ($productStats['success_count'] ?? 0); ?></div>
+            <div class="stat-helper mb-0">Successful create/update events.</div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card stat-card p-4 h-100 d-flex flex-column">
+            <div class="stat-label">Failed Product Sync</div>
+            <div class="stat-value <?php echo (int) ($productStats['failed_count'] ?? 0) > 0 ? 'stat-value-alert' : ''; ?>"><?php echo (int) ($productStats['failed_count'] ?? 0); ?></div>
+            <div class="stat-helper mb-0">Products that failed to import - see error detail below.</div>
+        </div>
+    </div>
+</div>
+
+<div class="card p-4">
+    <h5 class="mb-3">Recent Product Sync Activity</h5>
+    <div class="table-responsive">
+    <table class="table table-hover align-middle">
+        <thead>
+            <tr>
+                <th>Product</th>
+                <th>Status</th>
+                <th>Error</th>
+                <th>Date</th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php foreach ($recentProductLogs as $log): ?>
+                <tr>
+                    <td>
+                        <?php if ($log['reference_id'] !== null): ?>
+                            <a href="/modules/products/edit.php?id=<?php echo (int) $log['reference_id']; ?>">#<?php echo (int) $log['reference_id']; ?></a>
+                        <?php else: ?>
+                            -
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        <?php if ($log['status'] === 'success'): ?>
+                            <span class="badge bg-success">success</span>
+                        <?php else: ?>
+                            <span class="badge bg-danger"><?php echo app_escape($log['status']); ?></span>
+                        <?php endif; ?>
+                    </td>
+                    <td><?php echo app_escape($log['error_message'] ?? '-'); ?></td>
+                    <td><?php echo app_escape($log['created_at']); ?></td>
+                </tr>
+            <?php endforeach; ?>
+            <?php if ($recentProductLogs === []): ?>
+                <tr>
+                    <td colspan="4">
+                        <div class="empty-state">
+                            <div class="empty-state-title">No Import Activity Yet</div>
+                            <p class="empty-state-text">Click "Import Products Now" to pull products from WooCommerce.</p>
                         </div>
                     </td>
                 </tr>
