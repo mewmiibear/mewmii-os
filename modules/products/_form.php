@@ -3,7 +3,7 @@
  * Shared product create/edit form. Included by modules/products/create.php and
  * modules/products/edit.php after they've prepared these variables:
  *
- * $isEdit, $productId, $product (array|null), $form (array), $error (string),
+ * $isEdit, $productId, $product (array|null), $form (array), $error (string), $pdo,
  * $brands, $categoriesTree, $collections, $tags, $suppliers, $attributes (each with
  * 'values'), $selectedTagIds, $existingAssignments, $variations, $mainImage,
  * $galleryImages, $statusOptions, $canManage, $lowStock (bool)
@@ -28,9 +28,34 @@
                 &middot; <?php echo app_escape(catalog_status_dot($product['status'])); ?>
             <?php endif; ?>
         </p>
+        <?php if ($isEdit):
+            $lastSyncLog = wc_client_get_last_sync_log($pdo, $productId);
+        ?>
+            <p class="text-muted small mb-0">
+                <?php if ($lastSyncLog === null): ?>
+                    WooCommerce: not yet synced
+                <?php elseif ($lastSyncLog['status'] === 'success'): ?>
+                    WooCommerce: <span class="text-success">&#10003; Synced <?php echo app_escape(wc_client_format_time_ago($lastSyncLog['created_at'])); ?></span>
+                <?php else: ?>
+                    WooCommerce: <span class="text-danger">&#9888; Sync failed</span>
+                    <?php if ($canManage): ?>
+                        <form method="post" action="/modules/products/sync_one.php" class="d-inline">
+                            <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                            <input type="hidden" name="product_id" value="<?php echo (int) $productId; ?>">
+                            <button type="submit" class="btn btn-link btn-sm p-0 align-baseline">(Retry)</button>
+                        </form>
+                    <?php endif; ?>
+                <?php endif; ?>
+            </p>
+        <?php endif; ?>
     </div>
     <div class="d-flex gap-2">
         <?php if ($isEdit && $canManage): ?>
+            <form method="post" action="/modules/products/sync_one.php" class="d-inline">
+                <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                <input type="hidden" name="product_id" value="<?php echo (int) $productId; ?>">
+                <button type="submit" class="btn btn-outline-secondary btn-sm">Sync this Product</button>
+            </form>
             <form method="post" action="/modules/products/duplicate.php" class="d-inline">
                 <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                 <input type="hidden" name="product_id" value="<?php echo (int) $productId; ?>">
@@ -61,6 +86,16 @@
 <?php endif; ?>
 <?php if (isset($_GET['created'])): ?>
     <div class="alert alert-success">Product created.</div>
+<?php endif; ?>
+<?php if (($_GET['wc_sync'] ?? '') === 'synced'): ?>
+    <div class="alert alert-success py-2">Saved and synced to WooCommerce.</div>
+<?php elseif (($_GET['wc_sync'] ?? '') === 'failed'): ?>
+    <div class="alert alert-warning py-2">
+        Product was saved locally, but WooCommerce sync failed.
+        <?php if (app_has_permission('settings.manage')): ?>
+            <a href="/modules/sync-logs/index.php">View Sync Logs</a>.
+        <?php endif; ?>
+    </div>
 <?php endif; ?>
 <?php if (isset($_GET['duplicated'])): ?>
     <div class="alert alert-success">Product duplicated as a draft. Review it below before publishing.</div>

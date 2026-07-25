@@ -297,12 +297,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Strictly after commit, never inside the transaction above - a WooCommerce push
             // can't be undone by a later rollback, so it must only ever happen once the local
             // save is truly final. See wc_client_auto_sync_product()'s own docblock for why
-            // this can never fail the request itself.
+            // this can never fail the request itself - 'skipped' (no SKU, or nothing
+            // WooCommerce-relevant changed) intentionally shows no extra notice at all.
+            $wcSyncStatus = '';
             if (wc_client_auto_sync_enabled($pdo)) {
-                wc_client_auto_sync_product($pdo, $productId);
+                $autoSyncResult = wc_client_auto_sync_product($pdo, $productId);
+                if ($autoSyncResult['status'] !== 'skipped') {
+                    $wcSyncStatus = '&wc_sync=' . $autoSyncResult['status'];
+                }
             }
 
-            app_redirect('/modules/products/edit.php?id=' . $productId . '&updated=1');
+            app_redirect('/modules/products/edit.php?id=' . $productId . '&updated=1' . $wcSyncStatus);
         } catch (RuntimeException $exception) {
             $pdo->rollBack();
             $error = $exception->getMessage();

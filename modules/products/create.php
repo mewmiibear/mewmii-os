@@ -263,11 +263,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             // Strictly after commit, never inside the transaction above - see the identical
             // comment in modules/products/edit.php.
+            $wcSyncStatus = '';
             if (wc_client_auto_sync_enabled($pdo)) {
-                wc_client_auto_sync_product($pdo, $productId);
+                $autoSyncResult = wc_client_auto_sync_product($pdo, $productId);
+                if ($autoSyncResult['status'] !== 'skipped') {
+                    $wcSyncStatus = '&wc_sync=' . $autoSyncResult['status'];
+                }
             }
 
-            app_redirect('/modules/products/edit.php?id=' . $productId . '&created=1');
+            app_redirect('/modules/products/edit.php?id=' . $productId . '&created=1' . $wcSyncStatus);
         } catch (RuntimeException $exception) {
             $pdo->rollBack();
             $error = $exception->getMessage();

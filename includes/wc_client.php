@@ -798,10 +798,15 @@ function wc_client_product_sync_fingerprint(PDO $pdo, array $product): string
  * (woocommerce_product_id not yet set) is always synced regardless of the stored hash, since
  * a NULL/stale hash must never be mistaken for "nothing to do" on a first-time push.
  *
+ * $force bypasses the unchanged-skip gate entirely (still recomputes and stores the hash
+ * afterward) - for the explicit, single-product "Sync this Product"/"Retry" actions (see
+ * modules/products/sync_one.php), where a deliberate click must always actually push, never
+ * silently no-op just because nothing looked different.
+ *
  * @return array{action: 'updated'|'skipped'} merged with wc_client_sync_any_product_from_mewmii()'s
  * own return value when action is 'updated'.
  */
-function wc_client_sync_if_changed(PDO $pdo, array $product): array
+function wc_client_sync_if_changed(PDO $pdo, array $product, bool $force = false): array
 {
     $productId = (int) ($product['id'] ?? 0);
     $fingerprint = wc_client_product_sync_fingerprint($pdo, $product);
@@ -809,7 +814,7 @@ function wc_client_sync_if_changed(PDO $pdo, array $product): array
     $storedHash = $product['woocommerce_sync_hash'] ?? null;
     $alreadyPublished = !empty($product['woocommerce_product_id']);
 
-    if ($alreadyPublished && $storedHash !== null && hash_equals($storedHash, $fingerprint)) {
+    if (!$force && $alreadyPublished && $storedHash !== null && hash_equals($storedHash, $fingerprint)) {
         return ['action' => 'skipped'];
     }
 
@@ -822,46 +827,125 @@ function wc_client_sync_if_changed(PDO $pdo, array $product): array
 }
 
 /**
+ * The exact column set wc_client_sync_if_changed()/wc_client_product_sync_fingerprint() need
+ * from a `products` row - shared by every push-sync entry point (the bulk "Sync to
+ * WooCommerce" button in modules/products/sync.php, Auto Sync, and the single-product "Sync
+ * this Product"/"Retry" actions in modules/products/sync_one.php) so the three can never
+ * drift out of sync with each other over which columns are selected.
+ */
+function wc_client_load_product_for_sync(PDO $pdo, int $productId): ?array
+{
+    $stmt = $pdo->prepare("
+        SELECT id, sku, name, short_description, description, catalog_type, selling_price, product_type,
+               status, availability_override, preorder_closing_date, preorder_reopened_at,
+               estimated_arrival_date, estimated_release_month, sale_enabled, sale_price, sale_start_date,
+               woocommerce_product_id, woocommerce_sync_hash
+        FROM products WHERE id = ? LIMIT 1
+    ");
+    $stmt->execute([$productId]);
+    $product = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    return $product !== false ? $product : null;
+}
+
+/**
  * Pushes exactly one product to WooCommerce via wc_client_sync_if_changed() - the "Auto Sync
  * to WooCommerce" action (see wc_client_auto_sync_enabled()), called from
  * modules/products/create.php/edit.php right after a successful local save, when the setting
- * is on. Deliberately never throws: a WooCommerce-side failure must never block the save it's
- * reacting to, or the redirect that follows it - logged to sync_logs exactly like the manual
- * "Sync to WooCommerce" button (same sync_type), so a failure is still visible on
- * modules/integrations/woocommerce.php, just never disruptive to the person saving the
- * product. Re-reads the product row itself (rather than trusting the caller's own in-memory
+ * is on. Deliberately never THROWS: a WooCommerce-side failure must never block the save it's
+ * reacting to, or the redirect that follows it - instead it reports what happened in its
+ * return value, so the caller can show "Saved and synced to WooCommerce." or "...WooCommerce
+ * sync failed" without the save itself ever being at risk. Also logged to sync_logs exactly
+ * like the manual "Sync to WooCommerce" button (same sync_type), so a failure is still visible
+ * on modules/integrations/woocommerce.php regardless of whether anyone reads the redirect
+ * notice. Re-reads the product row itself (rather than trusting the caller's own in-memory
  * $form array, which isn't shaped like a full `products` row and doesn't carry
  * woocommerce_product_id/woocommerce_sync_hash) so it always syncs exactly what was just
  * committed to the database, not what was posted.
+ *
+ * @return array{status: 'synced'|'skipped'|'failed', error: ?string} 'skipped' covers both "no
+ * SKU yet" and wc_client_sync_if_changed()'s own unchanged-skip - neither is an error, and
+ * callers should show no WooCommerce-specific notice for either.
  */
-function wc_client_auto_sync_product(PDO $pdo, int $productId): void
+function wc_client_auto_sync_product(PDO $pdo, int $productId): array
 {
     try {
-        $stmt = $pdo->prepare("
-            SELECT id, sku, name, short_description, description, catalog_type, selling_price, product_type,
-                   status, availability_override, preorder_closing_date, preorder_reopened_at,
-                   estimated_arrival_date, estimated_release_month, sale_enabled, sale_price, sale_start_date,
-                   woocommerce_product_id, woocommerce_sync_hash
-            FROM products WHERE id = ? LIMIT 1
-        ");
-        $stmt->execute([$productId]);
-        $product = $stmt->fetch(PDO::FETCH_ASSOC);
+        $product = wc_client_load_product_for_sync($pdo, $productId);
 
-        if ($product === false || trim((string) $product['sku']) === '') {
-            return;
+        if ($product === null || trim((string) $product['sku']) === '') {
+            return ['status' => 'skipped', 'error' => null];
         }
 
         $result = wc_client_sync_if_changed($pdo, $product);
 
         if ($result['action'] === 'updated') {
             sync_log_success($pdo, 'woocommerce_product_sync', $productId);
+
+            return ['status' => 'synced', 'error' => null];
         }
+
+        return ['status' => 'skipped', 'error' => null];
     } catch (Throwable $e) {
+        $message = $e->getMessage();
+
         // The logging call itself is also guarded - this function's whole point is that
         // NOTHING it does may ever propagate back to the save it's reacting to.
         try {
-            sync_log_failure($pdo, 'woocommerce_product_sync', $e->getMessage(), $productId);
+            sync_log_failure($pdo, 'woocommerce_product_sync', $message, $productId);
         } catch (Throwable $loggingFailure) {
         }
+
+        return ['status' => 'failed', 'error' => $message];
     }
+}
+
+/** Latest sync_logs row for one product's push-sync history (woocommerce_product_sync), or null if it has never been attempted. */
+function wc_client_get_last_sync_log(PDO $pdo, int $productId): ?array
+{
+    $stmt = $pdo->prepare("
+        SELECT status, error_message, created_at
+        FROM sync_logs
+        WHERE sync_type = 'woocommerce_product_sync' AND reference_id = ?
+        ORDER BY id DESC
+        LIMIT 1
+    ");
+    $stmt->execute([$productId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    return $row !== false ? $row : null;
+}
+
+/**
+ * "2 minutes ago" / "3 hours ago" / "5 days ago" style relative time for a MySQL TIMESTAMP
+ * column value (e.g. sync_logs.created_at) - read and displayed in whatever timezone this app
+ * is configured for (see includes/bootstrap.php's date_default_timezone_set()), same as every
+ * other raw timestamp this app already displays (e.g. the Recent Sync Activity tables on
+ * modules/integrations/woocommerce.php), so this never needs its own GMT handling.
+ */
+function wc_client_format_time_ago(string $mysqlTimestamp): string
+{
+    $timestamp = strtotime($mysqlTimestamp);
+    if ($timestamp === false) {
+        return $mysqlTimestamp;
+    }
+
+    $secondsAgo = max(0, time() - $timestamp);
+
+    if ($secondsAgo < 60) {
+        return 'just now';
+    }
+    if ($secondsAgo < 3600) {
+        $minutes = (int) floor($secondsAgo / 60);
+
+        return $minutes . ' minute' . ($minutes === 1 ? '' : 's') . ' ago';
+    }
+    if ($secondsAgo < 86400) {
+        $hours = (int) floor($secondsAgo / 3600);
+
+        return $hours . ' hour' . ($hours === 1 ? '' : 's') . ' ago';
+    }
+
+    $days = (int) floor($secondsAgo / 86400);
+
+    return $days . ' day' . ($days === 1 ? '' : 's') . ' ago';
 }
