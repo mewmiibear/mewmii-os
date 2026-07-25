@@ -193,6 +193,41 @@ function wc_client_put(string $endpoint, array $data = []): array
     return wc_client_request('PUT', $endpoint, $data);
 }
 
+/**
+ * Bugfix pass (missing woocommerce_sync_hash column incident) - turns a caught sync
+ * exception into one of a small set of admin-facing categories, so a bulk sync's summary
+ * can show "12 failed - Database error" instead of a bare, uninformative count. Based on
+ * the exact exception types/messages this file and PDO actually throw (see
+ * wc_client_request()'s RuntimeExceptions above and PDO::ATTR_ERRMODE = ERRMODE_EXCEPTION
+ * in config/database.php) - not a guess at hypothetical error shapes.
+ */
+function wc_client_classify_sync_error(Throwable $e): string
+{
+    if ($e instanceof PDOException) {
+        return 'Database error';
+    }
+
+    $message = $e->getMessage();
+
+    if (stripos($message, 'not configured') !== false) {
+        return 'WooCommerce not configured';
+    }
+    if (stripos($message, 'curl extension') !== false) {
+        return 'Server configuration error';
+    }
+    if (stripos($message, 'sku') !== false && (stripos($message, 'duplicat') !== false || stripos($message, 'already') !== false || stripos($message, 'invalid') !== false)) {
+        return 'SKU conflict';
+    }
+    if (stripos($message, 'is missing') !== false) {
+        return 'Invalid product data';
+    }
+    if (preg_match('/API error \(\d+\)/', $message) === 1 || stripos($message, 'request failed') !== false || stripos($message, 'unparsable') !== false || stripos($message, 'did not return') !== false) {
+        return 'API error';
+    }
+
+    return 'Unknown error';
+}
+
 function wc_client_find_product_by_sku(string $sku): ?array
 {
     $products = wc_client_get('products', ['sku' => $sku, 'per_page' => 10]);

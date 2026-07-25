@@ -12,6 +12,10 @@ $skippedCount = 0;
 $staleCount = 0;
 $failedCount = 0;
 $errors = [];
+// Bugfix pass: categorized via wc_client_classify_sync_error() so the summary banner can
+// say *why* products failed (e.g. "Database error") instead of a bare count - this is what
+// silently swallowed the missing woocommerce_sync_hash column incident before.
+$failureReasons = [];
 
 try {
     // Production Hardening Phase 2: woocommerce_last_seen_modified_at added to this SELECT -
@@ -42,12 +46,31 @@ try {
         } catch (Throwable $e) {
             $failedCount++;
             $errors[] = $e->getMessage();
+            $reason = wc_client_classify_sync_error($e);
+            $failureReasons[$reason] = ($failureReasons[$reason] ?? 0) + 1;
             sync_log_failure(app_db(), 'woocommerce_product_sync', $e->getMessage(), (int) ($product['id'] ?? 0));
         }
     }
 } catch (Throwable $e) {
+    // The SELECT above itself failed (e.g. the missing-column incident this pass fixes) -
+    // every product counts as failed under one reason, since none of them were even attempted.
+    $failedCount = isset($products) ? count($products) : 0;
+    $reason = wc_client_classify_sync_error($e);
+    $failureReasons = [$reason => max($failedCount, 1)];
     sync_log_failure(app_db(), 'woocommerce_product_sync', $e->getMessage());
     $errors[] = $e->getMessage();
 }
+
+// Session flash (same convention as modules/products/bulk_action.php ->
+// modules/products/index.php) carries the reason breakdown; the query params stay for
+// backward compatibility/shareable-URL purposes but the flash is what index.php actually
+// renders when present.
+$_SESSION['products_sync_result'] = [
+    'updated' => $updatedCount,
+    'skipped' => $skippedCount,
+    'stale' => $staleCount,
+    'failed' => $failedCount,
+    'failure_reasons' => $failureReasons,
+];
 
 app_redirect('/modules/products/index.php?sync=1&updated=' . $updatedCount . '&skipped=' . $skippedCount . '&stale=' . $staleCount . '&failed=' . $failedCount);

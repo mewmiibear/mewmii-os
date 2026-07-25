@@ -110,7 +110,7 @@
     </div>
 <?php elseif (($_GET['wc_sync'] ?? '') === 'failed'): ?>
     <div class="alert alert-warning py-2">
-        Product was saved locally, but WooCommerce sync failed.
+        Product was saved locally, but WooCommerce sync failed<?php echo ($_GET['wc_sync_reason'] ?? '') !== '' ? (' - ' . app_escape($_GET['wc_sync_reason'])) : '.'; ?>
         <?php if (app_has_permission('settings.manage')): ?>
             <a href="/modules/sync-logs/index.php">View Sync Logs</a>.
         <?php endif; ?>

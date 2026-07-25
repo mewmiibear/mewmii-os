@@ -227,6 +227,12 @@ $canManage = app_has_permission('products.manage');
 $bulkResult = $_SESSION['products_bulk_result'] ?? null;
 unset($_SESSION['products_bulk_result']);
 
+// Bugfix pass: one-time flash from modules/products/sync.php, same convention as above -
+// carries the categorized failure-reason breakdown the bare ?sync=1&failed= query params
+// can't (see wc_client_classify_sync_error()).
+$syncResult = $_SESSION['products_sync_result'] ?? null;
+unset($_SESSION['products_sync_result']);
+
 require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -245,17 +251,32 @@ require_once __DIR__ . '/../../includes/header.php';
 <div class="d-flex justify-content-between align-items-center mb-3">
     <div>
         <?php if (isset($_GET['sync'])): ?>
-            <div class="alert alert-info mb-0">
+            <?php
+            // Prefer the session flash (has the categorized reason breakdown); fall back to
+            // the bare query params if the flash is somehow missing (e.g. an old bookmarked
+            // redirect URL) so this never shows a blank/broken banner either way.
+            $updatedCount = $syncResult['updated'] ?? (isset($_GET['updated']) ? (int) $_GET['updated'] : 0);
+            $skippedCount = $syncResult['skipped'] ?? (isset($_GET['skipped']) ? (int) $_GET['skipped'] : 0);
+            $staleCount = $syncResult['stale'] ?? (isset($_GET['stale']) ? (int) $_GET['stale'] : 0);
+            $failedCount = $syncResult['failed'] ?? (isset($_GET['failed']) ? (int) $_GET['failed'] : 0);
+            $syncFailureReasons = $syncResult['failure_reasons'] ?? [];
+            ?>
+            <div class="alert <?php echo $failedCount > 0 ? 'alert-warning' : 'alert-info'; ?> mb-0">
                 <?php
-                $updatedCount = isset($_GET['updated']) ? (int) $_GET['updated'] : 0;
-                $skippedCount = isset($_GET['skipped']) ? (int) $_GET['skipped'] : 0;
-                $staleCount = isset($_GET['stale']) ? (int) $_GET['stale'] : 0;
-                $failedCount = isset($_GET['failed']) ? (int) $_GET['failed'] : 0;
-
                 echo 'WooCommerce sync completed. ' . $updatedCount . ' updated, ' . $skippedCount . ' unchanged (skipped)'
                     . ($staleCount > 0 ? ', ' . $staleCount . ' skipped (WooCommerce has a newer edit - see Sync Logs)' : '')
                     . ($failedCount > 0 ? ', ' . $failedCount . ' failed.' : '.');
                 ?>
+                <?php if ($syncFailureReasons !== []): ?>
+                    <ul class="mb-0 small">
+                        <?php foreach ($syncFailureReasons as $reason => $count): ?>
+                            <li><?php echo (int) $count; ?> &mdash; <?php echo app_escape($reason); ?></li>
+                        <?php endforeach; ?>
+                    </ul>
+                    <?php if (app_has_permission('settings.manage')): ?>
+                        <a href="/modules/sync-logs/index.php" class="small">View Sync Logs for details</a>
+                    <?php endif; ?>
+                <?php endif; ?>
             </div>
         <?php endif; ?>
     </div>
@@ -301,6 +322,16 @@ require_once __DIR__ . '/../../includes/header.php';
         }
         echo '.';
         ?>
+        <?php if (($bulkResult['failure_reasons'] ?? []) !== []): ?>
+            <ul class="mb-0 small">
+                <?php foreach ($bulkResult['failure_reasons'] as $reason => $count): ?>
+                    <li><?php echo (int) $count; ?> &mdash; <?php echo app_escape($reason); ?></li>
+                <?php endforeach; ?>
+            </ul>
+            <?php if (app_has_permission('settings.manage')): ?>
+                <a href="/modules/sync-logs/index.php" class="small">View Sync Logs for details</a>
+            <?php endif; ?>
+        <?php endif; ?>
     </div>
 <?php endif; ?>
 

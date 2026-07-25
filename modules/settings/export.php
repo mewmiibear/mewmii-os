@@ -21,6 +21,7 @@ require_once __DIR__ . '/../../includes/header.php';
 <div class="d-flex gap-2 mb-4">
     <a class="btn btn-outline-secondary btn-sm" href="/modules/settings/maintenance.php">Data Cleanup</a>
     <a class="btn btn-secondary btn-sm" href="/modules/settings/export.php">Data Export</a>
+    <a class="btn btn-outline-secondary btn-sm" href="/modules/settings/system_health.php">System Health</a>
 </div>
 
 <div class="card p-4">

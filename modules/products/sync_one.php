@@ -29,7 +29,22 @@ if ($productId < 1) {
     app_redirect('/modules/products/index.php');
 }
 
-$product = wc_client_load_product_for_sync($pdo, $productId);
+// Bugfix pass: wc_client_load_product_for_sync() runs a real SELECT and can throw (e.g. the
+// missing woocommerce_sync_hash column incident) - previously uncaught here, which would
+// have surfaced as a raw fatal error instead of the same "wc_sync=failed" alert every other
+// failure in this flow already shows.
+try {
+    $product = wc_client_load_product_for_sync($pdo, $productId);
+} catch (Throwable $exception) {
+    try {
+        sync_log_failure($pdo, 'woocommerce_product_sync', $exception->getMessage(), $productId);
+    } catch (Throwable $loggingFailure) {
+    }
+
+    $reason = wc_client_classify_sync_error($exception);
+
+    app_redirect('/modules/products/edit.php?id=' . $productId . '&wc_sync=failed&wc_sync_reason=' . urlencode($reason));
+}
 
 if ($product === null) {
     app_redirect('/modules/products/index.php');
@@ -61,5 +76,7 @@ try {
     } catch (Throwable $loggingFailure) {
     }
 
-    app_redirect('/modules/products/edit.php?id=' . $productId . '&wc_sync=failed');
+    $reason = wc_client_classify_sync_error($exception);
+
+    app_redirect('/modules/products/edit.php?id=' . $productId . '&wc_sync=failed&wc_sync_reason=' . urlencode($reason));
 }

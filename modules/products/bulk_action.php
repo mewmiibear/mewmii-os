@@ -29,6 +29,9 @@ $failedCount = 0;
 $skippedCount = 0;
 $staleCount = 0;
 $errors = [];
+// Bugfix pass: categorized via wc_client_classify_sync_error() so the flash banner can show
+// *why* products failed (e.g. "Database error") instead of a bare count.
+$failureReasons = [];
 
 // Sprint 10 (Operator Experience): modeled directly on modules/orders/bulk_action.php - each
 // product mutated independently, wrapped in its own try/catch, so one bad row never aborts
@@ -48,6 +51,8 @@ switch ($action) {
             } catch (Throwable $exception) {
                 $failedCount++;
                 $errors[] = $exception->getMessage();
+                $reason = wc_client_classify_sync_error($exception);
+                $failureReasons[$reason] = ($failureReasons[$reason] ?? 0) + 1;
             }
         }
         break;
@@ -68,6 +73,8 @@ switch ($action) {
             } catch (Throwable $exception) {
                 $failedCount++;
                 $errors[] = $exception->getMessage();
+                $reason = wc_client_classify_sync_error($exception);
+                $failureReasons[$reason] = ($failureReasons[$reason] ?? 0) + 1;
             }
         }
         break;
@@ -85,6 +92,8 @@ switch ($action) {
             } catch (Throwable $exception) {
                 $failedCount++;
                 $errors[] = $exception->getMessage();
+                $reason = wc_client_classify_sync_error($exception);
+                $failureReasons[$reason] = ($failureReasons[$reason] ?? 0) + 1;
             }
         }
         break;
@@ -107,6 +116,8 @@ switch ($action) {
             } catch (Throwable $exception) {
                 $failedCount++;
                 $errors[] = $exception->getMessage();
+                $reason = wc_client_classify_sync_error($exception);
+                $failureReasons[$reason] = ($failureReasons[$reason] ?? 0) + 1;
             }
         }
         break;
@@ -121,6 +132,8 @@ switch ($action) {
             } catch (Throwable $exception) {
                 $failedCount++;
                 $errors[] = $exception->getMessage();
+                $reason = wc_client_classify_sync_error($exception);
+                $failureReasons[$reason] = ($failureReasons[$reason] ?? 0) + 1;
             }
         }
         break;
@@ -147,6 +160,8 @@ switch ($action) {
             } catch (Throwable $exception) {
                 $failedCount++;
                 $errors[] = $exception->getMessage();
+                $reason = wc_client_classify_sync_error($exception);
+                $failureReasons[$reason] = ($failureReasons[$reason] ?? 0) + 1;
                 sync_log_failure($pdo, 'woocommerce_product_sync', $exception->getMessage(), $productId);
             }
         }
@@ -162,6 +177,7 @@ $_SESSION['products_bulk_result'] = [
     'stale_count' => $staleCount,
     'failed_count' => $failedCount,
     'errors' => $errors,
+    'failure_reasons' => $failureReasons,
 ];
 
 app_redirect('/modules/products/index.php?bulk_result=1');

@@ -243,6 +243,7 @@ CREATE TABLE IF NOT EXISTS products (
   status VARCHAR(50) NOT NULL DEFAULT 'coming_soon',
   availability_override VARCHAR(20) NOT NULL DEFAULT 'auto',
   published_to_woocommerce TINYINT(1) NOT NULL DEFAULT 0,
+  woocommerce_sync_hash VARCHAR(64) NULL,
   woocommerce_last_seen_modified_at DATETIME NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

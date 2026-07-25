@@ -13,6 +13,25 @@ $stmt = $pdo->query('
 ');
 $syncLogs = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+// Bugfix pass: reference_id is a bare product id for these two sync_types (see
+// includes/wc_client.php/includes/wc_product_import.php) - batched into one lookup rather
+// than a query per row, then shown as "SKU - Name" instead of a number nobody can act on.
+// Other sync_types (order tracking/import) reference a different entity, so this only
+// annotates rows where the id is actually known to mean "a product".
+$productReferenceIds = array_values(array_unique(array_map(
+    static fn (array $log): int => (int) $log['reference_id'],
+    array_filter($syncLogs, static fn (array $log): bool => in_array($log['sync_type'], ['woocommerce_product_sync', 'woocommerce_product_import'], true) && $log['reference_id'] !== null)
+)));
+$productLabelsById = [];
+if ($productReferenceIds !== []) {
+    $placeholders = implode(',', array_fill(0, count($productReferenceIds), '?'));
+    $productLookupStmt = $pdo->prepare("SELECT id, sku, name FROM products WHERE id IN ({$placeholders})");
+    $productLookupStmt->execute($productReferenceIds);
+    foreach ($productLookupStmt->fetchAll(PDO::FETCH_ASSOC) as $productRow) {
+        $productLabelsById[(int) $productRow['id']] = $productRow['sku'] . ' - ' . $productRow['name'];
+    }
+}
+
 require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -37,10 +56,21 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php foreach ($syncLogs as $log): ?>
                 <tr>
                     <td><?php echo app_escape($log['sync_type']); ?></td>
-                    <td><?php echo $log['reference_id'] !== null ? (int) $log['reference_id'] : '-'; ?></td>
+                    <td>
+                        <?php if ($log['reference_id'] === null): ?>
+                            -
+                        <?php elseif (isset($productLabelsById[(int) $log['reference_id']])): ?>
+                            <?php echo app_escape($productLabelsById[(int) $log['reference_id']]); ?>
+                            <span class="text-muted small">(#<?php echo (int) $log['reference_id']; ?>)</span>
+                        <?php else: ?>
+                            #<?php echo (int) $log['reference_id']; ?>
+                        <?php endif; ?>
+                    </td>
                     <td>
                         <?php if ($log['status'] === 'success'): ?>
                             <span class="badge bg-success">success</span>
+                        <?php elseif ($log['status'] === 'warning'): ?>
+                            <span class="badge bg-warning text-dark">warning</span>
                         <?php else: ?>
                             <span class="badge bg-danger"><?php echo app_escape($log['status']); ?></span>
                         <?php endif; ?>
