@@ -520,6 +520,7 @@ $appTitle = 'Mewmii OS';
                             <div class="nav-section-label">System</div>
                             <a class="nav-link<?php echo $navActive('/modules/integrations/woocommerce.php'); ?>" href="/modules/integrations/woocommerce.php"><i class="bi bi-arrow-repeat"></i> WooCommerce Sync</a>
                             <a class="nav-link<?php echo $navActive('/modules/sync-logs/index.php'); ?>" href="/modules/sync-logs/index.php"><i class="bi bi-list-check"></i> Sync Logs</a>
+                            <a class="nav-link<?php echo $navActive('/modules/settings/inventory_reconciliation.php'); ?>" href="/modules/settings/inventory_reconciliation.php"><i class="bi bi-clipboard-data"></i> Inventory Reconciliation</a>
                             <a class="nav-link<?php echo $navActive('/modules/settings/maintenance.php'); ?>" href="/modules/settings/maintenance.php"><i class="bi bi-gear"></i> Settings</a>
                         <?php endif; ?>
                     </div>
