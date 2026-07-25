@@ -174,15 +174,15 @@ Verified directly: `membership_tiers` and `point_transactions` tables exist and 
 ---
 
 ## Phase 10 — Finance & Business Reporting
-**Status: 🟡 Partial** (upgraded from "Mostly Not Started" — Inventory Intelligence added a real second report)
+**Status: 🟡 Partial**
 
 - ✅ Sales Report (`modules/reports/sales.php` — revenue, units sold, top products, period filter)
-- ✅ Inventory Intelligence Report (`modules/reports/inventory.php`, new, Phase 5F.1) — Dead Stock/Slow-Moving value, Fast Movers At Risk, Total/Slow-Moving Inventory Value
-- ⬜ Invoice system
-- ⬜ Expense tracking
-- ⬜ Supplier payment report (the underlying data exists on `supplier_orders`, but there's no dedicated reporting view)
-- ⬜ Profit calculation report
-- ⬜ Tax / LHDN export
+- ✅ Inventory Intelligence Report (`modules/reports/inventory.php` — Dead Stock/Slow-Moving value, Fast Movers At Risk, Total/Slow-Moving Inventory Value)
+- ✅ Profitability & Margin Intelligence (`modules/reports/profitability.php` — Gross revenue, COGS, net margin %, top product profitability breakdown, unpaid supplier payout liabilities)
+- ⬜ Overseas Supplier & Landed Cost Tracking (schema update on `suppliers`/`supplier_orders` — JPY/USD FX rates, freight/shipping, customs duty, and auto-calculated per-unit landed cost in MYR to prevent overpaying taxes)
+- ⬜ LHDN Tax & e-Invois Readiness (`modules/reports/lhdn_export.php` — monthly B2C consolidated e-Invois CSV export for MyInvois portal; Self-Billed e-Invois tagging for foreign suppliers with K1/Customs declaration reference; Customer & Supplier TIN, MyKad/BRN field additions; 7-year record retention policy)
+- ⬜ Operational Expense Tracking (`modules/finance/expenses.php` — log hosting, domain fees, packaging, and shipping supplies to calculate net taxable income)
+- ⬜ Tax Invoice Generator (generate formal PDF tax invoices with TIN/BRN details when requested by B2C or corporate buyers)
 
 ---
 
