@@ -177,9 +177,13 @@ function variation_generate_combinations(PDO $pdo, int $productId): array
         $existingSignatures[implode('|', $parts)] = true;
     }
 
+    // UX pass: new variations default to Active (not Draft) - no manual enable step needed
+    // per combination. Only ever applies to a row being INSERTed here for the first time
+    // (see the isset($existingSignatures[$signature]) skip above) - an existing variation's
+    // current status is never touched by this function.
     $insertVariationStmt = $pdo->prepare("
         INSERT INTO product_variations (product_id, sku, price_mode, status, is_system_generated)
-        VALUES (?, ?, 'inherit', 'draft', 1)
+        VALUES (?, ?, 'inherit', 'active', 1)
     ");
     $insertAttrValueStmt = $pdo->prepare('
         INSERT INTO product_variation_attribute_values (variation_id, attribute_id, attribute_value_id)
@@ -292,9 +296,11 @@ function variation_apply_preview_edits(PDO $pdo, int $productId, array $createdV
         }
         $customPrice = trim((string) ($customPrices[$signature] ?? ''));
         $costPrice = trim((string) ($costPrices[$signature] ?? ''));
-        $status = (string) ($statuses[$signature] ?? 'draft');
+        // UX pass: matches the new default in variation_generate_combinations() above -
+        // only reached for a row that was just newly inserted this same request.
+        $status = (string) ($statuses[$signature] ?? 'active');
         if (!in_array($status, ['draft', 'active', 'inactive'], true)) {
-            $status = 'draft';
+            $status = 'active';
         }
 
         $pdo->prepare('

@@ -698,7 +698,13 @@
                 priceMode: overrideFor('variation_price_mode', signature) || 'inherit',
                 customPrice: overrideFor('variation_custom_price', signature) || '',
                 costPrice: overrideFor('variation_cost_price', signature),
-                status: overrideFor('variation_status', signature) || 'draft',
+                // UX pass: new variations default to Active - matches
+                // variation_generate_combinations()'s new default in includes/product_
+                // variations.php. Only affects the client-side preview for a row that
+                // hasn't been saved yet; an existing variation's own status is always
+                // read from the server (see renderServerVariationRow() below), never
+                // defaulted here.
+                status: overrideFor('variation_status', signature) || 'active',
                 stockStatus: 'out_of_stock',
                 fallbackNote: 'uses parent main image'
             });

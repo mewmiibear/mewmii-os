@@ -37,7 +37,10 @@ $form = [
     'collection_id' => '',
     'supplier_id' => '',
     'product_type' => 'ready_stock',
-    'status' => 'draft',
+    // UX pass: new products default to Active - no manual enable step needed. Editing an
+    // existing product still has the full status dropdown (see _form.php), so this only
+    // changes what a brand-new create-form starts with, never anything already saved.
+    'status' => 'active',
     'availability_override' => 'auto',
     'product_cost' => '',
     'selling_price' => '',
@@ -76,7 +79,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form['collection_id'] = trim((string) ($_POST['collection_id'] ?? ''));
     $form['supplier_id'] = trim((string) ($_POST['supplier_id'] ?? ''));
     $form['product_type'] = (string) ($_POST['product_type'] ?? 'ready_stock');
-    $form['status'] = (string) ($_POST['status'] ?? 'draft');
+    $form['status'] = (string) ($_POST['status'] ?? 'active');
+    // UX pass: "Save Draft" is a second submit button (see _form.php) that always saves as
+    // draft regardless of what the Status dropdown shows - reuses this exact same handler,
+    // just overriding the one field, so no new validation/insert path was added.
+    if ((string) ($_POST['save_action'] ?? '') === 'draft') {
+        $form['status'] = 'draft';
+    }
     $form['availability_override'] = (string) ($_POST['availability_override'] ?? 'auto');
     $form['product_cost'] = trim((string) ($_POST['product_cost'] ?? ''));
     $form['selling_price'] = trim((string) ($_POST['selling_price'] ?? ''));

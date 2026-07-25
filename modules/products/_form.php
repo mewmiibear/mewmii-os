@@ -12,6 +12,14 @@
  * plain submit - the JS in assets/js/product-form.js progressively enhances it
  * (searchable selects, inline "+ Add" modals, live show/hide, AJAX-driven variation
  * builder in edit mode) but a full-page submit of the "Save" button still works.
+ *
+ * UX pass (product creation improvements): reorganized into Basic Information / Pricing &
+ * Inventory / Images / Variations / Status sections. Every field keeps its original name/id
+ * - this is a template reshuffle only, no field was renamed, added, or removed, and no
+ * validation/save/image/inventory/WooCommerce logic changed. New product Status defaults to
+ * Active (see modules/products/create.php's $form default) and new variations default to
+ * Active (see includes/product_variations.php) - editing an existing product/variation
+ * still shows and preserves its own real current status untouched.
  */
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -82,13 +90,18 @@
 </div>
 
 <?php if ($canManage): ?>
-    <!-- Sprint 11: sticky Save bar - the button lives outside <form id="product-form">
-         (same as the header actions above), so it submits via the HTML5 form="" attribute
-         instead of wrapping/duplicating the form. Triggers the exact same submit event
-         (and entry-form-validation.js's validation) as the bottom button. -->
+    <!-- Sticky Save bar - the button(s) live outside <form id="product-form"> (same as the
+         header actions above), so they submit via the HTML5 form="" attribute instead of
+         wrapping/duplicating the form. Triggers the exact same submit event (and
+         entry-form-validation.js's validation) as the bottom button(s). -->
     <div class="sticky-top bg-white border-bottom py-2 mb-3" style="z-index: 1015; margin-left: -1.5rem; margin-right: -1.5rem; padding-left: 1.5rem; padding-right: 1.5rem;">
-        <div class="d-flex justify-content-end">
-            <button class="btn btn-primary" type="submit" form="product-form"><?php echo $isEdit ? 'Save Changes' : 'Create Product'; ?></button>
+        <div class="d-flex justify-content-end gap-2">
+            <?php if (!$isEdit): ?>
+                <button class="btn btn-outline-secondary" type="submit" form="product-form" name="save_action" value="draft">Save Draft</button>
+                <button class="btn btn-primary" type="submit" form="product-form" name="save_action" value="publish">Create Product</button>
+            <?php else: ?>
+                <button class="btn btn-primary" type="submit" form="product-form">Save Changes</button>
+            <?php endif; ?>
         </div>
     </div>
 <?php endif; ?>
@@ -152,56 +165,80 @@
     <?php endif; ?>
 
     <div class="card p-4 mb-4">
-        <h5 class="mb-3">Basic Information</h5>
+        <h5 class="mb-3">1. Basic Information</h5>
         <div class="row g-3">
-            <div class="col-12">
-                <label class="form-label">Product Image</label>
-                <?php if ($mainImage !== null): ?>
-                    <div class="mb-2 position-relative d-inline-block">
-                        <img src="/<?php echo app_escape($mainImage['image_path']); ?>" alt="Main image" style="max-width: 140px; max-height: 140px;" class="border rounded d-block">
-                    </div>
-                    <?php if ($canManage): ?>
-                        <label class="d-block small mb-2">
-                            <input type="checkbox" name="remove_main_image" value="1"> Remove current main image
-                        </label>
-                    <?php endif; ?>
-                <?php endif; ?>
-                <input type="file" class="form-control image-file-input" name="main_image" id="main-image-input" accept="image/*" style="max-width: 400px;">
-                <div class="form-text">Automatically resized, compressed, and converted to WebP.</div>
-            </div>
-
-            <div class="col-md-4">
-                <label class="form-label">SKU</label>
-                <input type="text" class="form-control" name="sku" value="<?php echo app_escape($form['sku']); ?>" maxlength="100" required>
-                <div class="invalid-feedback">SKU is required.</div>
-            </div>
             <div class="col-md-8">
-                <label class="form-label">Product Name</label>
-                <input type="text" class="form-control" name="name" value="<?php echo app_escape($form['name']); ?>" maxlength="255" required>
+                <label class="form-label">Product Name <span class="text-danger">*</span></label>
+                <input type="text" class="form-control" name="name" value="<?php echo app_escape($form['name']); ?>" maxlength="255" placeholder="e.g. Hello Kitty Plush" required>
                 <div class="invalid-feedback">Product name is required.</div>
+            </div>
+            <div class="col-md-4">
+                <div class="d-flex justify-content-between align-items-center">
+                    <label class="form-label mb-1">Brand</label>
+                    <a class="small" href="/modules/catalog/index.php?tab=brands" target="_blank" rel="noopener">Manage &#8599;</a>
+                </div>
+                <select class="form-select" name="brand_id" id="brand-select" data-searchable="1">
+                    <option value="">None</option>
+                    <?php foreach ($brands as $brand): ?>
+                        <option value="<?php echo (int) $brand['id']; ?>" <?php echo $form['brand_id'] === (string) $brand['id'] ? 'selected' : ''; ?>><?php echo app_escape($brand['name']); ?></option>
+                    <?php endforeach; ?>
+                </select>
             </div>
 
             <div class="col-12">
                 <label class="form-label">Short Description</label>
-                <textarea class="form-control" name="short_description" rows="2" maxlength="500"><?php echo app_escape($form['short_description']); ?></textarea>
+                <textarea class="form-control" name="short_description" rows="2" maxlength="500" placeholder="One or two sentences shown to customers"><?php echo app_escape($form['short_description']); ?></textarea>
                 <div class="form-text">Customer-facing summary - syncs to WooCommerce's short description.</div>
             </div>
             <div class="col-12">
                 <label class="form-label">Description</label>
                 <textarea class="form-control" name="description" rows="3"><?php echo app_escape($form['description']); ?></textarea>
             </div>
+
+            <div class="col-12"><hr class="my-1"></div>
+
             <div class="col-md-4">
-                <label class="form-label">Barcode</label>
-                <input type="text" class="form-control" name="barcode" value="<?php echo app_escape($form['barcode']); ?>">
+                <div class="d-flex justify-content-between align-items-center">
+                    <label class="form-label mb-1">Category</label>
+                    <a class="small" href="/modules/catalog/index.php?tab=categories" target="_blank" rel="noopener">Manage &#8599;</a>
+                </div>
+                <select class="form-select" name="category_id" id="category-select" data-searchable="1">
+                    <option value="">None</option>
+                    <?php foreach ($categoriesTree as $category): ?>
+                        <option value="<?php echo (int) $category['id']; ?>" data-depth="<?php echo (int) $category['depth']; ?>" <?php echo $form['category_id'] === (string) $category['id'] ? 'selected' : ''; ?>>
+                            <?php echo str_repeat('&mdash; ', $category['depth']) . app_escape($category['name']); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
             </div>
             <div class="col-md-4">
-                <label class="form-label">Supplier SKU</label>
-                <input type="text" class="form-control" name="supplier_sku" value="<?php echo app_escape($form['supplier_sku']); ?>" maxlength="100">
-                <div class="form-text">The supplier's own code for this product - kept alongside the internal SKU above, never replacing it.</div>
+                <div class="d-flex justify-content-between align-items-center">
+                    <label class="form-label mb-1">Collection</label>
+                    <a class="small" href="/modules/catalog/index.php?tab=collections" target="_blank" rel="noopener">Manage &#8599;</a>
+                </div>
+                <select class="form-select" name="collection_id" id="collection-select" data-searchable="1">
+                    <option value="">None</option>
+                    <?php foreach ($collections as $collection): ?>
+                        <option value="<?php echo (int) $collection['id']; ?>" <?php echo $form['collection_id'] === (string) $collection['id'] ? 'selected' : ''; ?>><?php echo app_escape($collection['name']); ?></option>
+                    <?php endforeach; ?>
+                </select>
             </div>
             <div class="col-md-4">
-                <label class="form-label">Internal Code</label>
-                <input type="text" class="form-control" name="internal_code" value="<?php echo app_escape($form['internal_code']); ?>" maxlength="100">
+                <div class="d-flex justify-content-between align-items-center">
+                    <label class="form-label mb-1">Tags</label>
+                    <a class="small" href="/modules/catalog/index.php?tab=tags" target="_blank" rel="noopener">Manage &#8599;</a>
+                </div>
+                <div id="tags-checkbox-list" data-filterable-checkboxes="1">
+                    <?php foreach ($tags as $tag): ?>
+                        <label class="checkbox-item me-3">
+                            <input type="checkbox" name="tag_ids[]" value="<?php echo (int) $tag['id']; ?>" <?php echo in_array((int) $tag['id'], $selectedTagIds, true) ? 'checked' : ''; ?>>
+                            <?php echo app_escape($tag['name']); ?>
+                        </label>
+                    <?php endforeach; ?>
+                    <?php if ($tags === []): ?>
+                        <span class="text-muted small">No tags yet.</span>
+                    <?php endif; ?>
+                </div>
             </div>
 
             <div class="col-12"><hr class="my-1"></div>
@@ -220,7 +257,7 @@
                 </div>
             </div>
             <div class="col-md-6">
-                <label class="form-label">Product Availability Type</label>
+                <label class="form-label">Product Availability Type <span class="text-danger">*</span></label>
                 <select class="form-select" name="product_type" id="availability-type" required>
                     <option value="ready_stock" <?php echo $form['product_type'] === 'ready_stock' ? 'selected' : ''; ?>>Ready Stock</option>
                     <option value="preorder" <?php echo $form['product_type'] === 'preorder' ? 'selected' : ''; ?>>Preorder</option>
@@ -228,101 +265,32 @@
                 </select>
                 <div class="invalid-feedback">Availability type is required.</div>
             </div>
-            <div class="col-md-6">
-                <label class="form-label">Availability Override</label>
-                <select class="form-select" name="availability_override">
-                    <option value="auto" <?php echo $form['availability_override'] === 'auto' ? 'selected' : ''; ?>>Auto</option>
-                    <option value="available" <?php echo $form['availability_override'] === 'available' ? 'selected' : ''; ?>>Available</option>
-                    <option value="out_of_stock" <?php echo $form['availability_override'] === 'out_of_stock' ? 'selected' : ''; ?>>Out of Stock</option>
-                </select>
-                <div class="form-text">Ready Stock: follows actual quantity unless set here. Preorder/Early Bird: never gated on quantity - stays purchasable at 0 stock unless manually set to Out of Stock.</div>
-            </div>
         </div>
     </div>
 
     <div class="card p-4 mb-4">
-        <h5 class="mb-3">Gallery Images</h5>
-        <input type="file" class="form-control" name="gallery_images[]" id="gallery-add-input" accept="image/*" multiple style="max-width: 400px;">
-        <?php if ($galleryImages !== []): ?>
-            <div id="gallery-container" class="d-flex flex-wrap gap-3 mt-3">
-                <?php foreach ($galleryImages as $image): ?>
-                    <div class="gallery-item border rounded p-2 text-center" style="width: 110px;" draggable="true" data-image-id="<?php echo (int) $image['id']; ?>">
-                        <img src="/<?php echo app_escape($image['image_path']); ?>" alt="" style="max-width: 90px; max-height: 90px;" class="mb-1">
-                        <input type="hidden" name="gallery_sort_order[<?php echo (int) $image['id']; ?>]" value="<?php echo (int) $image['sort_order']; ?>">
-                        <label class="small d-block">
-                            <input type="checkbox" class="gallery-delete" name="gallery_delete[]" value="<?php echo (int) $image['id']; ?>"> Delete
-                        </label>
-                    </div>
-                <?php endforeach; ?>
-            </div>
-        <?php else: ?>
-            <div id="gallery-container"></div>
-        <?php endif; ?>
-    </div>
-
-    <div class="card p-4 mb-4">
-        <h5 class="mb-3">Organization</h5>
+        <h5 class="mb-3">2. Pricing &amp; Inventory</h5>
         <div class="row g-3">
-            <div class="col-md-4">
-                <div class="d-flex justify-content-between align-items-center">
-                    <label class="form-label mb-1">Brand</label>
-                    <a class="small" href="/modules/catalog/index.php?tab=brands" target="_blank" rel="noopener">Manage Brands &#8599;</a>
-                </div>
-                <select class="form-select" name="brand_id" id="brand-select" data-searchable="1">
-                    <option value="">None</option>
-                    <?php foreach ($brands as $brand): ?>
-                        <option value="<?php echo (int) $brand['id']; ?>" <?php echo $form['brand_id'] === (string) $brand['id'] ? 'selected' : ''; ?>><?php echo app_escape($brand['name']); ?></option>
-                    <?php endforeach; ?>
-                </select>
+            <div class="col-md-3">
+                <label class="form-label">SKU <span class="text-danger">*</span></label>
+                <input type="text" class="form-control" name="sku" value="<?php echo app_escape($form['sku']); ?>" maxlength="100" placeholder="e.g. HK-PLUSH-001" required>
+                <div class="invalid-feedback">SKU is required.</div>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Barcode</label>
+                <input type="text" class="form-control" name="barcode" value="<?php echo app_escape($form['barcode']); ?>">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Supplier SKU</label>
+                <input type="text" class="form-control" name="supplier_sku" value="<?php echo app_escape($form['supplier_sku']); ?>" maxlength="100">
+                <div class="form-text">The supplier's own code - kept alongside the SKU above, never replacing it.</div>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Internal Code</label>
+                <input type="text" class="form-control" name="internal_code" value="<?php echo app_escape($form['internal_code']); ?>" maxlength="100">
             </div>
 
             <div class="col-md-4">
-                <div class="d-flex justify-content-between align-items-center">
-                    <label class="form-label mb-1">Category</label>
-                    <a class="small" href="/modules/catalog/index.php?tab=categories" target="_blank" rel="noopener">Manage Categories &#8599;</a>
-                </div>
-                <select class="form-select" name="category_id" id="category-select" data-searchable="1">
-                    <option value="">None</option>
-                    <?php foreach ($categoriesTree as $category): ?>
-                        <option value="<?php echo (int) $category['id']; ?>" data-depth="<?php echo (int) $category['depth']; ?>" <?php echo $form['category_id'] === (string) $category['id'] ? 'selected' : ''; ?>>
-                            <?php echo str_repeat('&mdash; ', $category['depth']) . app_escape($category['name']); ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-
-            <div class="col-md-4">
-                <div class="d-flex justify-content-between align-items-center">
-                    <label class="form-label mb-1">Collection</label>
-                    <a class="small" href="/modules/catalog/index.php?tab=collections" target="_blank" rel="noopener">Manage Collections &#8599;</a>
-                </div>
-                <select class="form-select" name="collection_id" id="collection-select" data-searchable="1">
-                    <option value="">None</option>
-                    <?php foreach ($collections as $collection): ?>
-                        <option value="<?php echo (int) $collection['id']; ?>" <?php echo $form['collection_id'] === (string) $collection['id'] ? 'selected' : ''; ?>><?php echo app_escape($collection['name']); ?></option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-
-            <div class="col-12">
-                <div class="d-flex justify-content-between align-items-center">
-                    <label class="form-label mb-1">Tags</label>
-                    <a class="small" href="/modules/catalog/index.php?tab=tags" target="_blank" rel="noopener">Manage Tags &#8599;</a>
-                </div>
-                <div id="tags-checkbox-list" data-filterable-checkboxes="1">
-                    <?php foreach ($tags as $tag): ?>
-                        <label class="checkbox-item me-3">
-                            <input type="checkbox" name="tag_ids[]" value="<?php echo (int) $tag['id']; ?>" <?php echo in_array((int) $tag['id'], $selectedTagIds, true) ? 'checked' : ''; ?>>
-                            <?php echo app_escape($tag['name']); ?>
-                        </label>
-                    <?php endforeach; ?>
-                    <?php if ($tags === []): ?>
-                        <span class="text-muted small">No tags yet.</span>
-                    <?php endif; ?>
-                </div>
-            </div>
-
-            <div class="col-md-6">
                 <label class="form-label">Supplier</label>
                 <select class="form-select" name="supplier_id" id="supplier-select" data-searchable="1">
                     <option value="">None</option>
@@ -331,36 +299,31 @@
                     <?php endforeach; ?>
                 </select>
             </div>
-
-            <div class="col-md-6">
-                <label class="form-label">Status</label>
-                <select class="form-select" name="status">
-                    <?php foreach ($statusOptions as $statusValue): ?>
-                        <option value="<?php echo app_escape($statusValue); ?>" <?php echo $form['status'] === $statusValue ? 'selected' : ''; ?>><?php echo app_escape(ucfirst($statusValue)); ?></option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-        </div>
-    </div>
-
-    <div class="card p-4 mb-4">
-        <h5 class="mb-3">Pricing</h5>
-        <div class="row g-3">
-            <div class="col-md-3">
-                <label class="form-label">Cost Price (RM)</label>
-                <input type="number" step="0.01" min="0" class="form-control" name="product_cost" value="<?php echo app_escape($form['product_cost']); ?>" required>
+            <div class="col-md-4">
+                <label class="form-label">Cost Price (RM) <span class="text-danger">*</span></label>
+                <input type="number" step="0.01" min="0" class="form-control" name="product_cost" value="<?php echo app_escape($form['product_cost']); ?>" placeholder="0.00" required>
                 <div class="invalid-feedback">Cost price is required.</div>
             </div>
-            <div class="col-md-3">
-                <label class="form-label">Regular Price (RM)</label>
-                <input type="number" step="0.01" min="0" class="form-control" name="selling_price" value="<?php echo app_escape($form['selling_price']); ?>" required>
+            <div class="col-md-4">
+                <label class="form-label">Selling Price (RM) <span class="text-danger">*</span></label>
+                <input type="number" step="0.01" min="0" class="form-control" name="selling_price" value="<?php echo app_escape($form['selling_price']); ?>" placeholder="0.00" required>
                 <div class="invalid-feedback">Regular price is required.</div>
             </div>
-            <div class="col-md-6 d-flex align-items-end">
+
+            <div class="col-md-6">
                 <label class="form-check">
                     <input type="checkbox" class="form-check-input" name="sale_enabled" value="1" id="enable-sale" <?php echo $form['sale_enabled'] ? 'checked' : ''; ?>>
                     <span class="form-check-label">Enable Sale (Early Bird)</span>
                 </label>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Availability Override</label>
+                <select class="form-select" name="availability_override">
+                    <option value="auto" <?php echo $form['availability_override'] === 'auto' ? 'selected' : ''; ?>>Auto</option>
+                    <option value="available" <?php echo $form['availability_override'] === 'available' ? 'selected' : ''; ?>>Available</option>
+                    <option value="out_of_stock" <?php echo $form['availability_override'] === 'out_of_stock' ? 'selected' : ''; ?>>Out of Stock</option>
+                </select>
+                <div class="form-text">Ready Stock: follows actual quantity unless set here. Preorder/Early Bird: stays purchasable at 0 stock unless manually set to Out of Stock.</div>
             </div>
 
             <div class="col-md-4 js-sale-fields">
@@ -374,7 +337,7 @@
             <div class="col-md-4 js-sale-fields">
                 <label class="form-label">Early Bird Closing Date</label>
                 <input type="date" class="form-control" name="preorder_closing_date" value="<?php echo app_escape($form['preorder_closing_date']); ?>">
-                <div class="form-text">Before this date, Sale Price (Early Bird Price) applies. After this date, the sale ends and - for Preorder/Early Bird products - ordering pauses until manually reopened (see below).</div>
+                <div class="form-text">Before this date, Sale Price applies. After, the sale ends and - for Preorder/Early Bird - ordering pauses until manually reopened (see below).</div>
             </div>
 
             <?php
@@ -405,15 +368,12 @@
                     <?php endif; ?>
                 </div>
             <?php endif; ?>
-        </div>
-    </div>
 
-    <div class="card p-4 mb-4">
-        <h5 class="mb-3">Inventory</h5>
-        <div class="row g-3">
+            <div class="col-12"><hr class="my-1"></div>
+
             <div class="col-md-4 js-stock-ready js-simple-section">
                 <label class="form-label">Available Stock</label>
-                <input type="number" min="0" class="form-control" name="stock_quantity" value="<?php echo app_escape($form['stock_quantity']); ?>">
+                <input type="number" min="0" class="form-control" name="stock_quantity" value="<?php echo app_escape($form['stock_quantity']); ?>" placeholder="0">
             </div>
             <div class="col-md-4 js-stock-ready">
                 <label class="form-label">Minimum Stock</label>
@@ -425,7 +385,7 @@
             <div class="col-md-4 js-stock-ready">
                 <label class="form-label">Target Stock Level</label>
                 <input type="number" min="0" class="form-control" name="target_stock_level" value="<?php echo app_escape($form['target_stock_level']); ?>">
-                <div class="form-text">Purchase Planning orders up to this quantity. Leave blank to exclude this product from Purchase Planning.</div>
+                <div class="form-text">Purchase Planning orders up to this quantity. Leave blank to exclude from Purchase Planning.</div>
             </div>
             <div class="col-md-4 js-stock-preorder">
                 <label class="form-label">ETA (Estimated Arrival)</label>
@@ -443,7 +403,7 @@
                     <div class="form-text">Shown to customers as "<?php echo app_escape($releaseMonthDisplay); ?>".</div>
                 <?php endif; ?>
             </div>
-            <p class="text-muted small mb-0 js-stock-preorder">No stock quantity is requested here - stock arrives later via Supplier Orders receiving (marked as arrived), then gets manually allocated to outstanding orders from the Inventory page.</p>
+            <p class="text-muted small mb-0 js-stock-preorder">No stock quantity is requested here - stock arrives later via Supplier Orders receiving, then gets manually allocated from the Inventory page.</p>
 
             <div class="col-12"><hr class="my-1"></div>
 
@@ -456,26 +416,68 @@
             <div class="col-md-3 js-expiry-fields">
                 <label class="form-label">Expiry Date</label>
                 <input type="date" class="form-control" name="expiry_date" value="<?php echo app_escape($form['expiry_date']); ?>">
-                <div class="form-text">Only for products that physically expire (food, cosmetics, etc.) - independent from Early Bird/Preorder/Release Month/inventory.</div>
+                <div class="form-text">Only for products that physically expire (food, cosmetics, etc.).</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card p-4 mb-4">
+        <h5 class="mb-3">3. Images</h5>
+        <div class="row g-4">
+            <div class="col-md-6">
+                <label class="form-label">Main Image</label>
+                <?php if ($mainImage !== null): ?>
+                    <div class="mb-2 position-relative d-inline-block">
+                        <img src="/<?php echo app_escape($mainImage['image_path']); ?>" alt="Main image" style="max-width: 140px; max-height: 140px;" class="border rounded d-block">
+                    </div>
+                    <?php if ($canManage): ?>
+                        <label class="d-block small mb-2">
+                            <input type="checkbox" name="remove_main_image" value="1"> Remove current main image
+                        </label>
+                    <?php endif; ?>
+                <?php endif; ?>
+                <input type="file" class="form-control image-file-input" name="main_image" id="main-image-input" accept="image/*">
+                <div class="form-text">Automatically resized, compressed, and converted to WebP. This is the image shown first everywhere.</div>
+            </div>
+
+            <div class="col-md-6">
+                <label class="form-label">Gallery Images</label>
+                <input type="file" class="form-control" name="gallery_images[]" id="gallery-add-input" accept="image/*" multiple>
+                <div class="form-text">Additional photos - angles, packaging, in use, etc.</div>
+                <?php if ($galleryImages !== []): ?>
+                    <div id="gallery-container" class="d-flex flex-wrap gap-3 mt-3">
+                        <?php foreach ($galleryImages as $image): ?>
+                            <div class="gallery-item border rounded p-2 text-center" style="width: 110px;" draggable="true" data-image-id="<?php echo (int) $image['id']; ?>">
+                                <img src="/<?php echo app_escape($image['image_path']); ?>" alt="" style="max-width: 90px; max-height: 90px;" class="mb-1">
+                                <input type="hidden" name="gallery_sort_order[<?php echo (int) $image['id']; ?>]" value="<?php echo (int) $image['sort_order']; ?>">
+                                <label class="small d-block">
+                                    <input type="checkbox" class="gallery-delete" name="gallery_delete[]" value="<?php echo (int) $image['id']; ?>"> Delete
+                                </label>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php else: ?>
+                    <div id="gallery-container" class="mt-2"></div>
+                <?php endif; ?>
             </div>
         </div>
     </div>
 
     <div class="card p-4 mb-4 js-variable-section">
-        <h5 class="mb-1">Variable Product: Attribute Builder</h5>
-        <p class="text-muted small">Character, Color, Size, and any other attribute are managed the same way - Character is not a separate list, it's just an attribute. Each value's SKU prefix (used to build variation SKUs - see catalog_attribute_value_sku_code()) can still be edited inline below, but new attributes and values are added from Catalog &gt; Attributes, not here.</p>
+        <h5 class="mb-1">4. Variations</h5>
+        <p class="text-muted small">Character, Color, Size, and any other attribute are managed the same way. Each value's SKU prefix can still be edited inline below, but new attributes and values are added from Catalog &gt; Attributes, not here. New variations are created Active by default.</p>
         <div class="d-flex justify-content-between align-items-center mb-2">
             <a class="small" href="/modules/catalog/index.php?tab=attributes" target="_blank" rel="noopener">Manage Attributes &#8599;</a>
         </div>
         <div id="attribute-builder-blocks"></div>
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="add-attribute-block-btn">Add Another Attribute</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="add-attribute-block-btn">+ Add Another Attribute</button>
         <div class="mt-3">
             <button type="button" class="btn btn-primary" id="generate-variations-btn">Generate Variations</button>
         </div>
     </div>
 
-    <div class="card p-4 mb-4 js-variable-section<?php echo ($isEdit && $variations !== []) ? '' : ' d-none'; ?>" id="variation-table-wrapper">
-        <h5 class="mb-1">Variations</h5>
+    <div class="card p-4 mb-4 js-variable-section" id="variation-table-wrapper">
+        <h5 class="mb-1">Variations List</h5>
         <p class="text-muted small">Deleting a variation removes it completely - only possible if it has no order/inventory/supplier history. Otherwise deletion is blocked to protect that history.</p>
 
         <div class="border rounded p-3 mb-3 bg-light">
@@ -541,7 +543,33 @@
         </div>
     </div>
 
-    <button class="btn btn-primary btn-lg mt-2" type="submit"><?php echo $isEdit ? 'Save Changes' : 'Create Product'; ?></button>
+    <div class="card p-4 mb-4">
+        <h5 class="mb-3">5. Status</h5>
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label class="form-label">Status</label>
+                <select class="form-select" name="status">
+                    <?php foreach ($statusOptions as $statusValue): ?>
+                        <option value="<?php echo app_escape($statusValue); ?>" <?php echo $form['status'] === $statusValue ? 'selected' : ''; ?>><?php echo app_escape(ucfirst($statusValue)); ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <?php if (!$isEdit): ?>
+                    <div class="form-text">New products are Active by default and visible immediately - switch to Draft above (or use "Save Draft" below) if it's not ready yet.</div>
+                <?php else: ?>
+                    <div class="form-text">Change anytime - e.g. set to Draft/Hidden to temporarily pull a product without deleting it.</div>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+
+    <div class="d-flex gap-2 mt-2">
+        <?php if (!$isEdit): ?>
+            <button class="btn btn-primary btn-lg" type="submit" name="save_action" value="publish">Create Product</button>
+            <button class="btn btn-outline-secondary btn-lg" type="submit" name="save_action" value="draft">Save Draft</button>
+        <?php else: ?>
+            <button class="btn btn-primary btn-lg" type="submit">Save Changes</button>
+        <?php endif; ?>
+    </div>
 </form>
 
 <?php if ($isEdit): ?>
