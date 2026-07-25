@@ -73,6 +73,13 @@ foreach ($supplierOrders as &$supplierOrder) {
     $supplierOrder['days_overdue'] = $supplierOrder['is_overdue']
         ? (int) floor((strtotime('today') - strtotime($supplierOrder['expected_delivery_date'])) / 86400)
         : 0;
+
+    // UI/UX Phase 5E.2: priority visibility - only computed for the two "receive this to
+    // unblock someone" statuses (same reasoning as modules/supplier-orders/view.php), so a
+    // draft or already-settled order never pays this extra lookup.
+    $supplierOrder['blocked_order_count'] = in_array($supplierOrder['status'], ['ordered', 'partially_received'], true)
+        ? count(supplier_order_blocked_customer_orders($pdo, (int) $supplierOrder['id']))
+        : 0;
 }
 unset($supplierOrder);
 
@@ -175,6 +182,9 @@ require_once __DIR__ . '/../../includes/header.php';
                         <?php echo supplier_order_status_badge($order['status']); ?>
                         <?php if ($order['is_overdue']): ?>
                             <span class="badge bg-danger">Overdue by <?php echo (int) $order['days_overdue']; ?> day<?php echo $order['days_overdue'] === 1 ? '' : 's'; ?></span>
+                        <?php endif; ?>
+                        <?php if ($order['blocked_order_count'] > 0): ?>
+                            <span class="badge bg-danger" title="Customer orders waiting on this supplier order"><i class="bi bi-exclamation-triangle"></i> Blocking <?php echo (int) $order['blocked_order_count']; ?></span>
                         <?php endif; ?>
                     </td>
                     <td data-label="Payment"><?php echo supplier_order_payment_status_badge((string) $order['payment_status']); ?></td>

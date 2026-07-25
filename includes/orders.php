@@ -71,6 +71,99 @@ function payment_status_badge(string $status): string
 }
 
 /**
+ * payment_status changes only - order_status is never written directly anymore (see
+ * order_recompute_status()). Used by Approve Payment and the generic Change Payment Status
+ * dropdown, both on modules/orders/view.php, plus order_approve_payment() below.
+ *
+ * Relocated here from modules/orders/view.php (UI/UX Phase 5E) so the bulk approve-payment
+ * action (order_bulk_approve_payment()) can call the exact same function instead of a second
+ * copy - body is unchanged from the original.
+ */
+function apply_payment_status_change(PDO $pdo, int $orderId, string $oldStatus, string $newStatus, string $notes): void
+{
+    $pdo->prepare('UPDATE mewmii_orders SET payment_status = ? WHERE id = ?')->execute([$newStatus, $orderId]);
+
+    $description = sprintf("Payment Status changed from '%s' to '%s'.", $oldStatus, $newStatus);
+    if ($notes !== '') {
+        $description .= ' Notes: ' . $notes;
+    }
+
+    $pdo->prepare('
+        INSERT INTO mewmii_order_events (order_id, event_type, description, created_by)
+        VALUES (?, ?, ?, ?)
+    ')->execute([$orderId, 'payment_status_change', $description, $_SESSION['user_id'] ?? null]);
+}
+
+/**
+ * The exact guard + action sequence modules/orders/view.php's single-order "Approve Payment"
+ * button already ran inline (UI/UX Phase 5E extraction, no behaviour change): refuses a
+ * historical order or one not currently awaiting payment, then applies the same three calls
+ * in the same order - apply_payment_status_change() to 'paid', inventory_reserve_for_order_
+ * partial() (never throws; an item that can't be reserved just stays unreserved, surfacing
+ * later as fulfillment state 'waiting_stock'), then order_recompute_status(). Throws
+ * RuntimeException with the same admin-facing messages the inline version used, so both the
+ * single-order POST handler and order_bulk_approve_payment() below show identical errors.
+ * Caller owns the surrounding transaction (begin/commit/rollback) - this function only
+ * throws, it never touches $pdo->beginTransaction()/commit()/rollBack() itself, so it can be
+ * reused inside either a single-order or a per-order bulk transaction unchanged.
+ */
+function order_approve_payment(PDO $pdo, int $orderId): void
+{
+    $stmt = $pdo->prepare('SELECT payment_status, is_historical FROM mewmii_orders WHERE id = ? FOR UPDATE');
+    $stmt->execute([$orderId]);
+    $order = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$order) {
+        throw new RuntimeException('Order not found.');
+    }
+    if (!empty($order['is_historical'])) {
+        throw new RuntimeException('This is a historical (imported) order - its status cannot be changed.');
+    }
+    if ($order['payment_status'] !== 'pending') {
+        throw new RuntimeException('This order is not awaiting payment approval.');
+    }
+
+    apply_payment_status_change($pdo, $orderId, (string) $order['payment_status'], 'paid', 'Approved via receipt review.');
+    // Reserves whatever ready-stock items can be reserved right now; any that can't (out of
+    // stock) simply stay unreserved rather than blocking payment approval - order_recompute_
+    // status() will reflect that as Waiting Stock.
+    inventory_reserve_for_order_partial($pdo, $orderId);
+    order_recompute_status($pdo, $orderId);
+}
+
+/**
+ * Bulk variant of order_approve_payment() (UI/UX Phase 5E) - approves payment for every order
+ * id given, each in its own beginTransaction()/commit()/rollBack() so one order's failure
+ * (already paid, historical, concurrently modified, out of stock, etc.) never blocks or
+ * rolls back another order's success. Calls order_approve_payment() unchanged - no separate
+ * or duplicated guard/mutation logic from the single-order path. Returns one result per
+ * requested id, in the same order, for the admin-facing bulk action summary.
+ */
+function order_bulk_approve_payment(PDO $pdo, array $orderIds): array
+{
+    $results = [];
+
+    foreach ($orderIds as $orderId) {
+        $orderId = (int) $orderId;
+        $pdo->beginTransaction();
+
+        try {
+            order_approve_payment($pdo, $orderId);
+            $pdo->commit();
+            $results[] = ['order_id' => $orderId, 'success' => true, 'message' => 'Approved.'];
+        } catch (RuntimeException $exception) {
+            $pdo->rollBack();
+            $results[] = ['order_id' => $orderId, 'success' => false, 'message' => $exception->getMessage()];
+        } catch (Exception $exception) {
+            $pdo->rollBack();
+            $results[] = ['order_id' => $orderId, 'success' => false, 'message' => 'Failed to approve payment.'];
+        }
+    }
+
+    return $results;
+}
+
+/**
  * Badge for one order item's fulfillment state (UI/UX Phase 5D) - same badge pattern as
  * order_status_badge()/payment_status_badge(), just wrapping order_item_fulfillment_label()
  * (includes/order_fulfillment.php, unchanged) with a colour instead of plain text.

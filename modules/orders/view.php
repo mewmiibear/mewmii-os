@@ -58,25 +58,9 @@ if (!$order) {
     exit;
 }
 
-/**
- * payment_status changes only - order_status is never written directly anymore (see
- * order_recompute_status()). Used by Approve Payment and the generic Change Payment Status
- * dropdown below.
- */
-function apply_payment_status_change(PDO $pdo, int $orderId, string $oldStatus, string $newStatus, string $notes): void
-{
-    $pdo->prepare('UPDATE mewmii_orders SET payment_status = ? WHERE id = ?')->execute([$newStatus, $orderId]);
-
-    $description = sprintf("Payment Status changed from '%s' to '%s'.", $oldStatus, $newStatus);
-    if ($notes !== '') {
-        $description .= ' Notes: ' . $notes;
-    }
-
-    $pdo->prepare('
-        INSERT INTO mewmii_order_events (order_id, event_type, description, created_by)
-        VALUES (?, ?, ?, ?)
-    ')->execute([$orderId, 'payment_status_change', $description, $_SESSION['user_id'] ?? null]);
-}
+// apply_payment_status_change()/order_approve_payment() moved to includes/orders.php (UI/UX
+// Phase 5E) so the bulk approve-payment action (modules/orders/bulk_action.php) can reuse the
+// exact same functions instead of a second copy.
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
@@ -114,29 +98,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($error === '' && !empty($_POST['approve_payment'])) {
-            if ($order['payment_status'] !== 'pending') {
-                $error = 'This order is not awaiting payment approval.';
-            } else {
-                $pdo->beginTransaction();
+            $pdo->beginTransaction();
 
-                try {
-                    apply_payment_status_change($pdo, $orderId, (string) $order['payment_status'], 'paid', 'Approved via receipt review.');
-                    // Reserves whatever ready-stock items can be reserved right now; any that
-                    // can't (out of stock) simply stay unreserved rather than blocking payment
-                    // approval - order_recompute_status() will reflect that as Waiting Stock.
-                    inventory_reserve_for_order_partial($pdo, $orderId);
-                    order_recompute_status($pdo, $orderId);
+            try {
+                order_approve_payment($pdo, $orderId);
+                $pdo->commit();
 
-                    $pdo->commit();
-
-                    app_redirect('/modules/orders/view.php?id=' . $orderId . '&updated=1');
-                } catch (RuntimeException $exception) {
-                    $pdo->rollBack();
-                    $error = $exception->getMessage();
-                } catch (Exception $exception) {
-                    $pdo->rollBack();
-                    $error = 'Failed to approve payment.';
-                }
+                app_redirect('/modules/orders/view.php?id=' . $orderId . '&updated=1');
+            } catch (RuntimeException $exception) {
+                $pdo->rollBack();
+                $error = $exception->getMessage();
+            } catch (Exception $exception) {
+                $pdo->rollBack();
+                $error = 'Failed to approve payment.';
             }
         } elseif ($error === '' && !empty($_POST['reject_payment'])) {
             if ($order['payment_status'] !== 'pending') {

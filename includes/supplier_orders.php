@@ -425,6 +425,73 @@ function supplier_order_adjust_incoming(PDO $pdo, int $productId, ?int $variatio
     inventory_log_transaction($pdo, $productId, 'supplier_order_adjusted', $delta, 'supplier_order_item', $itemId, $variationId);
 }
 
+/**
+ * Every distinct, currently-open customer order blocked (at least partially) on one of this
+ * supplier order's product/variation lines - "priority visibility" (UI/UX Phase 5E.2): lets
+ * admin see which open supplier orders are actually holding up a waiting customer, not just
+ * which are overdue. Reuses the exact same outstanding-demand definitions already established
+ * for ready_stock (inventory_unit_unreserved_demand()'s own WHERE clause + inventory_net_
+ * reserved()) and preorder/early_bird (inventory_unit_outstanding_demand()'s own WHERE clause
+ * + supplier_order_item_customer_storage_allocated()) in includes/inventory.php and
+ * includes/customer_storage.php - copied verbatim rather than re-derived, just resolved down
+ * to which distinct order_id each total actually comes from, which neither existing function
+ * returns on its own. Purely additive/read-only - no receiving, status, or inventory-mutation
+ * logic is touched, and neither reused function is modified.
+ */
+function supplier_order_blocked_customer_orders(PDO $pdo, int $supplierOrderId): array
+{
+    $unitsStmt = $pdo->prepare('
+        SELECT DISTINCT soi.product_id, soi.variation_id, p.product_type
+        FROM supplier_order_items soi
+        INNER JOIN products p ON p.id = soi.product_id
+        WHERE soi.supplier_order_id = ?
+    ');
+    $unitsStmt->execute([$supplierOrderId]);
+    $units = $unitsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $blockedOrders = [];
+
+    foreach ($units as $unit) {
+        $productId = (int) $unit['product_id'];
+        $variationId = $unit['variation_id'] !== null ? (int) $unit['variation_id'] : null;
+
+        if ($unit['product_type'] === 'ready_stock') {
+            // Same WHERE clause as inventory_unit_unreserved_demand().
+            $stmt = $pdo->prepare("
+                SELECT o.id AS order_id, o.order_number, oi.quantity
+                FROM mewmii_order_items oi
+                INNER JOIN mewmii_orders o ON o.id = oi.order_id
+                WHERE oi.product_id = ? AND oi.variation_id <=> ?
+                  AND o.payment_status = 'paid' AND o.order_status <> 'cancelled' AND o.is_historical = 0
+            ");
+            $stmt->execute([$productId, $variationId]);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $item) {
+                $outstanding = (int) $item['quantity'] - inventory_net_reserved($pdo, (int) $item['order_id'], $productId, $variationId);
+                if ($outstanding > 0) {
+                    $blockedOrders[(int) $item['order_id']] = ['order_id' => (int) $item['order_id'], 'order_number' => $item['order_number']];
+                }
+            }
+        } elseif (in_array($unit['product_type'], ['preorder', 'early_bird'], true)) {
+            // Same WHERE clause as inventory_unit_outstanding_demand().
+            $stmt = $pdo->prepare("
+                SELECT oi.id, o.id AS order_id, o.order_number, oi.quantity
+                FROM mewmii_order_items oi
+                INNER JOIN mewmii_orders o ON o.id = oi.order_id
+                WHERE oi.product_id = ? AND oi.variation_id <=> ? AND o.order_status <> 'cancelled' AND o.is_historical = 0
+            ");
+            $stmt->execute([$productId, $variationId]);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $item) {
+                $outstanding = (int) $item['quantity'] - supplier_order_item_customer_storage_allocated($pdo, (int) $item['id']);
+                if ($outstanding > 0) {
+                    $blockedOrders[(int) $item['order_id']] = ['order_id' => (int) $item['order_id'], 'order_number' => $item['order_number']];
+                }
+            }
+        }
+    }
+
+    return array_values($blockedOrders);
+}
+
 function supplier_order_log_event(PDO $pdo, int $orderId, string $description): void
 {
     $pdo->prepare('

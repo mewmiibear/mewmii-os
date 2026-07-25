@@ -3,6 +3,7 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/supplier_orders.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
 require_once __DIR__ . '/../../includes/customer_storage.php';
+require_once __DIR__ . '/../../includes/orders.php';
 app_require_permission('supplier-orders.view');
 
 $appTitle = 'Supplier Order Detail';
@@ -203,6 +204,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $itemsStmt = $pdo->prepare('
     SELECT soi.id, soi.product_id, soi.total_quantity, soi.supplier_price, soi.subtotal, soi.variation_id,
+           soi.customer_quantity, soi.moq_quantity, soi.top_up_quantity,
            COALESCE(pv.sku, p.sku) AS sku, p.name AS product_name, p.product_type
     FROM supplier_order_items soi
     INNER JOIN products p ON p.id = soi.product_id
@@ -273,6 +275,16 @@ $canViewInventory = app_has_permission('inventory.view');
 // both destination permissions, not this page's own supplier-orders.view/manage gate.
 $canViewSuppliers = app_has_permission('suppliers.view');
 $canViewProducts = app_has_permission('products.view');
+// Same reasoning: the blocked-order links below go to modules/orders/view.php (orders.view).
+$canViewOrders = app_has_permission('orders.view');
+
+// UI/UX Phase 5E.2: priority visibility - which open customer orders this supplier order is
+// actually blocking, computed only for the two "receive this to unblock someone" statuses.
+// A draft order hasn't been sent yet and a received/completed/cancelled order has nothing
+// left to receive, so neither is meaningfully "blocking" anything actionable right now.
+$blockedCustomerOrders = in_array($order['status'], ['ordered', 'partially_received'], true)
+    ? supplier_order_blocked_customer_orders($pdo, $orderId)
+    : [];
 
 $historyStmt = $pdo->prepare("
     SELECT it.quantity, it.created_at, p.sku, p.name AS product_name
@@ -370,6 +382,24 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php endif; ?>
 <?php if ($error !== ''): ?>
     <div class="alert alert-danger"><?php echo nl2br(app_escape($error)); ?></div>
+<?php endif; ?>
+
+<?php if ($blockedCustomerOrders !== []): ?>
+    <div class="alert alert-danger">
+        <div class="fw-semibold mb-2">
+            <i class="bi bi-exclamation-triangle"></i>
+            This order is holding up <?php echo count($blockedCustomerOrders); ?> customer order<?php echo count($blockedCustomerOrders) === 1 ? '' : 's'; ?> - receiving it will unblock:
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <?php foreach ($blockedCustomerOrders as $blocked): ?>
+                <?php if ($canViewOrders): ?>
+                    <a class="badge bg-danger text-decoration-none" href="/modules/orders/view.php?id=<?php echo (int) $blocked['order_id']; ?>"><?php echo app_escape(order_display_number((string) $blocked['order_number'])); ?></a>
+                <?php else: ?>
+                    <span class="badge bg-danger"><?php echo app_escape(order_display_number((string) $blocked['order_number'])); ?></span>
+                <?php endif; ?>
+            <?php endforeach; ?>
+        </div>
+    </div>
 <?php endif; ?>
 
 <?php if ($canViewInventory && ($receivingPrompts['reservation'] !== [] || $receivingPrompts['allocation'] !== [])): ?>
@@ -481,7 +511,30 @@ require_once __DIR__ . '/../../includes/header.php';
                                     <div class="text-muted small"><?php echo app_escape($item['variation_label']); ?></div>
                                 <?php endif; ?>
                             </td>
-                            <td class="text-end"><?php echo app_escape((string) $item['total_quantity']); ?></td>
+                            <td class="text-end">
+                                <?php echo app_escape((string) $item['total_quantity']); ?>
+                                <?php
+                                // UI/UX Phase 5E.2: demand breakdown - customer_quantity/moq_quantity/
+                                // top_up_quantity are already stored by purchase_planning_generate() but were
+                                // never displayed. A manually created/added line (modules/supplier-orders/
+                                // create.php, supplier_order_apply_edit()'s "new line" path) leaves all three
+                                // at their schema default of 0, so the line is skipped entirely rather than
+                                // showing a misleading "Customer: 0" next to a real ordered quantity.
+                                $demandBreakdownParts = [];
+                                if ((int) $item['customer_quantity'] > 0) {
+                                    $demandBreakdownParts[] = 'Customer: ' . (int) $item['customer_quantity'];
+                                }
+                                if ((int) $item['top_up_quantity'] > 0) {
+                                    $demandBreakdownParts[] = 'Stock top-up: ' . (int) $item['top_up_quantity'];
+                                }
+                                if ((int) $item['moq_quantity'] > 0) {
+                                    $demandBreakdownParts[] = 'MOQ: ' . (int) $item['moq_quantity'];
+                                }
+                                ?>
+                                <?php if ($demandBreakdownParts !== []): ?>
+                                    <div class="text-muted small"><?php echo app_escape(implode(' + ', $demandBreakdownParts)); ?></div>
+                                <?php endif; ?>
+                            </td>
                             <td class="text-end">
                                 <?php echo app_escape((string) $item['received_quantity']); ?>
                                 <?php if ((int) $item['total_quantity'] > 0): ?>
