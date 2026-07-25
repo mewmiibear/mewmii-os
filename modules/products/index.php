@@ -9,7 +9,6 @@ $appTitle = 'Products';
 
 $statusOptions = ['draft', 'active', 'hidden', 'archived'];
 $catalogTypes = ['simple', 'variable'];
-$productTypeLabels = ['ready_stock' => 'Ready Stock', 'preorder' => 'Preorder', 'early_bird' => 'Early Bird'];
 
 $pdo = app_db();
 
@@ -363,11 +362,9 @@ require_once __DIR__ . '/../../includes/header.php';
                 <th>Category</th>
                 <th>Brand</th>
                 <th>Supplier</th>
-                <th>Availability</th>
                 <th>Structure</th>
                 <th>Stage</th>
-                <th>Status</th>
-                <th>Available</th>
+                <th>Stock</th>
                 <th>Reserved</th>
                 <th>Incoming</th>
                 <th>Price</th>
@@ -404,11 +401,15 @@ require_once __DIR__ . '/../../includes/header.php';
                     <td><?php echo $product['category_name'] !== null ? app_escape($product['category_name']) : '—'; ?></td>
                     <td><?php echo $product['brand_name'] !== null ? app_escape($product['brand_name']) : '—'; ?></td>
                     <td><?php echo $product['supplier_name'] !== null ? app_escape($product['supplier_name']) : '—'; ?></td>
-                    <td><?php echo app_escape($productTypeLabels[$product['product_type']] ?? $product['product_type']); ?></td>
                     <td><span class="badge bg-<?php echo $isVariable ? 'info text-dark' : 'light text-dark'; ?>"><?php echo $isVariable ? 'Variable' : 'Simple'; ?></span></td>
                     <td><?php echo catalog_lifecycle_badge($product); ?></td>
-                    <td><?php echo app_escape(catalog_status_dot($product['status'])); ?></td>
-                    <td><?php echo (int) $product['available_quantity']; ?></td>
+                    <td>
+                        <?php if ((int) $product['available_quantity'] > 0): ?>
+                            <?php echo (int) $product['available_quantity']; ?>
+                        <?php else: ?>
+                            <span class="badge bg-danger">🔴 Out of Stock</span>
+                        <?php endif; ?>
+                    </td>
                     <td><?php echo (int) $product['reserved_quantity']; ?></td>
                     <td><?php echo (int) $product['incoming_quantity']; ?></td>
                     <td>RM <?php echo app_escape(number_format((float) $product['selling_price'], 2)); ?><?php if ($isVariable): ?> <span class="text-muted small">(default)</span><?php endif; ?></td>
@@ -430,7 +431,7 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php endforeach; ?>
             <?php if ($products === []): ?>
                 <tr>
-                    <td colspan="14">
+                    <td colspan="12">
                         <div class="empty-state">
                             <div class="empty-state-title">No Products Match These Filters</div>
                             <p class="empty-state-text">Try adjusting or clearing your filters to see more results.</p>
