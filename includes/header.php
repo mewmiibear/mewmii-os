@@ -480,6 +480,16 @@ $appTitle = 'Mewmii OS';
                             <?php endif; ?>
                         <?php endif; ?>
 
+                        <?php if (app_has_permission('orders.view') || app_has_permission('inventory.view')): ?>
+                            <div class="nav-section-label">Reports</div>
+                            <?php if (app_has_permission('orders.view')): ?>
+                                <a class="nav-link<?php echo $navActive('/modules/reports/sales.php'); ?>" href="/modules/reports/sales.php"><i class="bi bi-bar-chart"></i> Sales Report</a>
+                            <?php endif; ?>
+                            <?php if (app_has_permission('inventory.view')): ?>
+                                <a class="nav-link<?php echo $navActive('/modules/reports/inventory.php'); ?>" href="/modules/reports/inventory.php"><i class="bi bi-graph-up"></i> Inventory Intelligence</a>
+                            <?php endif; ?>
+                        <?php endif; ?>
+
                         <?php if (app_has_permission('suppliers.view') || app_has_permission('supplier-orders.view') || app_has_permission('inventory.view')): ?>
                             <div class="nav-section-label">Operations</div>
                             <?php if (app_has_permission('suppliers.view')): ?>

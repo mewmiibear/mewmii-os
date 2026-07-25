@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/reports.php';
 app_require_permission('orders.view');
 
 /**
@@ -15,28 +16,11 @@ app_require_permission('orders.view');
 $appTitle = 'Sales Report';
 $pdo = app_db();
 
-$periodOptions = ['all', 'today', '7days', '30days', '90days'];
-$period = in_array($_GET['period'] ?? '', $periodOptions, true) ? $_GET['period'] : '30days';
-
-$dateCondition = '';
-switch ($period) {
-    case 'today':
-        $dateCondition = " AND o.order_date = CURDATE()";
-        break;
-    case '7days':
-        $dateCondition = " AND o.order_date >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)";
-        break;
-    case '30days':
-        $dateCondition = " AND o.order_date >= DATE_SUB(CURDATE(), INTERVAL 29 DAY)";
-        break;
-    case '90days':
-        $dateCondition = " AND o.order_date >= DATE_SUB(CURDATE(), INTERVAL 89 DAY)";
-        break;
-    case 'all':
-    default:
-        $dateCondition = '';
-        break;
-}
+// Period options/labels and the period->date-range mapping now live in includes/reports.php
+// (UI/UX Phase 5F.1 extraction) so modules/reports/inventory.php can reuse the exact same
+// ranges - values and behaviour here are unchanged from before the extraction.
+$period = report_period_from_request($_GET['period'] ?? null, '30days');
+$dateCondition = report_period_date_condition($period, 'o.order_date');
 
 // Shared "valid order" condition - see comment above.
 $validOrderCondition = "o.payment_status = 'paid' AND o.order_status <> 'cancelled'{$dateCondition}";
@@ -178,14 +162,6 @@ $salesByCategory = $salesByCategoryStmt->fetchAll(PDO::FETCH_ASSOC);
 // destination controls permission, not this page's own orders.view gate.
 $canViewProducts = app_has_permission('products.view');
 
-$periodLabels = [
-    'all' => 'All Time',
-    'today' => 'Today',
-    '7days' => 'Last 7 Days',
-    '30days' => 'Last 30 Days',
-    '90days' => 'Last 90 Days',
-];
-
 require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -196,7 +172,7 @@ require_once __DIR__ . '/../../includes/header.php';
 </div>
 
 <div class="d-flex flex-wrap gap-2 mb-4">
-    <?php foreach ($periodLabels as $value => $label): ?>
+    <?php foreach (REPORT_PERIOD_LABELS as $value => $label): ?>
         <a class="btn btn-sm <?php echo $period === $value ? 'btn-primary' : 'btn-outline-secondary'; ?>"
            href="/modules/reports/sales.php?period=<?php echo app_escape($value); ?>">
             <?php echo app_escape($label); ?>
