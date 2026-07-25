@@ -45,7 +45,7 @@ $filterPaymentStatus = isset($_GET['payment_status']) && in_array($_GET['payment
     ? $_GET['payment_status']
     : null;
 
-$sql = 'SELECT DISTINCT o.id, o.order_number, o.payment_status, o.order_status, o.receipt_status, o.receipt_url, o.is_historical, o.tracking_number, o.customer_id, c.name AS customer_name FROM mewmii_orders o LEFT JOIN customers c ON c.id = o.customer_id';
+$sql = 'SELECT DISTINCT o.id, o.order_number, o.order_date, o.payment_status, o.order_status, o.receipt_status, o.receipt_url, o.is_historical, o.tracking_number, o.customer_id, c.name AS customer_name FROM mewmii_orders o LEFT JOIN customers c ON c.id = o.customer_id';
 $conditions = [];
 $params = [];
 if ($filterProductId !== null) {
@@ -197,6 +197,7 @@ foreach ($orders as $order) {
                     <?php endif; ?>
                     <th>Order #</th>
                     <th>Customer</th>
+                    <th>Order Date</th>
                     <th>Payment</th>
                     <th>Status</th>
                     <th>Receipt</th>
@@ -230,6 +231,7 @@ foreach ($orders as $order) {
                                 <?php echo app_escape($order['customer_name']); ?>
                             <?php endif; ?>
                         </td>
+                        <td data-label="Order Date"><?php echo $order['order_date'] !== null ? app_escape($order['order_date']) : '&mdash;'; ?></td>
                         <td data-label="Payment"><?php echo payment_status_badge($order['payment_status']); ?></td>
                         <td data-label="Status"><?php echo order_status_badge($order['order_status']); ?></td>
                         <td data-label="Receipt">
@@ -246,7 +248,7 @@ foreach ($orders as $order) {
                 <?php endforeach; ?>
                 <?php if ($orders === []): ?>
                     <tr>
-                        <td colspan="8">
+                        <td colspan="9">
                             <div class="empty-state">
                                 <div class="empty-state-title">No Orders Match</div>
                                 <p class="empty-state-text"><?php echo ($searchTerm !== '' || $filterStatus !== null || $filterPaymentStatus !== null) ? 'Try adjusting or clearing your filters.' : 'Customer orders will appear here once created.'; ?></p>

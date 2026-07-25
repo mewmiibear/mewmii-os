@@ -70,6 +70,7 @@ $form = [
     'shipping_fee' => (string) $order['shipping_fee'],
     'customer_note' => (string) ($order['customer_note'] ?? ''),
     'internal_note' => (string) ($order['internal_note'] ?? ''),
+    'order_date' => (string) ($order['order_date'] ?? ''),
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -81,12 +82,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $form['customer_note'] = trim((string) ($_POST['customer_note'] ?? ''));
     $form['internal_note'] = trim((string) ($_POST['internal_note'] ?? ''));
+    $form['order_date'] = trim((string) ($_POST['order_date'] ?? ''));
+
+    // Order Date is a plain record-correction field (like the notes above) - blank means
+    // "not recorded" (NULL), any non-blank value must be a real Y-m-d date. Same validation
+    // shape as the quantity/price checks further below in the editable branch.
+    $orderDateValue = null;
+    if ($error === '' && $form['order_date'] !== '') {
+        $parsedOrderDate = DateTime::createFromFormat('Y-m-d', $form['order_date']);
+        if ($parsedOrderDate === false || $parsedOrderDate->format('Y-m-d') !== $form['order_date']) {
+            $error = 'Enter a valid order date.';
+        } else {
+            $orderDateValue = $form['order_date'];
+        }
+    }
 
     if (!$isEditable) {
-        // Locked: notes only, nothing else can be posted from this form at all.
+        // Locked: notes + order date only, nothing else can be posted from this form at all.
         if ($error === '') {
-            $pdo->prepare('UPDATE mewmii_orders SET customer_note = ?, internal_note = ? WHERE id = ?')
-                ->execute([$form['customer_note'] !== '' ? $form['customer_note'] : null, $form['internal_note'] !== '' ? $form['internal_note'] : null, $orderId]);
+            $pdo->prepare('UPDATE mewmii_orders SET customer_note = ?, internal_note = ?, order_date = ? WHERE id = ?')
+                ->execute([$form['customer_note'] !== '' ? $form['customer_note'] : null, $form['internal_note'] !== '' ? $form['internal_note'] : null, $orderDateValue, $orderId]);
 
             app_redirect('/modules/orders/view.php?id=' . $orderId . '&updated=1');
         }
@@ -177,7 +192,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->beginTransaction();
 
             try {
-                order_apply_edit($pdo, $orderId, $customerId, $validItems, $shippingFee, $form['customer_note'], $form['internal_note']);
+                order_apply_edit($pdo, $orderId, $customerId, $validItems, $shippingFee, $form['customer_note'], $form['internal_note'], $orderDateValue);
 
                 $pdo->commit();
 
@@ -223,6 +238,10 @@ require_once __DIR__ . '/../../includes/header.php';
         <form method="post">
             <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
             <div class="mb-3">
+                <label class="form-label">Order Date</label>
+                <input type="date" class="form-control" style="max-width: 220px;" name="order_date" value="<?php echo app_escape($form['order_date']); ?>">
+            </div>
+            <div class="mb-3">
                 <label class="form-label">Customer Note</label>
                 <textarea class="form-control" name="customer_note" rows="3" placeholder="Visible to the customer."><?php echo app_escape($form['customer_note']); ?></textarea>
             </div>
@@ -257,6 +276,11 @@ require_once __DIR__ . '/../../includes/header.php';
                 <div class="col-md-6">
                     <label class="form-label">Order Number</label>
                     <input type="text" class="form-control" value="<?php echo app_escape($form['order_number']); ?>" readonly disabled>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">Order Date</label>
+                    <input type="date" class="form-control" name="order_date" value="<?php echo app_escape($form['order_date']); ?>">
                 </div>
 
                 <div class="col-md-6">

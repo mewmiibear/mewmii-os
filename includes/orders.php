@@ -590,8 +590,14 @@ function order_unit_is_available(array $product, string $stage, string $override
  * Caller (modules/orders/create.php's counterpart in edit.php) is responsible for the
  * surrounding transaction and for confirming order_status is in ORDER_EDITABLE_STATUSES
  * before calling this at all.
+ *
+ * $orderDate (UI/UX small improvement) is a plain record-correction field, same as
+ * $customerNote/$internalNote - it does not gate or change anything in the reservation cycle
+ * above. It does feed inventory_reserve_fifo()'s existing "oldest order_date first" ordering
+ * (includes/inventory.php, unchanged) the next time that function runs, which is the correct,
+ * expected effect of correcting a preorder's real order date - not a new FIFO rule.
  */
-function order_apply_edit(PDO $pdo, int $orderId, int $customerId, array $newLines, float $shippingFee, string $customerNote, string $internalNote): void
+function order_apply_edit(PDO $pdo, int $orderId, int $customerId, array $newLines, float $shippingFee, string $customerNote, string $internalNote, ?string $orderDate): void
 {
     $orderStmt = $pdo->prepare('SELECT order_status, is_historical FROM mewmii_orders WHERE id = ? FOR UPDATE');
     $orderStmt->execute([$orderId]);
@@ -705,8 +711,8 @@ function order_apply_edit(PDO $pdo, int $orderId, int $customerId, array $newLin
     $discountTotal = round((float) $totals['total_discount'], 2);
     $totalAmount = round($subtotal - $discountTotal + $shippingFee, 2);
 
-    $pdo->prepare('UPDATE mewmii_orders SET customer_id = ?, subtotal = ?, discount = ?, shipping_fee = ?, total_amount = ?, customer_note = ?, internal_note = ? WHERE id = ?')
-        ->execute([$customerId, $subtotal, $discountTotal, round($shippingFee, 2), $totalAmount, $customerNote !== '' ? $customerNote : null, $internalNote !== '' ? $internalNote : null, $orderId]);
+    $pdo->prepare('UPDATE mewmii_orders SET customer_id = ?, subtotal = ?, discount = ?, shipping_fee = ?, total_amount = ?, customer_note = ?, internal_note = ?, order_date = ? WHERE id = ?')
+        ->execute([$customerId, $subtotal, $discountTotal, round($shippingFee, 2), $totalAmount, $customerNote !== '' ? $customerNote : null, $internalNote !== '' ? $internalNote : null, $orderDate, $orderId]);
 
     // Item changes can change what's reserved (e.g. removing the item that was blocking
     // reservation) - resync the automatically computed order_status to match.
