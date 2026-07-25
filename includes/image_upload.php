@@ -248,12 +248,16 @@ function image_upload_duplicate(string $sourceRelativePath, string $subDir): str
  * - Already-absolute input (http://, https://, or protocol-relative //host/...) is
  *   returned completely unchanged - never re-prefixed, so this is safe to call on a value
  *   that might already be a full URL from somewhere else.
- * - Otherwise it's joined onto app_base_url() (includes/bootstrap.php) - the local
- *   "display" convention of a bare leading "/" (see modules/products/_form.php's
+ * - Otherwise it's joined onto app_uploads_base_url() (includes/bootstrap.php) - the
+ *   local "display" convention of a bare leading "/" (see modules/products/_form.php's
  *   <img src="/...">) is untouched; this is additive, only for the WooCommerce payload.
+ *   Deliberately NOT app_base_url() directly - a subdomain-hosted admin app (e.g.
+ *   admin.mewmiibear.com) can 404 on its own host even though the URL is otherwise
+ *   well-formed, if that's not actually where /uploads is publicly served from. See
+ *   app_uploads_base_url()'s own docblock.
  * - Returns '' if the path is blank OR if no base URL could be determined at all (see
- *   app_base_url()'s own docblock) - callers must treat an empty result as "omit this
- *   image", never fall back to sending the bare relative path again.
+ *   app_uploads_base_url()'s own docblock) - callers must treat an empty result as "omit
+ *   this image", never fall back to sending the bare relative path again.
  */
 function image_upload_public_url(string $path): string
 {
@@ -266,7 +270,7 @@ function image_upload_public_url(string $path): string
         return $path;
     }
 
-    $base = app_base_url();
+    $base = app_uploads_base_url();
     if ($base === '') {
         return '';
     }

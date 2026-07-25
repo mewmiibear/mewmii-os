@@ -84,6 +84,37 @@ function app_base_url(): string
     return $cached;
 }
 
+/**
+ * Bugfix pass (WooCommerce image sync 404 - "Not Found") - app_base_url() alone assumed
+ * the domain that happens to be serving THIS admin request is also where the uploads/
+ * folder is publicly reachable. That's wrong on a subdomain deployment where the admin
+ * app lives at a subdomain (e.g. admin.mewmiibear.com) whose public document root isn't
+ * actually the same location the storefront's public files are served from - falling back
+ * to $_SERVER['HTTP_HOST'] then produces a URL that 404s even though it "looks" absolute
+ * and well-formed.
+ *
+ * This is the one place the PUBLIC URL for the uploads/ folder specifically is resolved:
+ * an explicit config.php app.uploads_url wins outright (set this whenever the admin app's
+ * own host isn't where /uploads is actually publicly served from). Only falls back to
+ * app_base_url() when uploads_url is blank - so an install where both really are the same
+ * host needs no extra configuration and keeps working exactly as before.
+ */
+function app_uploads_base_url(): string
+{
+    static $cached = null;
+    if ($cached !== null) {
+        return $cached;
+    }
+
+    $configPath = dirname(__DIR__) . '/config.php';
+    $config = is_file($configPath) ? require $configPath : [];
+    $configured = trim((string) ($config['app']['uploads_url'] ?? ''));
+
+    $cached = $configured !== '' ? rtrim($configured, '/') : app_base_url();
+
+    return $cached;
+}
+
 function app_redirect(string $path): void
 {
     header('Location: ' . $path);

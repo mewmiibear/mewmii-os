@@ -35,12 +35,19 @@ return [
         'debug' => false,
         'timezone' => 'Asia/Kuala_Lumpur',
         // Public base URL of THIS Mewmii OS install (no trailing slash), e.g.
-        // "https://mewmiibear.com" - used to turn a stored relative image path
-        // ("uploads/products/x.webp") into an absolute URL when pushing images to
-        // WooCommerce (see includes/image_upload.php's image_upload_public_url()).
-        // Falls back to the current request's own host if left blank, which only works
-        // for web-triggered syncs, never a future CLI/cron one - set this explicitly.
+        // "https://admin.mewmiibear.com" - falls back to the current request's own host
+        // if left blank, which only works for web-triggered syncs, never a future
+        // CLI/cron one - set this explicitly.
         'url' => getenv('APP_URL') ?: '',
+        // Public base URL specifically for the /uploads folder (product images etc), e.g.
+        // "https://mewmiibear.com" - ONLY needed if this differs from 'url' above. On a
+        // subdomain deployment (admin app on admin.mewmiibear.com, but /uploads is only
+        // publicly reachable at the root domain, or vice versa) these two are NOT the
+        // same host, and using 'url' for both is exactly what caused WooCommerce image
+        // sync to 404 - see includes/bootstrap.php's app_uploads_base_url(). Leave blank
+        // to fall back to 'url' when the admin app and its uploads really are on the same
+        // public host.
+        'uploads_url' => getenv('APP_UPLOADS_URL') ?: '',
     ],
 
     /*

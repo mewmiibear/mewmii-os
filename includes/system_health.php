@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/image_upload.php';
+
 /**
  * System Health (Issue 5 - Production Migration Safety). We've now hit two separate
  * incidents where code was deployed expecting a database column/table that a migration
@@ -73,6 +75,69 @@ function system_health_index_exists(PDO $pdo, string $table, string $indexName):
     $stmt->execute([$table, $indexName]);
 
     return (int) $stmt->fetchColumn() > 0;
+}
+
+/**
+ * Bugfix pass (WooCommerce image sync 404 incident) - a one-shot, admin-triggered reachability
+ * probe against ONE real stored image's computed public URL (image_upload_public_url()), so
+ * "are uploaded files actually publicly accessible" is answered by looking at this page
+ * instead of by a confusing remote "Not Found" surfacing from WooCommerce mid-sync. Uses curl
+ * directly (already required for the WooCommerce API client - see wc_client_request()) rather
+ * than get_headers(), since that needs allow_url_fopen, which isn't guaranteed enabled.
+ * Deliberately NOT run automatically during a real sync: a self-request from the same server
+ * can spuriously fail even when the URL is genuinely reachable from the internet (hairpin
+ * NAT/firewall quirks on some hosts), so this stays a manual, on-demand check only.
+ *
+ * @return array{reachable: bool, http_status: ?int, error: ?string}
+ */
+function system_health_check_url_reachable(string $url, int $timeoutSeconds = 5): array
+{
+    if (!function_exists('curl_init')) {
+        return ['reachable' => false, 'http_status' => null, 'error' => 'The PHP curl extension is not available.'];
+    }
+
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_NOBODY => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS => 5,
+        CURLOPT_TIMEOUT => $timeoutSeconds,
+        CURLOPT_CONNECTTIMEOUT => $timeoutSeconds,
+        CURLOPT_SSL_VERIFYPEER => true,
+    ]);
+    curl_exec($ch);
+    $errno = curl_errno($ch);
+    $error = curl_error($ch);
+    $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($errno !== 0) {
+        return ['reachable' => false, 'http_status' => null, 'error' => $error];
+    }
+
+    if ($status < 200 || $status >= 300) {
+        return ['reachable' => false, 'http_status' => $status, 'error' => 'HTTP ' . $status];
+    }
+
+    return ['reachable' => true, 'http_status' => $status, 'error' => null];
+}
+
+/**
+ * Picks the single most-recently-added product image (if any exist at all) to probe with
+ * system_health_check_url_reachable() - a real, currently-stored file rather than a
+ * synthetic path, so the check reflects an actual product an operator could sync today.
+ *
+ * @return array{path: string, url: string}|null
+ */
+function system_health_sample_image(PDO $pdo): ?array
+{
+    $path = $pdo->query('SELECT image_path FROM product_images ORDER BY id DESC LIMIT 1')->fetchColumn();
+    if ($path === false || trim((string) $path) === '') {
+        return null;
+    }
+
+    return ['path' => (string) $path, 'url' => image_upload_public_url((string) $path)];
 }
 
 /**
