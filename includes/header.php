@@ -464,11 +464,7 @@ $appTitle = 'Mewmii OS';
                         <div class="nav-section-label">Catalog</div>
                         <a class="nav-link<?php echo $navActive('/modules/products/index.php'); ?>" href="/modules/products/index.php"><i class="bi bi-box-seam"></i> Products</a>
                         <?php if (app_has_permission('products.view')): ?>
-                            <a class="nav-link nav-link-sub<?php echo $navActive('/modules/attributes/index.php'); ?>" href="/modules/attributes/index.php">Attributes</a>
-                            <a class="nav-link nav-link-sub<?php echo $navActive('/modules/collections/index.php'); ?>" href="/modules/collections/index.php">Collections</a>
-                            <a class="nav-link nav-link-sub<?php echo $navActive('/modules/categories/index.php'); ?>" href="/modules/categories/index.php">Categories</a>
-                            <a class="nav-link nav-link-sub<?php echo $navActive('/modules/brands/index.php'); ?>" href="/modules/brands/index.php">Brands</a>
-                            <a class="nav-link nav-link-sub<?php echo $navActive('/modules/tags/index.php'); ?>" href="/modules/tags/index.php">Tags</a>
+                            <a class="nav-link nav-link-sub<?php echo $navActive('/modules/catalog/index.php'); ?>" href="/modules/catalog/index.php">Catalogue</a>
                         <?php endif; ?>
 
                         <?php if (app_has_permission('orders.view') || app_has_permission('customers.view')): ?>

@@ -231,7 +231,7 @@
             <div class="col-md-4">
                 <div class="d-flex justify-content-between align-items-center">
                     <label class="form-label mb-1">Brand</label>
-                    <a class="small" href="/modules/brands/index.php" target="_blank" rel="noopener">Manage Brands &#8599;</a>
+                    <a class="small" href="/modules/catalog/index.php?tab=brands" target="_blank" rel="noopener">Manage Brands &#8599;</a>
                 </div>
                 <select class="form-select" name="brand_id" id="brand-select" data-searchable="1">
                     <option value="">None</option>
@@ -244,7 +244,7 @@
             <div class="col-md-4">
                 <div class="d-flex justify-content-between align-items-center">
                     <label class="form-label mb-1">Category</label>
-                    <a class="small" href="/modules/categories/index.php" target="_blank" rel="noopener">Manage Categories &#8599;</a>
+                    <a class="small" href="/modules/catalog/index.php?tab=categories" target="_blank" rel="noopener">Manage Categories &#8599;</a>
                 </div>
                 <select class="form-select" name="category_id" id="category-select" data-searchable="1">
                     <option value="">None</option>
@@ -259,7 +259,7 @@
             <div class="col-md-4">
                 <div class="d-flex justify-content-between align-items-center">
                     <label class="form-label mb-1">Collection</label>
-                    <a class="small" href="/modules/collections/index.php" target="_blank" rel="noopener">Manage Collections &#8599;</a>
+                    <a class="small" href="/modules/catalog/index.php?tab=collections" target="_blank" rel="noopener">Manage Collections &#8599;</a>
                 </div>
                 <select class="form-select" name="collection_id" id="collection-select" data-searchable="1">
                     <option value="">None</option>
@@ -272,7 +272,7 @@
             <div class="col-12">
                 <div class="d-flex justify-content-between align-items-center">
                     <label class="form-label mb-1">Tags</label>
-                    <a class="small" href="/modules/tags/index.php" target="_blank" rel="noopener">Manage Tags &#8599;</a>
+                    <a class="small" href="/modules/catalog/index.php?tab=tags" target="_blank" rel="noopener">Manage Tags &#8599;</a>
                 </div>
                 <div id="tags-checkbox-list" data-filterable-checkboxes="1">
                     <?php foreach ($tags as $tag): ?>
@@ -430,7 +430,7 @@
         <h5 class="mb-1">Variable Product: Attribute Builder</h5>
         <p class="text-muted small">Character, Color, Size, and any other attribute are managed the same way - Character is not a separate list, it's just an attribute. Each value's SKU prefix (used to build variation SKUs - see catalog_attribute_value_sku_code()) can still be edited inline below, but new attributes and values are added from Catalog &gt; Attributes, not here.</p>
         <div class="d-flex justify-content-between align-items-center mb-2">
-            <a class="small" href="/modules/attributes/index.php" target="_blank" rel="noopener">Manage Attributes &#8599;</a>
+            <a class="small" href="/modules/catalog/index.php?tab=attributes" target="_blank" rel="noopener">Manage Attributes &#8599;</a>
         </div>
         <div id="attribute-builder-blocks"></div>
         <button type="button" class="btn btn-outline-secondary btn-sm" id="add-attribute-block-btn">Add Another Attribute</button>

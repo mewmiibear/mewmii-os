@@ -356,7 +356,8 @@ function catalog_get_product_tag_ids(PDO $pdo, int $productId): array
 
 /**
  * Replaces a product's tag selections with exactly the given tag ids - picked from the
- * admin-managed tag list (modules/tags/index.php), never typed freehand on the product form.
+ * admin-managed tag list (Catalogue Manager > Tags, modules/catalog/index.php), never typed
+ * freehand on the product form.
  */
 function catalog_sync_product_tag_ids(PDO $pdo, int $productId, array $tagIds): void
 {
@@ -726,7 +727,7 @@ function catalog_get_or_create_attribute_value(PDO $pdo, int $attributeId, strin
 
 /**
  * Every attribute with its value count and how many products currently have it assigned -
- * the Catalog Management > Attributes list (modules/attributes/index.php). One query each,
+ * the Catalogue Manager > Attributes tab (modules/catalog/index.php). One query each,
  * not per-attribute, same non-N+1 shape as catalog_list_brands_with_counts() etc.
  */
 function catalog_list_attributes_with_counts(PDO $pdo): array
