@@ -3,6 +3,7 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/inventory.php';
 require_once __DIR__ . '/../../includes/orders.php';
 require_once __DIR__ . '/../../includes/order_fulfillment.php';
+require_once __DIR__ . '/../../includes/supplier_orders.php';
 require_once __DIR__ . '/../../includes/shipments.php';
 require_once __DIR__ . '/../../includes/wc_receipt_verification.php';
 app_require_permission('orders.view');
@@ -326,6 +327,64 @@ foreach ($items as &$item) {
 }
 unset($item);
 
+// UI/UX Phase 5D: "why can't this order ship yet" context for any waiting_stock item - a
+// batched, read-only lookup of the same mewmii_inventory / supplier_order_items+
+// supplier_orders tables already used for this exact purpose on modules/inventory/index.php
+// ($earliestDeliveryByProductVariation) and modules/supplier-orders/view.php's receiving
+// prompt. Purely additive display data, keyed by "product_id:variation_id"; attached onto
+// each waiting_stock item below. Does not touch order_item_get_fulfillment_status()'s own
+// state calculation or any write path.
+$waitingStockUnits = [];
+$waitingStockItemCount = 0;
+foreach ($items as $item) {
+    if ($item['fulfillment']['state'] === 'waiting_stock') {
+        $waitingStockItemCount++;
+        $key = (int) $item['product_id'] . ':' . (int) ($item['variation_id'] ?? 0);
+        $waitingStockUnits[$key] = ['product_id' => (int) $item['product_id'], 'variation_id' => $item['variation_id'] !== null ? (int) $item['variation_id'] : null];
+    }
+}
+$stockAvailabilityByUnit = [];
+$supplierOrderStatusByUnit = [];
+if ($waitingStockUnits !== []) {
+    $unitConditions = [];
+    $unitParams = [];
+    foreach ($waitingStockUnits as $unit) {
+        $unitConditions[] = '(product_id = ? AND variation_id <=> ?)';
+        $unitParams[] = $unit['product_id'];
+        $unitParams[] = $unit['variation_id'];
+    }
+    $unitWhere = implode(' OR ', $unitConditions);
+
+    $stockStmt = $pdo->prepare("
+        SELECT product_id, variation_id, available_quantity, incoming_quantity
+        FROM mewmii_inventory
+        WHERE {$unitWhere}
+    ");
+    $stockStmt->execute($unitParams);
+    foreach ($stockStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $stockAvailabilityByUnit[(int) $row['product_id'] . ':' . (int) ($row['variation_id'] ?? 0)] = $row;
+    }
+
+    // Soonest-expected active (not received/cancelled) supplier order line per unit - same
+    // "status NOT IN ('received', 'cancelled')" condition already used by
+    // modules/inventory/index.php's incoming-delivery lookup and the dashboard's overdue
+    // count, just resolved down to one representative row per unit here.
+    $supplierStmt = $pdo->prepare("
+        SELECT soi.product_id, soi.variation_id, so.status, so.expected_delivery_date
+        FROM supplier_order_items soi
+        INNER JOIN supplier_orders so ON so.id = soi.supplier_order_id
+        WHERE ({$unitWhere}) AND so.status NOT IN ('received', 'cancelled')
+        ORDER BY so.expected_delivery_date IS NULL, so.expected_delivery_date ASC
+    ");
+    $supplierStmt->execute($unitParams);
+    foreach ($supplierStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $key = (int) $row['product_id'] . ':' . (int) ($row['variation_id'] ?? 0);
+        if (!isset($supplierOrderStatusByUnit[$key])) {
+            $supplierOrderStatusByUnit[$key] = $row;
+        }
+    }
+}
+
 // "Resolve Stock Issue" link target for a waiting_stock item - same product-type split as
 // the receiving prompt on modules/supplier-orders/view.php: ready-stock resolves via the
 // Reservation Center, preorder/early-bird via the Allocation Center. Display-only; doesn't
@@ -514,20 +573,40 @@ require_once __DIR__ . '/../../includes/header.php';
                             <td>RM <?php echo app_escape(number_format((float) ($item['discount'] ?? 0), 2)); ?></td>
                             <td>RM <?php echo app_escape(number_format((float) ($item['subtotal'] ?? ($item['quantity'] * $item['selling_price'])), 2)); ?></td>
                             <td>
-                                <?php if ($fulfillment['state'] === 'waiting_stock' && $canViewInventory): ?>
+                                <div class="mb-1"><?php echo order_item_fulfillment_badge($fulfillment['state']); ?></div>
+                                <?php if ($fulfillment['state'] === 'waiting_stock'): ?>
                                     <?php
-                                    $resolveUrl = $item['product_type'] === 'ready_stock'
-                                        ? '/modules/inventory/reserve.php?product_id=' . (int) $item['product_id'] . ($item['variation_id'] !== null ? '&variation_id=' . (int) $item['variation_id'] : '')
-                                        : '/modules/inventory/allocate.php?product_id=' . (int) $item['product_id'] . ($item['variation_id'] !== null ? '&variation_id=' . (int) $item['variation_id'] : '');
+                                    $unitKey = (int) $item['product_id'] . ':' . (int) ($item['variation_id'] ?? 0);
+                                    $stockRow = $stockAvailabilityByUnit[$unitKey] ?? null;
+                                    $supplierRow = $supplierOrderStatusByUnit[$unitKey] ?? null;
                                     ?>
-                                    <a href="<?php echo app_escape($resolveUrl); ?>">Resolve Stock Issue &rarr;</a>
+                                    <div class="small text-muted">
+                                        Available: <?php echo $stockRow !== null ? (int) $stockRow['available_quantity'] : 0; ?>
+                                        &middot; Incoming: <?php echo $stockRow !== null ? (int) $stockRow['incoming_quantity'] : 0; ?>
+                                    </div>
+                                    <?php if ($supplierRow !== null): ?>
+                                        <div class="small">
+                                            Supplier order: <?php echo app_escape(supplier_order_status_label((string) $supplierRow['status'])); ?>
+                                            <?php if ($supplierRow['expected_delivery_date'] !== null): ?>
+                                                &middot; Expected <?php echo app_escape($supplierRow['expected_delivery_date']); ?>
+                                            <?php endif; ?>
+                                        </div>
+                                    <?php else: ?>
+                                        <div class="small text-danger">No active supplier order</div>
+                                    <?php endif; ?>
+                                    <?php if ($canViewInventory): ?>
+                                        <?php
+                                        $resolveUrl = $item['product_type'] === 'ready_stock'
+                                            ? '/modules/inventory/reserve.php?product_id=' . (int) $item['product_id'] . ($item['variation_id'] !== null ? '&variation_id=' . (int) $item['variation_id'] : '')
+                                            : '/modules/inventory/allocate.php?product_id=' . (int) $item['product_id'] . ($item['variation_id'] !== null ? '&variation_id=' . (int) $item['variation_id'] : '');
+                                        ?>
+                                        <a href="<?php echo app_escape($resolveUrl); ?>">Resolve Stock Issue &rarr;</a>
+                                    <?php endif; ?>
                                     <?php if ($canManageSupplierOrders): ?>
                                         <div class="small">
                                             <a href="/modules/purchase-planning/generate.php?highlight_product_id=<?php echo (int) $item['product_id']; ?>">Check Purchase Planning &rarr;</a>
                                         </div>
                                     <?php endif; ?>
-                                <?php else: ?>
-                                    <div><?php echo app_escape(order_item_fulfillment_label($fulfillment['state'])); ?></div>
                                 <?php endif; ?>
                                 <?php foreach ($fulfillment['shipments'] as $itemShipment): ?>
                                     <div class="text-muted small">
@@ -639,6 +718,11 @@ require_once __DIR__ . '/../../includes/header.php';
                 <h5 class="mb-3">Order Workflow</h5>
                 <div class="mb-3"><?php echo order_status_badge($order['order_status']); ?></div>
                 <p class="text-muted small mb-3">Order Status is calculated automatically from payment status, item fulfillment, and shipments - see the Items table and Shipments below. Use Create Shipment to move items forward.</p>
+                <?php if ($waitingStockItemCount > 0): ?>
+                    <div class="alert alert-danger small py-2 px-3 mb-3">
+                        <?php echo (int) $waitingStockItemCount; ?> item<?php echo $waitingStockItemCount === 1 ? '' : 's'; ?> waiting on stock - this is why the order can't ship yet. See Available/Incoming/Supplier order in the Items table below.
+                    </div>
+                <?php endif; ?>
 
                 <?php if (!in_array($order['order_status'], ['completed', 'cancelled'], true)): ?>
                     <form method="post" onsubmit="return confirm('Cancel this order? Any reserved stock will be released back to available.');">

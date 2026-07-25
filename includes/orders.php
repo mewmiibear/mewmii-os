@@ -71,6 +71,30 @@ function payment_status_badge(string $status): string
 }
 
 /**
+ * Badge for one order item's fulfillment state (UI/UX Phase 5D) - same badge pattern as
+ * order_status_badge()/payment_status_badge(), just wrapping order_item_fulfillment_label()
+ * (includes/order_fulfillment.php, unchanged) with a colour instead of plain text.
+ * 'waiting_stock' is coloured danger (not warning) because it's the one state that directly
+ * answers "why can't this order ship yet" - the highest-priority signal on the order detail
+ * page per the Phase 5D brief.
+ */
+function order_item_fulfillment_badge(string $state): string
+{
+    $colors = [
+        'cancelled' => 'secondary',
+        'historical' => 'secondary',
+        'waiting_stock' => 'danger',
+        'packing' => 'info text-dark',
+        'ready_to_ship' => 'primary',
+        'stored' => 'primary',
+        'shipped' => 'success',
+    ];
+    $color = $colors[$state] ?? 'secondary';
+
+    return '<span class="badge bg-' . $color . '">' . htmlspecialchars(order_item_fulfillment_label($state), ENT_QUOTES, 'UTF-8') . '</span>';
+}
+
+/**
  * Human-facing label for mewmii_order_events.event_type (UI/UX Phase 5B) - the Order Timeline
  * previously showed these raw enum strings verbatim (e.g. "payment_status_change") as the
  * bold heading of every entry. Display only - the stored value and every INSERT that writes

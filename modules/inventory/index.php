@@ -522,6 +522,8 @@ require_once __DIR__ . '/../../includes/header.php';
     <a class="btn btn-sm <?php echo $filterNeedsOrdering ? 'btn-primary' : 'btn-outline-secondary'; ?>" href="/modules/inventory/index.php?needs_ordering=1">Need Ordering</a>
     <a class="btn btn-sm <?php echo $filterStage === 'incoming' ? 'btn-primary' : 'btn-outline-secondary'; ?>" href="/modules/inventory/index.php?stage=incoming">Waiting Supplier</a>
     <a class="btn btn-sm <?php echo $filterStockStatus === 'low_stock' ? 'btn-primary' : 'btn-outline-secondary'; ?>" href="/modules/inventory/index.php?stock_status=low_stock">Low Stock</a>
+    <a class="btn btn-sm <?php echo $filterStockStatus === 'out_of_stock' ? 'btn-primary' : 'btn-outline-secondary'; ?>" href="/modules/inventory/index.php?stock_status=out_of_stock">Out of Stock</a>
+    <a class="btn btn-sm <?php echo $filterStage === 'arrived' ? 'btn-primary' : 'btn-outline-secondary'; ?>" href="/modules/inventory/index.php?stage=arrived">Arrived (Ready to Allocate)</a>
     <a class="btn btn-sm <?php echo $filterProductType === 'preorder' ? 'btn-primary' : 'btn-outline-secondary'; ?>" href="/modules/inventory/index.php?product_type=preorder">Preorder</a>
     <?php if ($filterNeedsOrdering || $filterStage !== null || $filterStockStatus !== null || $filterProductType !== null): ?>
         <a class="btn btn-sm btn-outline-secondary" href="/modules/inventory/index.php">Clear quick filters</a>
@@ -681,8 +683,11 @@ require_once __DIR__ . '/../../includes/header.php';
                     <td data-label="Reserved"<?php echo $isVariable ? ' class="text-muted"' : ''; ?>><?php echo app_escape((string) $product['reserved_stock']); ?></td>
                     <td data-label="Incoming"<?php echo $isVariable ? ' class="text-muted"' : ''; ?>>
                         <?php echo app_escape((string) $product['incoming_stock']); ?>
-                        <?php if (!$isVariable && (int) $product['incoming_stock'] > 0 && isset($earliestDeliveryByProductVariation[$productDeliveryKey])): ?>
-                            <div class="text-muted small">Expected <?php echo app_escape($earliestDeliveryByProductVariation[$productDeliveryKey]); ?></div>
+                        <?php if (!$isVariable && (int) $product['incoming_stock'] > 0): ?>
+                            <span class="badge bg-info text-dark ms-1">Incoming</span>
+                            <?php if (isset($earliestDeliveryByProductVariation[$productDeliveryKey])): ?>
+                                <div class="text-muted small">Expected <?php echo app_escape($earliestDeliveryByProductVariation[$productDeliveryKey]); ?></div>
+                            <?php endif; ?>
                         <?php endif; ?>
                     </td>
                     <td data-label="Arrived"<?php echo $isVariable ? ' class="text-muted"' : ''; ?>><?php echo app_escape((string) $product['arrived_stock']); ?></td>
@@ -736,8 +741,11 @@ require_once __DIR__ . '/../../includes/header.php';
                             <td data-label="Reserved"><?php echo app_escape((string) $variation['reserved_stock']); ?></td>
                             <td data-label="Incoming">
                                 <?php echo app_escape((string) $variation['incoming_stock']); ?>
-                                <?php if ((int) $variation['incoming_stock'] > 0 && isset($earliestDeliveryByProductVariation[$variationDeliveryKey])): ?>
-                                    <div class="text-muted small">Expected <?php echo app_escape($earliestDeliveryByProductVariation[$variationDeliveryKey]); ?></div>
+                                <?php if ((int) $variation['incoming_stock'] > 0): ?>
+                                    <span class="badge bg-info text-dark ms-1">Incoming</span>
+                                    <?php if (isset($earliestDeliveryByProductVariation[$variationDeliveryKey])): ?>
+                                        <div class="text-muted small">Expected <?php echo app_escape($earliestDeliveryByProductVariation[$variationDeliveryKey]); ?></div>
+                                    <?php endif; ?>
                                 <?php endif; ?>
                             </td>
                             <td data-label="Arrived"><?php echo app_escape((string) $variation['arrived_stock']); ?></td>

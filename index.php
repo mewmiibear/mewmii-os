@@ -53,13 +53,18 @@ $canViewCustomers = app_has_permission('customers.view');
 //   Waiting for Stock -> 'waiting_stock'      (at least one item still unreserved/unallocated)
 //   Ready to Pack      -> 'waiting_ship_my_box' (every item ready, no shipment started yet)
 //   Ready to Ship       -> 'ready_to_ship'      (a shipment already exists, not yet shipped)
-$orderStatusCounts = ['waiting_stock' => 0, 'waiting_ship_my_box' => 0, 'ready_to_ship' => 0];
+// UI/UX Phase 5D: 'pending' and 'partially_fulfilled' added to the existing IN() list below -
+// same query, same GROUP BY, just two more of the same order_status values already being
+// counted here. Powers the new Operations Overview row's "Pending Customer Orders" (pending)
+// and extends "Orders Waiting Fulfillment" to include partially_fulfilled orders it was
+// previously missing.
+$orderStatusCounts = ['pending' => 0, 'waiting_stock' => 0, 'waiting_ship_my_box' => 0, 'ready_to_ship' => 0, 'partially_fulfilled' => 0];
 $ordersTodayCount = 0;
 if ($canViewOrders) {
     $orderStatusStmt = $pdo->query("
         SELECT order_status, COUNT(*) AS cnt
         FROM mewmii_orders
-        WHERE is_historical = 0 AND order_status IN ('waiting_stock', 'waiting_ship_my_box', 'ready_to_ship')
+        WHERE is_historical = 0 AND order_status IN ('pending', 'waiting_stock', 'waiting_ship_my_box', 'ready_to_ship', 'partially_fulfilled')
         GROUP BY order_status
     ");
     foreach ($orderStatusStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
@@ -146,6 +151,17 @@ if ($canViewInventory) {
         ) low_stock
     ");
     $lowStockCount = (int) $lowStockStmt->fetchColumn();
+}
+
+// UI/UX Phase 5D: Incoming Supplier Stock - count of inventory units (products/variations)
+// currently showing incoming_quantity > 0, the exact same "incoming" bucket already surfaced
+// per-row on modules/inventory/index.php and filterable there via ?stage=incoming (its
+// inventory_unit_matches_filters() 'incoming' branch checks this same column > 0). One plain
+// COUNT, no new column, no calculation.
+$incomingStockUnitCount = 0;
+if ($canViewInventory) {
+    $incomingStockStmt = $pdo->query('SELECT COUNT(*) FROM mewmii_inventory WHERE incoming_quantity > 0');
+    $incomingStockUnitCount = (int) $incomingStockStmt->fetchColumn();
 }
 
 // Allocation Center / Reservation Queue counts - unchanged existing queue functions, reused
@@ -419,6 +435,46 @@ require_once __DIR__ . '/includes/header.php';
         </div>
     <?php endif; ?>
 </div>
+
+<?php
+// UI/UX Phase 5D: Operations Overview - action-focused counts, each linking straight to its
+// filtered list, prioritised per the brief as: orders requiring action, stock problems,
+// supplier delays, shipment actions. Every number below is either already computed above
+// (Low Stock, Overdue Supplier Orders, Shipments Awaiting Tracking, the order_status/supplier
+// status GROUP BY results) or one new plain COUNT ($incomingStockUnitCount) - no charts, same
+// .stat-card look as the Top Summary strip above.
+$operationsOverviewCards = [];
+if ($canViewOrders) {
+    $operationsOverviewCards[] = ['label' => 'Pending Customer Orders', 'count' => $orderStatusCounts['pending'], 'url' => '/modules/orders/index.php?status=pending'];
+    $operationsOverviewCards[] = ['label' => 'Orders Waiting Fulfillment', 'count' => $orderStatusCounts['waiting_stock'] + $orderStatusCounts['waiting_ship_my_box'] + $orderStatusCounts['ready_to_ship'] + $orderStatusCounts['partially_fulfilled'], 'url' => '/modules/orders/index.php'];
+}
+if ($canViewInventory) {
+    $operationsOverviewCards[] = ['label' => 'Low Stock Products', 'count' => $lowStockCount, 'url' => '/modules/inventory/index.php?stock_status=low_stock'];
+    $operationsOverviewCards[] = ['label' => 'Incoming Supplier Stock', 'count' => $incomingStockUnitCount, 'url' => '/modules/inventory/index.php?stage=incoming'];
+}
+if ($canViewSupplierOrders) {
+    $operationsOverviewCards[] = ['label' => 'Pending Supplier Orders', 'count' => $supplierOrderStatusCounts['ordered'], 'url' => '/modules/supplier-orders/index.php?status=ordered'];
+    $operationsOverviewCards[] = ['label' => 'Overdue Supplier Orders', 'count' => $overdueSupplierOrderCount, 'url' => '/modules/supplier-orders/index.php?filter=overdue'];
+}
+if ($canViewShipments) {
+    $operationsOverviewCards[] = ['label' => 'Shipments Waiting Action', 'count' => $shipmentAwaitingTrackingCount, 'url' => '/modules/shipments/index.php'];
+}
+?>
+<?php if ($operationsOverviewCards !== []): ?>
+<div class="mb-4">
+    <h4 class="mb-3">Operations Overview</h4>
+    <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-3">
+        <?php foreach ($operationsOverviewCards as $card): ?>
+            <div class="col">
+                <a class="card stat-card stat-card-link p-3 h-100" href="<?php echo app_escape($card['url']); ?>">
+                    <div class="stat-label"><?php echo app_escape($card['label']); ?></div>
+                    <div class="stat-value <?php echo $card['count'] > 0 ? 'stat-value-alert' : ''; ?>" style="font-size: 1.6rem;"><?php echo (int) $card['count']; ?></div>
+                </a>
+            </div>
+        <?php endforeach; ?>
+    </div>
+</div>
+<?php endif; ?>
 
 <div class="row g-4 mb-4">
     <div class="col-lg-7">
