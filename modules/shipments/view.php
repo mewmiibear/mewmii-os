@@ -105,12 +105,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $items = shipment_list_items($pdo, $shipmentId);
 $events = shipment_list_events($pdo, $shipmentId);
 
+// UI/UX Phase 5C: package/order summary counts - purely derived from $items already fetched
+// above, no new query.
+$packageItemCount = count($items);
+$packageQty = 0;
+$packageOrderIds = [];
+foreach ($items as $item) {
+    $packageQty += (int) $item['quantity'];
+    if (!empty($item['order_id'])) {
+        $packageOrderIds[(int) $item['order_id']] = true;
+    }
+}
+$packageOrderCount = count($packageOrderIds);
+
+// UI/UX Phase 5C: small icon per timeline event type - purely presentational, event_type
+// values/data are read exactly as stored, nothing is renamed or reinterpreted.
+$shipmentEventIcons = [
+    'shipment_created' => 'bi-plus-circle',
+    'packed' => 'bi-box-seam',
+    'shipped' => 'bi-truck',
+    'delivered' => 'bi-check-circle',
+    'cancelled' => 'bi-x-circle',
+    'carrier_changed' => 'bi-pencil',
+    'tracking_updated' => 'bi-pencil',
+];
+
 require_once __DIR__ . '/../../includes/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-header d-flex justify-content-between align-items-center">
     <div>
-        <h2 class="mb-1">Shipment <?php echo app_escape($shipment['shipment_number']); ?></h2>
-        <p class="text-muted mb-0"><?php echo app_escape($shipment['customer_name']); ?> &middot; <?php echo app_escape($shipment['customer_email'] ?? '-'); ?></p>
+        <h2 class="mb-1">
+            Shipment <?php echo app_escape($shipment['shipment_number']); ?>
+            <?php echo shipment_status_badge($shipment['shipping_status']); ?>
+        </h2>
+        <p class="page-description"><?php echo app_escape($shipment['customer_name']); ?> &middot; <?php echo app_escape($shipment['customer_email'] ?? '-'); ?></p>
     </div>
     <a class="btn btn-outline-secondary btn-sm" href="/modules/shipments/index.php">Back to Shipments</a>
 </div>
@@ -128,19 +156,33 @@ require_once __DIR__ . '/../../includes/header.php';
 <div class="row g-4">
     <div class="col-lg-7">
         <div class="card p-4 mb-4">
-            <h5 class="mb-3">Shipment Info</h5>
+            <h5 class="mb-3"><i class="bi bi-info-circle"></i> Shipment Info</h5>
             <table class="table table-borderless mb-0">
-                <tr><th>Status</th><td><?php echo shipment_status_badge($shipment['shipping_status']); ?></td></tr>
                 <tr><th>Source</th><td><?php echo app_escape(ucfirst(str_replace('_', ' ', $shipment['source_type']))); ?></td></tr>
-                <tr><th>Carrier</th><td><?php echo $shipment['carrier'] !== null ? app_escape($shipment['carrier']) : '&mdash;'; ?></td></tr>
-                <tr><th>Tracking Number</th><td><?php echo $shipment['tracking_number'] !== null ? app_escape($shipment['tracking_number']) : '&mdash;'; ?></td></tr>
+                <tr><th>Orders</th><td><?php echo (int) $packageOrderCount; ?></td></tr>
+                <tr><th>Items</th><td><?php echo (int) $packageItemCount; ?> line<?php echo $packageItemCount === 1 ? '' : 's'; ?> &middot; <?php echo (int) $packageQty; ?> unit<?php echo $packageQty === 1 ? '' : 's'; ?></td></tr>
                 <tr><th>Shipped Date</th><td><?php echo $shipment['shipped_at'] !== null ? app_escape(date('j F Y', strtotime($shipment['shipped_at']))) : '&mdash;'; ?></td></tr>
                 <tr><th>Created</th><td><?php echo app_escape($shipment['created_at']); ?></td></tr>
             </table>
         </div>
 
+        <div class="card p-4 mb-4">
+            <h5 class="mb-3"><i class="bi bi-geo-alt"></i> Tracking</h5>
+            <?php if ($shipment['tracking_number'] !== null): ?>
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <div class="fw-semibold fs-5"><?php echo app_escape($shipment['tracking_number']); ?></div>
+                        <div class="text-muted"><?php echo $shipment['carrier'] !== null ? app_escape($shipment['carrier']) : 'Carrier not set'; ?></div>
+                    </div>
+                    <?php echo shipment_status_badge($shipment['shipping_status']); ?>
+                </div>
+            <?php else: ?>
+                <p class="text-muted mb-0">No tracking number assigned yet<?php echo $canManage ? ' - use "Confirm Shipped" to add one.' : '.'; ?></p>
+            <?php endif; ?>
+        </div>
+
         <div class="card p-4">
-            <h5 class="mb-3">Items</h5>
+            <h5 class="mb-3"><i class="bi bi-list-check"></i> Items</h5>
             <table class="table table-hover align-middle">
                 <thead>
                     <tr>
@@ -183,13 +225,13 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="col-lg-5">
         <?php if ($canManage): ?>
             <div class="card p-4 mb-4">
-                <h5 class="mb-3">Actions</h5>
+                <h5 class="mb-3"><i class="bi bi-lightning-charge"></i> Actions</h5>
 
                 <?php if ($shipment['shipping_status'] === 'pending'): ?>
-                    <form method="post" class="mb-2">
+                    <form method="post" class="mb-2 d-grid">
                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                         <input type="hidden" name="action" value="mark_packed">
-                        <button type="submit" class="btn btn-outline-primary btn-sm">Mark Packed</button>
+                        <button type="submit" class="btn btn-primary btn-sm">Mark Packed</button>
                     </form>
                 <?php endif; ?>
 
@@ -209,10 +251,10 @@ require_once __DIR__ . '/../../includes/header.php';
                             <label class="form-label">Shipped Date</label>
                             <input type="date" class="form-control form-control-sm" name="shipped_date" value="<?php echo date('Y-m-d'); ?>">
                         </div>
-                        <button type="submit" class="btn btn-primary btn-sm">Confirm Shipped</button>
+                        <button type="submit" class="btn btn-primary btn-sm w-100">Confirm Shipped</button>
                     </form>
 
-                    <form method="post" onsubmit="return confirm('Cancel this shipment? Its items become available for a future shipment again.');">
+                    <form method="post" class="d-grid" onsubmit="return confirm('Cancel this shipment? Its items become available for a future shipment again.');">
                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                         <input type="hidden" name="action" value="cancel">
                         <button type="submit" class="btn btn-outline-danger btn-sm">Cancel Shipment</button>
@@ -220,10 +262,10 @@ require_once __DIR__ . '/../../includes/header.php';
                 <?php endif; ?>
 
                 <?php if ($shipment['shipping_status'] === 'shipped'): ?>
-                    <form method="post" class="mb-2">
+                    <form method="post" class="mb-2 d-grid">
                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                         <input type="hidden" name="action" value="mark_delivered">
-                        <button type="submit" class="btn btn-outline-success btn-sm">Mark Delivered</button>
+                        <button type="submit" class="btn btn-success btn-sm">Mark Delivered</button>
                     </form>
                 <?php endif; ?>
 
@@ -247,19 +289,22 @@ require_once __DIR__ . '/../../includes/header.php';
         <?php endif; ?>
 
         <div class="card p-4">
-            <h5 class="mb-3">Shipment Timeline</h5>
+            <h5 class="mb-3"><i class="bi bi-clock-history"></i> Shipment Timeline</h5>
             <ul class="list-unstyled mb-0">
                 <?php foreach ($events as $event): ?>
-                    <li class="mb-3">
-                        <div class="fw-semibold"><?php echo app_escape(ucfirst(str_replace('_', ' ', $event['event_type']))); ?></div>
-                        <?php if (!empty($event['notes'])): ?>
-                            <div><?php echo app_escape($event['notes']); ?></div>
-                        <?php endif; ?>
-                        <div class="text-muted small">
-                            <?php echo app_escape($event['created_at']); ?>
-                            <?php if (!empty($event['user_name'])): ?>
-                                &middot; <?php echo app_escape($event['user_name']); ?>
+                    <li class="mb-3 d-flex gap-2">
+                        <i class="bi <?php echo $shipmentEventIcons[$event['event_type']] ?? 'bi-dot'; ?> text-muted mt-1"></i>
+                        <div>
+                            <div class="fw-semibold"><?php echo app_escape(ucfirst(str_replace('_', ' ', $event['event_type']))); ?></div>
+                            <?php if (!empty($event['notes'])): ?>
+                                <div><?php echo app_escape($event['notes']); ?></div>
                             <?php endif; ?>
+                            <div class="text-muted small">
+                                <?php echo app_escape($event['created_at']); ?>
+                                <?php if (!empty($event['user_name'])): ?>
+                                    &middot; <?php echo app_escape($event['user_name']); ?>
+                                <?php endif; ?>
+                            </div>
                         </div>
                     </li>
                 <?php endforeach; ?>

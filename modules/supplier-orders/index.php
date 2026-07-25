@@ -20,11 +20,18 @@ $filterProductLabel = null;
 // re-derived, so this filter can never disagree with that count.
 $filterOverdue = ($_GET['filter'] ?? '') === 'overdue';
 
+// UI/UX Phase 5C: search + status filter - same additive pattern already used by
+// modules/orders/index.php (?q=/?status=). Matches purchase_number or supplier name.
+$searchTerm = trim((string) ($_GET['q'] ?? ''));
+$allStatuses = array_merge(SUPPLIER_ORDER_WORKFLOW, ['partially_received', 'cancelled']);
+$filterStatus = isset($_GET['status']) && in_array($_GET['status'], $allStatuses, true) ? $_GET['status'] : null;
+
 $sql = '
     SELECT DISTINCT so.id, so.purchase_number, so.status, so.payment_status, so.is_historical, so.estimated_cost, so.actual_cost, so.shipping_fee, so.order_date, so.expected_delivery_date, s.name AS supplier_name
     FROM supplier_orders so
     INNER JOIN suppliers s ON s.id = so.supplier_id
 ';
+$conditions = [];
 $params = [];
 if ($filterProductId !== null) {
     $sql .= ' INNER JOIN supplier_order_items soi ON soi.supplier_order_id = so.id AND soi.product_id = ?';
@@ -36,7 +43,20 @@ if ($filterProductId !== null) {
     $filterProductLabel = $productLookupRow !== false ? ($productLookupRow['sku'] . ' - ' . $productLookupRow['name']) : null;
 }
 if ($filterOverdue) {
-    $sql .= " WHERE so.expected_delivery_date IS NOT NULL AND so.expected_delivery_date < CURDATE() AND so.status NOT IN ('received', 'completed', 'cancelled')";
+    $conditions[] = "so.expected_delivery_date IS NOT NULL AND so.expected_delivery_date < CURDATE() AND so.status NOT IN ('received', 'completed', 'cancelled')";
+}
+if ($filterStatus !== null) {
+    $conditions[] = 'so.status = ?';
+    $params[] = $filterStatus;
+}
+if ($searchTerm !== '') {
+    $conditions[] = '(so.purchase_number LIKE ? OR s.name LIKE ?)';
+    $likeTerm = '%' . $searchTerm . '%';
+    $params[] = $likeTerm;
+    $params[] = $likeTerm;
+}
+if ($conditions !== []) {
+    $sql .= ' WHERE ' . implode(' AND ', $conditions);
 }
 $sql .= ' ORDER BY so.id DESC LIMIT 20';
 $stmt = $pdo->prepare($sql);
@@ -60,20 +80,14 @@ $canManage = app_has_permission('supplier-orders.manage');
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-header d-flex justify-content-between align-items-center">
     <div>
-        <h2 class="mb-1">Supplier Orders</h2>
-        <p class="text-muted mb-0">
+        <h2 class="mb-1"><i class="bi bi-clipboard-check"></i> Supplier Orders</h2>
+        <p class="page-description">
             Purchase orders sent to suppliers and inventory receiving.
             <?php if ($filterProductId !== null): ?>
                 &middot; Containing product: <strong><?php echo app_escape($filterProductLabel ?? ('#' . $filterProductId)); ?></strong>
                 <a href="/modules/supplier-orders/index.php" class="ms-1">(clear)</a>
-            <?php endif; ?>
-            <?php if ($filterOverdue): ?>
-                &middot; Filtered: <strong>Overdue</strong>
-                <a href="/modules/supplier-orders/index.php" class="ms-1">(clear)</a>
-            <?php else: ?>
-                &middot; <a href="/modules/supplier-orders/index.php?filter=overdue">Show overdue only</a>
             <?php endif; ?>
         </p>
     </div>
@@ -96,16 +110,48 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="alert alert-success">Supplier order deleted.</div>
 <?php endif; ?>
 
+<div class="card filter-card p-3 mb-4">
+    <form method="get" class="row g-2 align-items-end">
+        <?php if ($filterProductId !== null): ?>
+            <input type="hidden" name="product_id" value="<?php echo (int) $filterProductId; ?>">
+        <?php endif; ?>
+        <div class="col-md-4">
+            <label class="form-label small mb-1">Search</label>
+            <input type="text" class="form-control form-control-sm" name="q" value="<?php echo app_escape($searchTerm); ?>" placeholder="Purchase # or supplier name">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label small mb-1">Status</label>
+            <select name="status" class="form-select form-select-sm">
+                <option value="">All</option>
+                <?php foreach ($allStatuses as $statusOption): ?>
+                    <option value="<?php echo app_escape($statusOption); ?>" <?php echo $filterStatus === $statusOption ? 'selected' : ''; ?>><?php echo app_escape(supplier_order_status_label($statusOption)); ?></option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label small mb-1 d-block">&nbsp;</label>
+            <div class="form-check">
+                <input type="checkbox" class="form-check-input" id="filterOverdue" name="filter" value="overdue" <?php echo $filterOverdue ? 'checked' : ''; ?>>
+                <label class="form-check-label small" for="filterOverdue">Overdue only</label>
+            </div>
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-sm btn-primary">Filter</button>
+            <a href="/modules/supplier-orders/index.php<?php echo $filterProductId !== null ? ('?product_id=' . (int) $filterProductId) : ''; ?>" class="btn btn-sm btn-outline-secondary">Clear</a>
+        </div>
+    </form>
+</div>
+
 <div class="card p-4">
     <div class="table-responsive">
-    <table class="table table-hover align-middle">
+    <table class="table table-hover align-middle responsive-stack-table">
         <thead>
             <tr>
                 <th>Purchase #</th>
                 <th>Supplier</th>
                 <th>Status</th>
                 <th>Payment</th>
-                <th>Total Purchase Amount</th>
+                <th class="text-end">Total Purchase Amount</th>
                 <th>Order Date</th>
                 <th></th>
             </tr>
@@ -113,23 +159,28 @@ require_once __DIR__ . '/../../includes/header.php';
         <tbody>
             <?php foreach ($supplierOrders as $order): ?>
                 <tr>
-                    <td>
+                    <td data-label="Purchase #">
                         <?php echo app_escape($order['purchase_number']); ?>
                         <?php if (!empty($order['is_historical'])): ?>
                             <span class="badge bg-secondary">Historical</span>
                         <?php endif; ?>
                     </td>
-                    <td><?php echo app_escape($order['supplier_name']); ?></td>
-                    <td>
+                    <td data-label="Supplier">
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="rounded-circle bg-light text-secondary d-inline-flex align-items-center justify-content-center flex-shrink-0" style="width: 28px; height: 28px; font-size: 0.75rem; font-weight: 600;"><?php echo app_escape(strtoupper(substr($order['supplier_name'], 0, 1))); ?></span>
+                            <?php echo app_escape($order['supplier_name']); ?>
+                        </div>
+                    </td>
+                    <td data-label="Status">
                         <?php echo supplier_order_status_badge($order['status']); ?>
                         <?php if ($order['is_overdue']): ?>
                             <span class="badge bg-danger">Overdue by <?php echo (int) $order['days_overdue']; ?> day<?php echo $order['days_overdue'] === 1 ? '' : 's'; ?></span>
                         <?php endif; ?>
                     </td>
-                    <td><?php echo supplier_order_payment_status_badge((string) $order['payment_status']); ?></td>
-                    <td>RM <?php echo app_escape(number_format((float) $order['estimated_cost'] + (float) $order['shipping_fee'], 2)); ?></td>
-                    <td><?php echo app_escape($order['order_date'] ?? '-'); ?></td>
-                    <td class="text-end">
+                    <td data-label="Payment"><?php echo supplier_order_payment_status_badge((string) $order['payment_status']); ?></td>
+                    <td data-label="Total Purchase Amount" class="text-end">RM <?php echo app_escape(number_format((float) $order['estimated_cost'] + (float) $order['shipping_fee'], 2)); ?></td>
+                    <td data-label="Order Date"><?php echo app_escape($order['order_date'] ?? '-'); ?></td>
+                    <td data-label="" class="text-end">
                         <div class="d-flex gap-1 justify-content-end">
                             <a class="btn btn-sm btn-outline-primary" href="/modules/supplier-orders/view.php?id=<?php echo (int) $order['id']; ?>">View</a>
                             <?php if ($canManage): ?>
@@ -150,9 +201,9 @@ require_once __DIR__ . '/../../includes/header.php';
                 <tr>
                     <td colspan="7">
                         <div class="empty-state">
-                            <div class="empty-state-title">No Supplier Orders Yet</div>
-                            <p class="empty-state-text">Supplier orders will appear here once created.</p>
-                            <?php if ($canManage): ?>
+                            <div class="empty-state-title">No Supplier Orders Match</div>
+                            <p class="empty-state-text"><?php echo ($searchTerm !== '' || $filterStatus !== null || $filterOverdue) ? 'Try adjusting or clearing your filters.' : 'Supplier orders will appear here once created.'; ?></p>
+                            <?php if ($canManage && $searchTerm === '' && $filterStatus === null && !$filterOverdue): ?>
                                 <a class="btn btn-primary btn-sm" href="/modules/supplier-orders/create.php">Create Supplier Order</a>
                             <?php endif; ?>
                         </div>

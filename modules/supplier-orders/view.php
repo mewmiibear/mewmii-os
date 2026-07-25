@@ -214,13 +214,20 @@ $itemsStmt->execute([$orderId]);
 $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $orderTotal = 0.0;
+$totalOrderedQty = 0;
+$totalReceivedQty = 0;
 foreach ($items as &$item) {
     $item['received_quantity'] = supplier_order_item_received_quantity($pdo, (int) $item['id']);
     $item['remaining_quantity'] = (int) $item['total_quantity'] - $item['received_quantity'];
     $item['variation_label'] = $item['variation_id'] !== null ? variation_build_label($pdo, (int) $item['variation_id']) : '';
     $orderTotal += (float) $item['subtotal'];
+    $totalOrderedQty += (int) $item['total_quantity'];
+    $totalReceivedQty += $item['received_quantity'];
 }
 unset($item);
+// UI/UX Phase 5C: receiving progress bar - purely derived from the totals just computed above,
+// no new query and no change to how received_quantity/remaining_quantity are calculated.
+$receivingProgressPct = $totalOrderedQty > 0 ? (int) round(($totalReceivedQty / $totalOrderedQty) * 100) : 0;
 
 // Receiving glue prompt (display-only): right after a receive/mark-arrived action, check the
 // SAME existing demand functions the Reservation/Allocation Centers already use
@@ -310,15 +317,19 @@ $daysOverdue = $isOverdue
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-header d-flex justify-content-between align-items-center">
     <div>
         <h2 class="mb-1">
             Supplier Order <?php echo app_escape($order['purchase_number']); ?>
+            <?php echo supplier_order_status_badge($order['status']); ?>
             <?php if (!empty($order['is_historical'])): ?>
                 <span class="badge bg-secondary">Historical</span>
             <?php endif; ?>
+            <?php if ($isOverdue): ?>
+                <span class="badge bg-danger">Overdue by <?php echo (int) $daysOverdue; ?> day<?php echo $daysOverdue === 1 ? '' : 's'; ?></span>
+            <?php endif; ?>
         </h2>
-        <p class="text-muted mb-0">
+        <p class="page-description">
             <?php if ($canViewSuppliers): ?>
                 <a href="/modules/suppliers/view.php?id=<?php echo (int) $order['supplier_id']; ?>"><?php echo app_escape($order['supplier_name']); ?></a>
             <?php else: ?>
@@ -381,53 +392,83 @@ require_once __DIR__ . '/../../includes/header.php';
 
 <div class="row g-4">
     <div class="col-lg-7">
-        <div class="card p-4 mb-4">
-            <h5 class="mb-3">Order Summary</h5>
-            <table class="table table-borderless mb-0">
-                <tr><th>Status</th><td><?php echo supplier_order_status_badge($order['status']); ?></td></tr>
-                <tr><th>Payment Status</th><td><?php echo supplier_order_payment_status_badge((string) $order['payment_status']); ?></td></tr>
-                <tr><th>Supplier</th><td>
-                    <?php if ($canViewSuppliers): ?>
-                        <a href="/modules/suppliers/view.php?id=<?php echo (int) $order['supplier_id']; ?>"><?php echo app_escape($order['supplier_name']); ?></a>
-                    <?php else: ?>
-                        <?php echo app_escape($order['supplier_name']); ?>
-                    <?php endif; ?>
-                </td></tr>
-                <tr><th>Created Date</th><td><?php echo app_escape($order['order_date'] ?? '-'); ?></td></tr>
-                <tr><th>Expected Delivery</th><td>
-                    <?php echo app_escape($order['expected_delivery_date'] ?? '-'); ?>
-                    <?php if ($isOverdue): ?>
-                        <span class="badge bg-danger">Overdue by <?php echo (int) $daysOverdue; ?> day<?php echo $daysOverdue === 1 ? '' : 's'; ?></span>
-                    <?php endif; ?>
-                </td></tr>
-                <tr><th>Product Subtotal</th><td>RM <?php echo app_escape(number_format($orderTotal, 2)); ?></td></tr>
-                <tr><th>Shipping Fee</th><td>RM <?php echo app_escape(number_format((float) $order['shipping_fee'], 2)); ?></td></tr>
-                <tr><th>Total Purchase Amount</th><td>RM <?php echo app_escape(number_format($totalPurchaseAmount, 2)); ?></td></tr>
-                <tr><th>Paid Amount</th><td>RM <?php echo app_escape(number_format($paidAmount, 2)); ?></td></tr>
-                <tr><th>Remaining Amount</th><td>RM <?php echo app_escape(number_format($remainingAmount, 2)); ?></td></tr>
-                <tr><th>Received Date</th><td><?php echo app_escape($order['received_date'] ?? '-'); ?></td></tr>
-                <?php if (!empty($order['notes'])): ?>
-                    <tr><th>Notes</th><td><?php echo nl2br(app_escape($order['notes'])); ?></td></tr>
-                <?php endif; ?>
-            </table>
+        <div class="row g-4 mb-4">
+            <div class="col-md-6">
+                <div class="card p-4 h-100">
+                    <h5 class="mb-3"><i class="bi bi-truck"></i> Supplier</h5>
+                    <table class="table table-borderless mb-0">
+                        <tr><th>Supplier</th><td>
+                            <?php if ($canViewSuppliers): ?>
+                                <a href="/modules/suppliers/view.php?id=<?php echo (int) $order['supplier_id']; ?>"><?php echo app_escape($order['supplier_name']); ?></a>
+                            <?php else: ?>
+                                <?php echo app_escape($order['supplier_name']); ?>
+                            <?php endif; ?>
+                        </td></tr>
+                        <tr><th>Created Date</th><td><?php echo app_escape($order['order_date'] ?? '-'); ?></td></tr>
+                        <tr><th>Expected Delivery</th><td>
+                            <?php echo app_escape($order['expected_delivery_date'] ?? '-'); ?>
+                            <?php if ($isOverdue): ?>
+                                <div><span class="badge bg-danger">Overdue by <?php echo (int) $daysOverdue; ?> day<?php echo $daysOverdue === 1 ? '' : 's'; ?></span></div>
+                            <?php endif; ?>
+                        </td></tr>
+                        <tr><th>Received Date</th><td><?php echo app_escape($order['received_date'] ?? '-'); ?></td></tr>
+                        <?php if (!empty($order['notes'])): ?>
+                            <tr><th>Notes</th><td><?php echo nl2br(app_escape($order['notes'])); ?></td></tr>
+                        <?php endif; ?>
+                    </table>
+                    <div class="mt-2">
+                        <div class="d-flex justify-content-between small text-muted mb-1">
+                            <span>Receiving progress</span>
+                            <span><?php echo (int) $totalReceivedQty; ?> / <?php echo (int) $totalOrderedQty; ?> units</span>
+                        </div>
+                        <div class="progress" style="height: 8px;">
+                            <div class="progress-bar bg-success" role="progressbar" style="width: <?php echo $receivingProgressPct; ?>%;" aria-valuenow="<?php echo $receivingProgressPct; ?>" aria-valuemin="0" aria-valuemax="100"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card p-4 h-100">
+                    <h5 class="mb-3"><i class="bi bi-cash-coin"></i> Payment Summary</h5>
+                    <table class="table table-borderless mb-0">
+                        <tr><th>Payment Status</th><td><?php echo supplier_order_payment_status_badge((string) $order['payment_status']); ?></td></tr>
+                        <tr><th>Product Subtotal</th><td class="text-end">RM <?php echo app_escape(number_format($orderTotal, 2)); ?></td></tr>
+                        <tr><th>Shipping Fee</th><td class="text-end">RM <?php echo app_escape(number_format((float) $order['shipping_fee'], 2)); ?></td></tr>
+                        <tr class="fw-semibold"><th>Total Purchase Amount</th><td class="text-end">RM <?php echo app_escape(number_format($totalPurchaseAmount, 2)); ?></td></tr>
+                        <tr><th>Paid Amount</th><td class="text-end">RM <?php echo app_escape(number_format($paidAmount, 2)); ?></td></tr>
+                        <tr><th>Remaining Amount</th><td class="text-end"><?php echo $remainingAmount > 0.001 ? '<span class="text-danger">RM ' . app_escape(number_format($remainingAmount, 2)) . '</span>' : 'RM ' . app_escape(number_format($remainingAmount, 2)); ?></td></tr>
+                    </table>
+                    <?php $paidPct = $totalPurchaseAmount > 0 ? (int) round(min(100, ($paidAmount / $totalPurchaseAmount) * 100)) : 0; ?>
+                    <div class="mt-2">
+                        <div class="d-flex justify-content-between small text-muted mb-1">
+                            <span>Paid</span>
+                            <span><?php echo $paidPct; ?>%</span>
+                        </div>
+                        <div class="progress" style="height: 8px;">
+                            <div class="progress-bar bg-primary" role="progressbar" style="width: <?php echo $paidPct; ?>%;" aria-valuenow="<?php echo $paidPct; ?>" aria-valuemin="0" aria-valuemax="100"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="card p-4">
-            <h5 class="mb-3">Items</h5>
+            <h5 class="mb-3"><i class="bi bi-list-check"></i> Items</h5>
             <table class="table table-hover align-middle">
                 <thead>
                     <tr>
                         <th>SKU</th>
                         <th>Product</th>
-                        <th>Ordered</th>
-                        <th>Received</th>
-                        <th>Outstanding</th>
-                        <th>Unit Cost</th>
+                        <th class="text-end">Ordered</th>
+                        <th class="text-end">Received</th>
+                        <th class="text-end">Outstanding</th>
+                        <th class="text-end">Unit Cost</th>
                         <?php if ($canManage): ?><th></th><?php endif; ?>
                     </tr>
                 </thead>
                 <tbody>
                     <?php foreach ($items as $item): ?>
+                        <?php $itemPct = (int) $item['total_quantity'] > 0 ? (int) round(($item['received_quantity'] / (int) $item['total_quantity']) * 100) : 0; ?>
                         <tr>
                             <td><?php echo app_escape($item['sku']); ?></td>
                             <td>
@@ -440,10 +481,17 @@ require_once __DIR__ . '/../../includes/header.php';
                                     <div class="text-muted small"><?php echo app_escape($item['variation_label']); ?></div>
                                 <?php endif; ?>
                             </td>
-                            <td><?php echo app_escape((string) $item['total_quantity']); ?></td>
-                            <td><?php echo app_escape((string) $item['received_quantity']); ?></td>
-                            <td><?php echo app_escape((string) $item['remaining_quantity']); ?></td>
-                            <td>RM <?php echo app_escape(number_format((float) $item['supplier_price'], 2)); ?></td>
+                            <td class="text-end"><?php echo app_escape((string) $item['total_quantity']); ?></td>
+                            <td class="text-end">
+                                <?php echo app_escape((string) $item['received_quantity']); ?>
+                                <?php if ((int) $item['total_quantity'] > 0): ?>
+                                    <div class="progress ms-auto" style="height: 4px; width: 60px;">
+                                        <div class="progress-bar <?php echo $itemPct >= 100 ? 'bg-success' : 'bg-primary'; ?>" role="progressbar" style="width: <?php echo $itemPct; ?>%;"></div>
+                                    </div>
+                                <?php endif; ?>
+                            </td>
+                            <td class="text-end"><?php echo app_escape((string) $item['remaining_quantity']); ?></td>
+                            <td class="text-end">RM <?php echo app_escape(number_format((float) $item['supplier_price'], 2)); ?></td>
                             <?php if ($canManage): ?>
                                 <td class="text-end">
                                     <?php if (!empty($order['is_historical'])): ?>
@@ -474,7 +522,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="col-lg-5">
         <?php if ($canManage && empty($order['is_historical'])): ?>
             <div class="card p-4 mb-4">
-                <h5 class="mb-3">Order Workflow</h5>
+                <h5 class="mb-3"><i class="bi bi-arrow-repeat"></i> Order Workflow</h5>
                 <div class="mb-3"><?php echo supplier_order_status_badge($order['status']); ?></div>
 
                 <?php if ($nextStatus === 'received'): ?>
@@ -498,7 +546,7 @@ require_once __DIR__ . '/../../includes/header.php';
         <?php endif; ?>
 
         <div class="card p-4 mb-4">
-            <h5 class="mb-3">Payments</h5>
+            <h5 class="mb-3"><i class="bi bi-cash-stack"></i> Payments</h5>
             <ul class="list-unstyled mb-3">
                 <?php foreach ($payments as $payment): ?>
                     <li class="mb-3">
@@ -562,7 +610,7 @@ require_once __DIR__ . '/../../includes/header.php';
         </div>
 
         <div class="card p-4 mb-4">
-            <h5 class="mb-3">Receiving History</h5>
+            <h5 class="mb-3"><i class="bi bi-box-seam"></i> Receiving History</h5>
             <ul class="list-unstyled mb-0">
                 <?php foreach ($receivingHistory as $entry): ?>
                     <li class="mb-3">
@@ -578,7 +626,7 @@ require_once __DIR__ . '/../../includes/header.php';
         </div>
 
         <div class="card p-4">
-            <h5 class="mb-3">Edit History</h5>
+            <h5 class="mb-3"><i class="bi bi-clock-history"></i> Edit History</h5>
             <ul class="list-unstyled mb-0">
                 <?php foreach ($editHistory as $entry): ?>
                     <li class="mb-3">
