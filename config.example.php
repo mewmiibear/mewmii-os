@@ -34,6 +34,13 @@ return [
         'environment' => 'production',
         'debug' => false,
         'timezone' => 'Asia/Kuala_Lumpur',
+        // Public base URL of THIS Mewmii OS install (no trailing slash), e.g.
+        // "https://mewmiibear.com" - used to turn a stored relative image path
+        // ("uploads/products/x.webp") into an absolute URL when pushing images to
+        // WooCommerce (see includes/image_upload.php's image_upload_public_url()).
+        // Falls back to the current request's own host if left blank, which only works
+        // for web-triggered syncs, never a future CLI/cron one - set this explicitly.
+        'url' => getenv('APP_URL') ?: '',
     ],
 
     /*

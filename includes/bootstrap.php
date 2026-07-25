@@ -39,6 +39,51 @@ function app_db(): PDO
     return $pdo;
 }
 
+/**
+ * Bugfix pass (WooCommerce image sync sending "http://uploads/..." with no domain) - the
+ * one place Mewmii OS's own public base URL (e.g. "https://mewmiibear.com") is resolved,
+ * used to turn a stored relative path (image_path, e.g. "uploads/products/x.webp") into an
+ * absolute URL WooCommerce can actually fetch. Self-contained (re-reads config.php rather
+ * than relying on bootstrap's own $appConfig variable) and statically cached, mirroring
+ * wc_client_config()'s exact convention in includes/wc_client.php.
+ *
+ * Precedence: an explicit config.php app.url wins outright (the only way this is reliable
+ * outside a live HTTP request, e.g. a future CLI/cron push). Falls back to the current
+ * request's own scheme+host only when nothing is configured - fine for the web-triggered
+ * "Sync to WooCommerce" button this is used from today, but silently wrong for any future
+ * CLI entry point, which is exactly why the config value is preferred whenever it's set.
+ * Returns '' (never a guess) if neither is available, so callers can detect "unknown base"
+ * and skip rather than send a malformed URL - the same failure mode this fixes.
+ */
+function app_base_url(): string
+{
+    static $cached = null;
+    if ($cached !== null) {
+        return $cached;
+    }
+
+    $configPath = dirname(__DIR__) . '/config.php';
+    $config = is_file($configPath) ? require $configPath : [];
+    $configured = trim((string) ($config['app']['url'] ?? ''));
+
+    if ($configured !== '') {
+        $cached = rtrim($configured, '/');
+
+        return $cached;
+    }
+
+    if (!empty($_SERVER['HTTP_HOST'])) {
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $cached = $scheme . '://' . $_SERVER['HTTP_HOST'];
+
+        return $cached;
+    }
+
+    $cached = '';
+
+    return $cached;
+}
+
 function app_redirect(string $path): void
 {
     header('Location: ' . $path);

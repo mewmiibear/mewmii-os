@@ -13,6 +13,7 @@ require_once __DIR__ . '/inventory.php';
 require_once __DIR__ . '/catalog.php';
 require_once __DIR__ . '/product_variations.php';
 require_once __DIR__ . '/sync_log.php';
+require_once __DIR__ . '/image_upload.php';
 
 // Reuses the existing, previously-unused generic `settings` key-value table - same pattern as
 // WC_ORDER_IMPORT_SETTING_LAST_SYNCED_AT (includes/wc_order_import.php) and
@@ -221,6 +222,13 @@ function wc_client_classify_sync_error(Throwable $e): string
     if (stripos($message, 'is missing') !== false) {
         return 'Invalid product data';
     }
+    // Bugfix pass (image URL missing domain) - WooCommerce's own remote-image-fetch error
+    // ("Error getting remote image {url}. Error: A valid URL was not provided.") is
+    // otherwise indistinguishable from any other HTTP error, checked before the generic
+    // 'API error' fallback so an image problem reads as one, not just a bare API failure.
+    if (stripos($message, 'image') !== false && (stripos($message, 'url') !== false || stripos($message, 'remote') !== false)) {
+        return 'Image upload error';
+    }
     if (preg_match('/API error \(\d+\)/', $message) === 1 || stripos($message, 'request failed') !== false || stripos($message, 'unparsable') !== false || stripos($message, 'did not return') !== false) {
         return 'API error';
     }
@@ -369,7 +377,13 @@ function wc_client_build_gallery_images(PDO $pdo, int $productId): array
     $stmt->execute([$productId]);
 
     $images = [];
-    foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $url) {
+    foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $path) {
+        // Bugfix pass: image_path is stored as a bare relative path ("uploads/products/
+        // x.webp") - WooCommerce needs a real absolute URL it can fetch, see
+        // image_upload_public_url()'s own docblock for what used to go wrong here. A path
+        // that can't be resolved to an absolute URL is skipped entirely rather than sent
+        // malformed - the exact failure this fixes.
+        $url = image_upload_public_url((string) $path);
         if ($url !== '') {
             $images[] = ['src' => $url];
         }
@@ -382,9 +396,15 @@ function wc_client_build_variation_image(PDO $pdo, int $variationId): ?array
 {
     $stmt = $pdo->prepare("SELECT image_path FROM product_images WHERE variation_id = ? AND image_type = 'variation' LIMIT 1");
     $stmt->execute([$variationId]);
-    $url = $stmt->fetchColumn();
+    $path = $stmt->fetchColumn();
 
-    return ($url !== false && $url !== '') ? ['src' => (string) $url] : null;
+    if ($path === false || $path === '') {
+        return null;
+    }
+
+    $url = image_upload_public_url((string) $path);
+
+    return $url !== '' ? ['src' => $url] : null;
 }
 
 /**

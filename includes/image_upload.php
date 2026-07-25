@@ -237,6 +237,44 @@ function image_upload_duplicate(string $sourceRelativePath, string $subDir): str
 }
 
 /**
+ * Bugfix pass - turns a stored relative image path ("uploads/products/x.webp", the exact
+ * format image_upload_process()/image_upload_encode_webp() above always return) into an
+ * absolute URL WooCommerce can fetch over the internet. Previously nothing did this: the
+ * raw relative path was sent to WooCommerce as-is, and WooCommerce's own "add a scheme if
+ * one looks missing" normalization turned "uploads/products/x.webp" into
+ * "http://uploads/products/x.webp" - treating "uploads" as if it were the hostname -
+ * before rejecting it as an invalid URL.
+ *
+ * - Already-absolute input (http://, https://, or protocol-relative //host/...) is
+ *   returned completely unchanged - never re-prefixed, so this is safe to call on a value
+ *   that might already be a full URL from somewhere else.
+ * - Otherwise it's joined onto app_base_url() (includes/bootstrap.php) - the local
+ *   "display" convention of a bare leading "/" (see modules/products/_form.php's
+ *   <img src="/...">) is untouched; this is additive, only for the WooCommerce payload.
+ * - Returns '' if the path is blank OR if no base URL could be determined at all (see
+ *   app_base_url()'s own docblock) - callers must treat an empty result as "omit this
+ *   image", never fall back to sending the bare relative path again.
+ */
+function image_upload_public_url(string $path): string
+{
+    $path = trim($path);
+    if ($path === '') {
+        return '';
+    }
+
+    if (preg_match('#^(?:https?:)?//#i', $path) === 1) {
+        return $path;
+    }
+
+    $base = app_base_url();
+    if ($base === '') {
+        return '';
+    }
+
+    return $base . '/' . ltrim($path, '/');
+}
+
+/**
  * Deletes a previously stored image file from disk, given its stored relative path.
  * Silently no-ops if the file is already gone - callers should still remove the
  * corresponding product_images row regardless of whether the file existed.
