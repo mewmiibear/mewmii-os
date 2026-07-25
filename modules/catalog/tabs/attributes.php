@@ -15,15 +15,23 @@
  * "Manage Values" for one, preserving that permission split exactly.
  */
 
+/**
+ * Sprint 11: the SKU prefix is optional - a blank prefix is stored as NULL (never as an
+ * empty string, which the attribute_id+code unique key would otherwise reject the second
+ * time it appeared under the same attribute) and catalog_attribute_value_sku_code()
+ * already falls back to a 3-char prefix auto-derived from the value's name, so variation
+ * SKU generation works identically either way. Format/uniqueness are only enforced when a
+ * prefix is actually provided.
+ */
 function catalog_tab_attributes_validate_code(PDO $pdo, int $attributeId, string $code, ?int $excludeValueId = null): ?string
 {
     $code = strtoupper(trim($code));
 
     if ($code === '') {
-        return 'Enter a SKU prefix (e.g. CN for Cinnamoroll).';
+        return null;
     }
     if (!preg_match('/^[A-Z0-9]{1,5}$/', $code)) {
-        return 'Prefix must be 1-5 letters/numbers only (e.g. CN).';
+        return 'Prefix must be 1-5 letters/numbers only (e.g. CN), or leave it blank.';
     }
 
     $sql = 'SELECT COUNT(*) FROM product_attribute_values WHERE attribute_id = ? AND code = ?';
@@ -39,6 +47,17 @@ function catalog_tab_attributes_validate_code(PDO $pdo, int $attributeId, string
     }
 
     return null;
+}
+
+/**
+ * Normalizes a posted SKU prefix for storage: uppercased/trimmed, or NULL when blank -
+ * never an empty string (see catalog_tab_attributes_validate_code()'s docblock above).
+ */
+function catalog_tab_attributes_normalize_code(string $code): ?string
+{
+    $code = strtoupper(trim($code));
+
+    return $code !== '' ? $code : null;
 }
 
 function catalog_tab_attributes_boot(PDO $pdo, bool $canManage): array
@@ -158,7 +177,7 @@ function catalog_tab_attributes_boot(PDO $pdo, bool $canManage): array
 
                         try {
                             $pdo->prepare('UPDATE product_attribute_values SET value = ?, code = ? WHERE id = ?')
-                                ->execute([$value, strtoupper(trim($code)), $valueId]);
+                                ->execute([$value, catalog_tab_attributes_normalize_code($code), $valueId]);
                             $pdo->commit();
 
                             app_redirect('/modules/catalog/index.php?tab=attributes&manage=' . $manageId . '&value_updated=1');
@@ -488,7 +507,7 @@ function catalog_tab_attributes_render_manage(array $ctx): void
             <thead>
                 <tr>
                     <th style="width: 45%;">Value</th>
-                    <th style="width: 15%;">SKU Prefix</th>
+                    <th style="width: 15%;">SKU Prefix (optional)</th>
                     <th>Products</th>
                     <th></th>
                 </tr>
@@ -497,7 +516,7 @@ function catalog_tab_attributes_render_manage(array $ctx): void
                 <?php foreach ($values as $value): ?>
                     <tr>
                         <td><input type="text" class="form-control form-control-sm" form="value-form-<?php echo (int) $value['id']; ?>" name="value" value="<?php echo app_escape($value['value']); ?>" maxlength="150" required></td>
-                        <td><input type="text" class="form-control form-control-sm" form="value-form-<?php echo (int) $value['id']; ?>" name="code" value="<?php echo app_escape($value['code'] ?? ''); ?>" maxlength="5" style="text-transform: uppercase;" required></td>
+                        <td><input type="text" class="form-control form-control-sm" form="value-form-<?php echo (int) $value['id']; ?>" name="code" value="<?php echo app_escape($value['code'] ?? ''); ?>" maxlength="5" style="text-transform: uppercase;" placeholder="Auto"></td>
                         <td><?php echo (int) $value['product_count']; ?></td>
                         <td class="text-end">
                             <div class="d-flex gap-1 justify-content-end">
@@ -532,8 +551,8 @@ function catalog_tab_attributes_render_manage(array $ctx): void
                 <input type="text" class="form-control" name="value" maxlength="150" placeholder="e.g. Cinnamoroll" required>
             </div>
             <div class="col-md-3">
-                <label class="form-label">SKU Prefix</label>
-                <input type="text" class="form-control" name="code" maxlength="5" style="text-transform: uppercase;" placeholder="e.g. CN" required>
+                <label class="form-label">SKU Prefix (optional)</label>
+                <input type="text" class="form-control" name="code" maxlength="5" style="text-transform: uppercase;" placeholder="e.g. CN - leave blank to auto-generate">
             </div>
             <div class="col-md-2">
                 <button type="submit" class="btn btn-primary w-100">Add</button>

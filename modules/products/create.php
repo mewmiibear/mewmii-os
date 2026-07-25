@@ -168,8 +168,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    // Parsed unconditionally (not gated on $error === '') so it's available below to
+    // restore the Attribute Builder if an earlier/later validation error sends the user
+    // back to this same form - see the restore block after this POST handler.
     $attributeSelections = [];
-    if ($error === '' && $form['catalog_type'] === 'variable') {
+    if ($form['catalog_type'] === 'variable') {
         $rawSelections = json_decode((string) ($_POST['attribute_selections'] ?? '[]'), true);
         if (is_array($rawSelections)) {
             foreach ($rawSelections as $item) {
@@ -183,7 +186,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ];
             }
         }
-        if ($attributeSelections === []) {
+        if ($error === '' && $attributeSelections === []) {
             $error = 'Select at least one attribute with values for a variable product.';
         }
     }
@@ -280,6 +283,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Failed to create product.';
         }
     }
+}
+
+// Sprint 11: if the submit above failed validation (or the transaction itself failed) for
+// a variable product, restore the Attribute Builder blocks/checked values and the
+// client-side variation preview table's edited fields instead of sending the user back to
+// a blank form - the product's basic fields already survive via $form above; this is the
+// same restore for the attribute/variation-preview state, which previously had no
+// equivalent and was silently wiped on any error (the actual cause of "Generate Variations
+// work disappears").
+$previewFieldOverrides = [];
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $error !== '' && $form['catalog_type'] === 'variable') {
+    $existingAssignments = array_map(static function (array $selection): array {
+        return [
+            'attributeId' => $selection['attribute_id'],
+            'isVariation' => $selection['is_variation_attribute'],
+            'valueIds' => $selection['value_ids'],
+        ];
+    }, $attributeSelections);
+
+    // Raw posted preview-table edits, keyed by combination signature - the exact same
+    // shape variation_apply_preview_edits() reads, just handed back to the client so
+    // renderPreviewTable() can pre-fill each row instead of resetting to defaults.
+    $previewFieldOverrides = [
+        'variation_sku' => $_POST['variation_sku'] ?? [],
+        'variation_barcode' => $_POST['variation_barcode'] ?? [],
+        'variation_supplier_sku' => $_POST['variation_supplier_sku'] ?? [],
+        'variation_weight' => $_POST['variation_weight'] ?? [],
+        'variation_price_mode' => $_POST['variation_price_mode'] ?? [],
+        'variation_custom_price' => $_POST['variation_custom_price'] ?? [],
+        'variation_cost_price' => $_POST['variation_cost_price'] ?? [],
+        'variation_status' => $_POST['variation_status'] ?? [],
+    ];
 }
 
 $brands = catalog_list_brands($pdo);

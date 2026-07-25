@@ -22,12 +22,13 @@ if ($valueId < 1) {
     ajax_json(['error' => 'Invalid value.'], 400);
 }
 
-if ($code === '') {
-    ajax_json(['error' => 'Enter a SKU prefix (e.g. CN for Cinnamoroll).'], 400);
-}
-
-if (!preg_match('/^[A-Z0-9]{1,5}$/', $code)) {
-    ajax_json(['error' => 'Prefix must be 1-5 letters/numbers only (e.g. CN).'], 400);
+// Sprint 11: the prefix is optional - blank is valid and stored as NULL (never as an empty
+// string; see catalog_tab_attributes_validate_code()'s docblock in
+// modules/catalog/tabs/attributes.php for why). Format/uniqueness are only checked when a
+// prefix is actually provided; catalog_attribute_value_sku_code() already falls back to an
+// auto-derived prefix for a NULL code, so variation SKU generation is unaffected.
+if ($code !== '' && !preg_match('/^[A-Z0-9]{1,5}$/', $code)) {
+    ajax_json(['error' => 'Prefix must be 1-5 letters/numbers only (e.g. CN), or leave it blank.'], 400);
 }
 
 $valueStmt = $pdo->prepare('SELECT attribute_id FROM product_attribute_values WHERE id = ?');
@@ -38,16 +39,18 @@ if ($attributeId === false) {
     ajax_json(['error' => 'Value not found.'], 404);
 }
 
-$codeCheck = $pdo->prepare('SELECT COUNT(*) FROM product_attribute_values WHERE attribute_id = ? AND code = ? AND id != ?');
-$codeCheck->execute([$attributeId, $code, $valueId]);
-if ((int) $codeCheck->fetchColumn() > 0) {
-    ajax_json(['error' => 'That prefix is already used by another value for this attribute.'], 400);
+if ($code !== '') {
+    $codeCheck = $pdo->prepare('SELECT COUNT(*) FROM product_attribute_values WHERE attribute_id = ? AND code = ? AND id != ?');
+    $codeCheck->execute([$attributeId, $code, $valueId]);
+    if ((int) $codeCheck->fetchColumn() > 0) {
+        ajax_json(['error' => 'That prefix is already used by another value for this attribute.'], 400);
+    }
 }
 
 try {
-    $pdo->prepare('UPDATE product_attribute_values SET code = ? WHERE id = ?')->execute([$code, $valueId]);
+    $pdo->prepare('UPDATE product_attribute_values SET code = ? WHERE id = ?')->execute([$code !== '' ? $code : null, $valueId]);
 
-    ajax_json(['ok' => true, 'id' => $valueId, 'code' => $code]);
+    ajax_json(['ok' => true, 'id' => $valueId, 'code' => $code !== '' ? $code : null]);
 } catch (Exception $exception) {
     ajax_json(['error' => 'Failed to update prefix.'], 500);
 }

@@ -646,7 +646,14 @@
     }
 
     // --- Create mode: build the preview table entirely client-side ---------------------
-    function renderPreviewTable() {
+    /**
+     * options.restoreOnly (Sprint 11): when true, an empty result set is not treated as a
+     * user error - used for the automatic post-error restore call below, where the
+     * attribute blocks were just rebuilt from existingAssignments and haven't necessarily
+     * been touched by the user yet on this exact page load.
+     */
+    function renderPreviewTable(options) {
+        var restoreOnly = !!(options && options.restoreOnly);
         var tbody = document.querySelector('#variation-table tbody');
         if (!tbody) {
             return;
@@ -656,8 +663,21 @@
         var combos = cartesianCombinations(selections);
 
         if (combos.length === 0) {
-            showError('Select at least one value for a variation-defining attribute before generating.');
+            if (!restoreOnly) {
+                showError('Select at least one value for a variation-defining attribute before generating.');
+            }
             return;
+        }
+
+        // Sprint 11: restores the previously-POSTed preview-table edits (SKU/barcode/price/
+        // etc, keyed by combination signature) after a failed product-creation submit,
+        // instead of resetting every row back to its auto-generated default - see
+        // modules/products/create.php's restore block and the config.previewFieldOverrides
+        // it feeds into _form.php's JSON config.
+        var overrides = config.previewFieldOverrides || {};
+        function overrideFor(field, signature) {
+            var bucket = overrides[field];
+            return bucket && bucket[signature] !== undefined ? bucket[signature] : null;
         }
 
         tbody.innerHTML = '';
@@ -671,9 +691,14 @@
                 showRowActions: false,
                 namePrefix: signature,
                 label: comboLabel(combo),
-                sku: buildPreviewSku(combo),
-                priceMode: 'inherit',
-                status: 'draft',
+                sku: overrideFor('variation_sku', signature) || buildPreviewSku(combo),
+                barcode: overrideFor('variation_barcode', signature) || '',
+                supplierSku: overrideFor('variation_supplier_sku', signature) || '',
+                weight: overrideFor('variation_weight', signature) || '',
+                priceMode: overrideFor('variation_price_mode', signature) || 'inherit',
+                customPrice: overrideFor('variation_custom_price', signature) || '',
+                costPrice: overrideFor('variation_cost_price', signature),
+                status: overrideFor('variation_status', signature) || 'draft',
                 stockStatus: 'out_of_stock',
                 fallbackNote: 'uses parent main image'
             });
@@ -835,6 +860,42 @@
             }).catch(function (error) {
                 showError(error.message);
             });
+        });
+    }
+
+    /**
+     * Sprint 11 root-cause fix: create mode builds its variation preview entirely
+     * client-side (no server round-trip - see renderPreviewTable() above) and the only
+     * thing that ever needs to reach the server is the final main-form submit. That submit
+     * previously carried every variation_* field (they have real `name`s) but never the
+     * attribute/value selections themselves - modules/products/create.php expects a JSON
+     * blob in `attribute_selections`, which nothing ever populated, so creating a new
+     * variable product failed 100% of the time with "Select at least one attribute..." and
+     * wiped the whole Attribute Builder + preview table on the reload that followed. This
+     * fills that hidden field immediately before the browser's native submit proceeds.
+     * Edit mode persists attribute selections immediately via the saveAttributes AJAX call
+     * in initGenerateVariations() instead, and never reads this field.
+     */
+    function initFormSubmitSync() {
+        if (config.isEdit) {
+            return;
+        }
+        var form = document.getElementById('product-form');
+        var field = document.getElementById('attribute-selections-field');
+        if (!form || !field) {
+            return;
+        }
+
+        form.addEventListener('submit', function () {
+            var catalogChecked = document.querySelector('input[name="catalog_type"]:checked');
+            if (!catalogChecked || catalogChecked.value !== 'variable') {
+                return;
+            }
+
+            var selections = collectAttributeSelections();
+            field.value = JSON.stringify(selections.map(function (s) {
+                return { attribute_id: s.attributeId, is_variation_attribute: s.isVariation, value_ids: s.valueIds };
+            }));
         });
     }
 
@@ -1148,12 +1209,22 @@
         initFilterableCheckboxLists();
         initAttributeBuilder();
         initGenerateVariations();
+        initFormSubmitSync();
         initBulkActions();
         initGallery();
         initVariationGalleryModal();
 
         if (config.isEdit && (config.variations || []).length > 0) {
             renderServerVariationTable(config.variations);
+        }
+
+        // Sprint 11: create mode, right after a failed submit for a variable product -
+        // initAttributeBuilder() above already rebuilt the attribute blocks from
+        // config.existingAssignments, so re-run the same preview build the user triggered
+        // before submitting, restoring their edited SKU/barcode/price/etc via
+        // config.previewFieldOverrides instead of leaving the table empty.
+        if (!config.isEdit && config.previewFieldOverrides && Object.keys(config.previewFieldOverrides).length > 0) {
+            renderPreviewTable({ restoreOnly: true });
         }
     });
 })();

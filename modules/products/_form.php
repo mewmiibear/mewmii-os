@@ -81,6 +81,18 @@
     </div>
 </div>
 
+<?php if ($canManage): ?>
+    <!-- Sprint 11: sticky Save bar - the button lives outside <form id="product-form">
+         (same as the header actions above), so it submits via the HTML5 form="" attribute
+         instead of wrapping/duplicating the form. Triggers the exact same submit event
+         (and entry-form-validation.js's validation) as the bottom button. -->
+    <div class="sticky-top bg-white border-bottom py-2 mb-3" style="z-index: 1015; margin-left: -1.5rem; margin-right: -1.5rem; padding-left: 1.5rem; padding-right: 1.5rem;">
+        <div class="d-flex justify-content-end">
+            <button class="btn btn-primary" type="submit" form="product-form"><?php echo $isEdit ? 'Save Changes' : 'Create Product'; ?></button>
+        </div>
+    </div>
+<?php endif; ?>
+
 <?php if (isset($_GET['updated'])): ?>
     <div class="alert alert-success">Product updated.</div>
 <?php endif; ?>
@@ -122,6 +134,12 @@
 
 <form method="post" enctype="multipart/form-data" id="product-form" data-validate="1" novalidate>
     <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+    <?php if (!$isEdit): ?>
+        <!-- Populated by product-form.js right before submit (create mode, variable
+             products only) - see initFormSubmitSync(). Edit mode persists attribute
+             selections immediately via AJAX instead and never reads this field. -->
+        <input type="hidden" name="attribute_selections" id="attribute-selections-field" value="">
+    <?php endif; ?>
 
     <div class="card p-4 mb-4">
         <h5 class="mb-3">Basic Information</h5>
@@ -555,6 +573,11 @@
     }, $attributes),
     'existingAssignments' => $existingAssignments,
     'variations' => $variations,
+    // Sprint 11: only ever non-empty in create mode, right after a failed submit for a
+    // variable product - lets renderPreviewTable() restore the user's edited SKU/barcode/
+    // price/etc. instead of resetting every row to its auto-generated default. See
+    // modules/products/create.php's restore block.
+    'previewFieldOverrides' => $previewFieldOverrides ?? [],
     'urls' => [
         // No createBrand/createCategory/createCollection/createTag/createAttribute/
         // createAttributeValue here - Catalog Management (modules/attributes,
