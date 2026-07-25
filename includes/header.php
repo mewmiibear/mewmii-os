@@ -522,6 +522,7 @@ $appTitle = 'Mewmii OS';
                             <a class="nav-link<?php echo $navActive('/modules/sync-logs/index.php'); ?>" href="/modules/sync-logs/index.php"><i class="bi bi-list-check"></i> Sync Logs</a>
                             <a class="nav-link<?php echo $navActive('/modules/settings/inventory_reconciliation.php'); ?>" href="/modules/settings/inventory_reconciliation.php"><i class="bi bi-clipboard-data"></i> Inventory Reconciliation</a>
                             <a class="nav-link<?php echo $navActive('/modules/settings/maintenance.php'); ?>" href="/modules/settings/maintenance.php"><i class="bi bi-gear"></i> Settings</a>
+                            <a class="nav-link<?php echo $navActive('/modules/settings/reset_test_data.php'); ?>" href="/modules/settings/reset_test_data.php"><i class="bi bi-exclamation-triangle"></i> Reset Test Data</a>
                         <?php endif; ?>
                     </div>
                 </aside>
