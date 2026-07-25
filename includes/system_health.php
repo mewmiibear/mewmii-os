@@ -141,6 +141,63 @@ function system_health_sample_image(PDO $pdo): ?array
 }
 
 /**
+ * Bugfix pass (uploads accessibility still 404s after two URL-config attempts) - answers
+ * the actual question at the filesystem level instead of guessing another domain: where
+ * does image_upload_base_dir() (includes/image_upload.php) resolve to ON DISK, does the
+ * given stored file actually exist there, and is that location even INSIDE the directory
+ * tree the web server is serving for the current request ($_SERVER['DOCUMENT_ROOT'], the
+ * one thing PHP itself can state with certainty, no guessing about which domain/vhost is
+ * involved). If base_dir sits outside document_root entirely, no URL on any domain can
+ * ever reach it - that's a hosting/deployment fix (symlink, move the folder, or a
+ * PHP-streamed download endpoint), not another config value to try.
+ *
+ * @return array{
+ *   base_dir: string,
+ *   document_root: ?string,
+ *   inside_document_root: ?bool,
+ *   sample_relative_path: ?string,
+ *   sample_absolute_path: ?string,
+ *   sample_exists_on_disk: ?bool,
+ * }
+ */
+function system_health_uploads_filesystem_info(?string $sampleRelativePath): array
+{
+    $baseDir = image_upload_base_dir();
+    $baseDirReal = realpath($baseDir);
+    $baseDirForCompare = $baseDirReal !== false ? $baseDirReal : $baseDir;
+
+    $documentRoot = !empty($_SERVER['DOCUMENT_ROOT']) ? rtrim((string) $_SERVER['DOCUMENT_ROOT'], '/\\') : null;
+    $documentRootReal = $documentRoot !== null ? realpath($documentRoot) : false;
+    $documentRootForCompare = $documentRootReal !== false ? $documentRootReal : $documentRoot;
+
+    $insideDocumentRoot = null;
+    if ($documentRootForCompare !== null) {
+        // Normalize separators before the prefix check - a Windows dev box mixes / and \
+        // in a way a straight string comparison would falsely fail on.
+        $normalize = static fn (string $path): string => rtrim(str_replace('\\', '/', $path), '/');
+        $insideDocumentRoot = str_starts_with($normalize($baseDirForCompare) . '/', $normalize($documentRootForCompare) . '/');
+    }
+
+    $sampleAbsolutePath = null;
+    $sampleExists = null;
+    if ($sampleRelativePath !== null && $sampleRelativePath !== '') {
+        // $sampleRelativePath is image_path as stored (e.g. "uploads/variations/x.webp"),
+        // already rooted at the app directory - NOT under $baseDir a second time.
+        $sampleAbsolutePath = dirname(__DIR__) . '/' . ltrim($sampleRelativePath, '/');
+        $sampleExists = is_file($sampleAbsolutePath);
+    }
+
+    return [
+        'base_dir' => $baseDirForCompare,
+        'document_root' => $documentRootForCompare,
+        'inside_document_root' => $insideDocumentRoot,
+        'sample_relative_path' => $sampleRelativePath,
+        'sample_absolute_path' => $sampleAbsolutePath,
+        'sample_exists_on_disk' => $sampleExists,
+    ];
+}
+
+/**
  * @return array{migrations: array, indexes: array{present: int, total: int, missing: array}, pending: array}
  */
 function system_health_check(PDO $pdo): array

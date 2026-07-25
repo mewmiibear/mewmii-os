@@ -7,12 +7,15 @@ $appTitle = 'System Health';
 $pdo = app_db();
 $health = system_health_check($pdo);
 
-// Bugfix pass (WooCommerce image sync 404) - on-demand only, never run on a plain page
-// load: a self-request from this same server can spuriously fail even when the URL is
-// genuinely reachable from the internet, so this is only ever run when an admin explicitly
-// clicks the button below, not folded into the automatic checks above.
+// Bugfix pass (WooCommerce image sync still 404s after two URL-config attempts) - the
+// filesystem diagnostic (does the file exist on disk, is that location even inside the
+// directory this request's web server is serving) is cheap/local and safe to compute on
+// every load. The HTTP reachability probe is a real outbound request, so that part stays
+// on-demand only - see system_health_check_url_reachable()'s own docblock for why.
+$uploadsSample = system_health_sample_image($pdo);
+$uploadsFsInfo = system_health_uploads_filesystem_info($uploadsSample['path'] ?? null);
+
 $uploadsCheckError = '';
-$uploadsSample = null;
 $uploadsReachability = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -23,8 +26,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($uploadsCheckError === '' && (string) ($_POST['action'] ?? '') === 'check_uploads') {
-        $uploadsSample = system_health_sample_image($pdo);
-
         if ($uploadsSample === null) {
             $uploadsCheckError = 'No product images are stored yet - upload one first, then re-check.';
         } elseif ($uploadsSample['url'] === '') {
@@ -90,7 +91,51 @@ require_once __DIR__ . '/../../includes/header.php';
 
 <div class="card p-4 mb-4">
     <h5 class="mb-3">Uploads Accessibility</h5>
-    <p class="text-muted small">Checks whether a real stored image's computed public URL is actually reachable over the internet - the exact thing WooCommerce needs when pulling a product image during sync. This makes one outbound request only when you click the button below.</p>
+
+    <h6 class="text-muted">Filesystem</h6>
+    <ul class="list-unstyled small">
+        <li><strong>uploads/ resolves to:</strong> <code><?php echo app_escape($uploadsFsInfo['base_dir']); ?></code></li>
+        <li>
+            <strong>Web server's document root for this request:</strong>
+            <?php echo $uploadsFsInfo['document_root'] !== null ? ('<code>' . app_escape($uploadsFsInfo['document_root']) . '</code>') : '<span class="text-muted">unknown (DOCUMENT_ROOT not set)</span>'; ?>
+        </li>
+        <li>
+            <?php if ($uploadsFsInfo['inside_document_root'] === true): ?>
+                <span class="text-success">&#9989;</span> uploads/ is inside the document root - a file that exists there should be servable as a static file on whichever domain this request came in on.
+            <?php elseif ($uploadsFsInfo['inside_document_root'] === false): ?>
+                <span class="text-danger">&#9888;</span> <strong>uploads/ is OUTSIDE the document root.</strong> No URL on any domain can reach a file here directly - this is a hosting/deployment issue, not a config value. See the recommendations below.
+            <?php else: ?>
+                <span class="text-muted">Could not determine (document root unknown for this request).</span>
+            <?php endif; ?>
+        </li>
+        <?php if ($uploadsFsInfo['sample_relative_path'] !== null): ?>
+            <li class="mt-2"><strong>Sample stored image:</strong> <code><?php echo app_escape($uploadsFsInfo['sample_relative_path']); ?></code></li>
+            <li><strong>Resolved absolute path:</strong> <code><?php echo app_escape((string) $uploadsFsInfo['sample_absolute_path']); ?></code></li>
+            <li>
+                <?php if ($uploadsFsInfo['sample_exists_on_disk']): ?>
+                    <span class="text-success">&#9989;</span> File exists on disk at that path.
+                <?php else: ?>
+                    <span class="text-danger">&#9888;</span> File does NOT exist on disk at that path - the upload may have failed, or the app is reading/writing a different location than expected (e.g. a symlink pointing elsewhere).
+                <?php endif; ?>
+            </li>
+        <?php else: ?>
+            <li class="text-muted">No product images are stored yet - upload one first to run this check.</li>
+        <?php endif; ?>
+    </ul>
+
+    <?php if ($uploadsFsInfo['inside_document_root'] === false): ?>
+        <div class="alert alert-warning small mb-3">
+            <strong>Recommended hosting fixes</strong> (pick whichever fits your setup - this needs a hosting/deployment change, not another <code>app.uploads_url</code> guess):
+            <ul class="mb-0 mt-1">
+                <li><strong>Symlink</strong>: create a symlink from inside a domain's public document root pointing at this app's real <code>uploads/</code> folder (e.g. <code>ln -s /path/to/mewmii-os/uploads /path/to/public_html/uploads</code>).</li>
+                <li><strong>Move the document root</strong>: point the admin subdomain's document root directly at this app's own folder (so <code>uploads/</code> becomes a normal subfolder of it) - only safe if nothing else on that domain depends on the current document root.</li>
+                <li><strong>URL mapping via a streaming endpoint</strong>: add a small PHP script (e.g. <code>media.php?path=...</code>) that validates the requested path and streams the file from wherever it actually lives, then point <code>app.uploads_url</code> at that script instead of a raw static path - works regardless of document root placement, at the cost of every image request running through PHP instead of being served as a static file.</li>
+            </ul>
+        </div>
+    <?php endif; ?>
+
+    <h6 class="text-muted mt-3">Public reachability (live check)</h6>
+    <p class="text-muted small">Makes one outbound request to the computed public URL, only when you click the button below.</p>
 
     <?php if ($uploadsCheckError !== ''): ?>
         <div class="alert alert-danger"><?php echo app_escape($uploadsCheckError); ?></div>
@@ -98,7 +143,6 @@ require_once __DIR__ . '/../../includes/header.php';
 
     <?php if ($uploadsSample !== null && $uploadsReachability !== null): ?>
         <div class="alert <?php echo $uploadsReachability['reachable'] ? 'alert-success' : 'alert-warning'; ?>">
-            <div><strong>Stored path:</strong> <code><?php echo app_escape($uploadsSample['path']); ?></code></div>
             <div><strong>Computed public URL:</strong> <code><?php echo app_escape($uploadsSample['url']); ?></code></div>
             <div class="mt-1">
                 <?php if ($uploadsReachability['reachable']): ?>
@@ -107,7 +151,6 @@ require_once __DIR__ . '/../../includes/header.php';
                     <span class="text-danger">&#9888; Not reachable</span>
                     <?php echo $uploadsReachability['http_status'] !== null ? ('(HTTP ' . (int) $uploadsReachability['http_status'] . ')') : ''; ?>
                     <?php echo $uploadsReachability['error'] !== null ? (' - ' . app_escape($uploadsReachability['error'])) : ''; ?>
-                    <div class="small mt-1">If this keeps 404ing, the admin app's own host (app.url) likely isn't where <code>/uploads</code> is publicly served from - set <code>app.uploads_url</code> in config.php to the correct public host and re-check.</div>
                 <?php endif; ?>
             </div>
         </div>
@@ -116,7 +159,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <form method="post">
         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
         <input type="hidden" name="action" value="check_uploads">
-        <button type="submit" class="btn btn-outline-secondary btn-sm">Check Uploads Accessibility</button>
+        <button type="submit" class="btn btn-outline-secondary btn-sm">Check Public Reachability</button>
     </form>
 </div>
 
