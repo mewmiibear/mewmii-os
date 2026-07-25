@@ -212,6 +212,38 @@ function order_event_type_label(string $eventType): string
 }
 
 /**
+ * Order source badge (UI/UX Part 2B) - a small, purely visual complement to
+ * order_display_number(), never a replacement for it. order_display_number() stays plain
+ * text on purpose - it's used in non-HTML contexts too (RuntimeException messages in
+ * modules/inventory/allocate.php, the JSON response in modules/inventory/ajax/history.php),
+ * so injecting a badge into its own return value would corrupt those - this is a separate
+ * function HTML-context callers (modules/orders/index.php, modules/orders/view.php) add
+ * alongside it instead.
+ *
+ * Only two sources are reliably known today: woocommerce_order_id (set exclusively by
+ * includes/wc_order_import.php, never touched by any editable form) identifies a WooCommerce
+ * order; is_historical identifies a CSV-imported historical record (includes/order_import.php).
+ * A manually created order (modules/orders/create.php) has neither set, and there is no
+ * reliable per-order signal today for which channel it actually came through (see the Phase
+ * 5F.1 Part 2B audit) - it gets no badge at all rather than a guess. customers.
+ * instagram_username is deliberately NOT used here: it is a customer-level field, not a
+ * per-order record of how that specific order was placed, and would misattribute orders.
+ *
+ * Expects a row with at least woocommerce_order_id, is_historical.
+ */
+function order_source_badge(array $order): string
+{
+    if (!empty($order['woocommerce_order_id'])) {
+        return '<span class="badge" style="background-color:#8B5CF6;color:#fff;">&#128995; W</span>';
+    }
+    if (!empty($order['is_historical'])) {
+        return '<span class="badge bg-secondary">Historical</span>';
+    }
+
+    return '';
+}
+
+/**
  * Human-facing formatting for mewmii_orders.order_number - display only, never the stored
  * value itself (see includes/wc_order_import.php, which still writes the literal 'WC-16712'
  * into the column - untouched by this function). A WooCommerce-imported order's order_number

@@ -106,7 +106,7 @@ $offset = ($page - 1) * $perPage;
 // digging up the oldest settled order. Never touches order_date's own value or how it's set.
 $orderBySql = $view === 'active' ? 'o.order_date ASC, o.id ASC' : 'o.id DESC';
 
-$sql = "SELECT DISTINCT o.id, o.order_number, o.order_date, o.payment_status, o.order_status, o.receipt_status, o.receipt_url, o.is_historical, o.tracking_number, o.customer_id, c.name AS customer_name {$fromSql}{$whereSql} ORDER BY {$orderBySql} LIMIT {$perPage} OFFSET {$offset}";
+$sql = "SELECT DISTINCT o.id, o.order_number, o.order_date, o.payment_status, o.order_status, o.receipt_status, o.receipt_url, o.is_historical, o.woocommerce_order_id, o.tracking_number, o.customer_id, c.name AS customer_name {$fromSql}{$whereSql} ORDER BY {$orderBySql} LIMIT {$perPage} OFFSET {$offset}";
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -279,9 +279,7 @@ foreach ($orders as $order) {
                         <?php endif; ?>
                         <td data-label="Order #">
                             <?php echo app_escape(order_display_number($order['order_number'])); ?>
-                            <?php if (!empty($order['is_historical'])): ?>
-                                <span class="badge bg-secondary">Historical</span>
-                            <?php endif; ?>
+                            <?php echo order_source_badge($order); ?>
                         </td>
                         <td data-label="Customer">
                             <?php if ($order['customer_name'] === null): ?>

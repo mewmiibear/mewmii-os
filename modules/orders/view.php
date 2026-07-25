@@ -419,9 +419,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <div>
         <h2 class="mb-1">
             Order <?php echo app_escape(order_display_number($order['order_number'])); ?>
-            <?php if (!empty($order['is_historical'])): ?>
-                <span class="badge bg-secondary">Historical</span>
-            <?php endif; ?>
+            <?php echo order_source_badge($order); ?>
             <?php echo order_status_badge($order['order_status']); ?>
         </h2>
         <p class="page-description">
