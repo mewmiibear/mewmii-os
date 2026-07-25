@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/catalog.php';
 require_once __DIR__ . '/../../includes/inventory.php';
+require_once __DIR__ . '/../../includes/saved_views_widget.php';
 app_require_login();
 app_require_permission('products.view');
 
@@ -191,6 +192,11 @@ $chips = [
 
 $canManage = app_has_permission('products.manage');
 
+// Sprint 10: one-time flash from modules/products/bulk_action.php, same convention as
+// modules/orders/bulk_action.php -> modules/orders/index.php.
+$bulkResult = $_SESSION['products_bulk_result'] ?? null;
+unset($_SESSION['products_bulk_result']);
+
 require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -241,7 +247,33 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php if (isset($_GET['duplicate_error'])): ?>
     <div class="alert alert-danger">Failed to duplicate product.</div>
 <?php endif; ?>
+<?php if ($bulkResult !== null): ?>
+    <div class="alert <?php echo $bulkResult['failed_count'] > 0 ? 'alert-warning' : 'alert-success'; ?>">
+        <?php
+        $bulkActionLabels = [
+            'set_brand' => 'Set Brand',
+            'set_category' => 'Set Category',
+            'set_collection' => 'Set Collection',
+            'add_tags' => 'Add Tags',
+            'archive' => 'Archive',
+            'sync_woocommerce' => 'Sync to WooCommerce',
+        ];
+        echo app_escape($bulkActionLabels[$bulkResult['action']] ?? 'Bulk action') . ': ' . (int) $bulkResult['success_count'] . ' updated';
+        if ($bulkResult['skipped_count'] > 0) {
+            echo ', ' . (int) $bulkResult['skipped_count'] . ' unchanged (skipped)';
+        }
+        if ($bulkResult['stale_count'] > 0) {
+            echo ', ' . (int) $bulkResult['stale_count'] . ' skipped (WooCommerce has a newer edit - see Sync Logs)';
+        }
+        if ($bulkResult['failed_count'] > 0) {
+            echo ', ' . (int) $bulkResult['failed_count'] . ' failed';
+        }
+        echo '.';
+        ?>
+    </div>
+<?php endif; ?>
 
+<?php render_saved_views_widget($pdo, 'products'); ?>
 
 <?php $filterKeys = ['category_id', 'brand_id', 'collection_id', 'supplier_id', 'catalog_type', 'status', 'quick', 'q']; ?>
 <div class="d-flex flex-wrap gap-2 mb-3">
@@ -352,11 +384,72 @@ require_once __DIR__ . '/../../includes/header.php';
     </form>
 </div>
 
+<?php if ($canManage): ?>
+<form id="products-bulk-form" method="post" action="/modules/products/bulk_action.php"></form>
+<div class="card p-3 mb-3">
+    <div class="d-flex flex-wrap align-items-end gap-2">
+        <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>" form="products-bulk-form">
+        <div>
+            <label class="form-label small mb-1">Bulk action</label>
+            <select id="bulk-action-select" name="bulk_action" class="form-select form-select-sm" form="products-bulk-form">
+                <option value="">Choose an action&hellip;</option>
+                <option value="set_brand">Set Brand</option>
+                <option value="set_category">Set Category</option>
+                <option value="set_collection">Set Collection</option>
+                <option value="add_tags">Add Tags</option>
+                <option value="archive">Archive</option>
+                <option value="sync_woocommerce">Sync to WooCommerce</option>
+            </select>
+        </div>
+        <div class="bulk-target d-none" data-for="set_brand">
+            <label class="form-label small mb-1">Brand</label>
+            <select name="bulk_brand_id" class="form-select form-select-sm" form="products-bulk-form">
+                <option value="">Select brand</option>
+                <?php foreach ($filterBrands as $brand): ?>
+                    <option value="<?php echo (int) $brand['id']; ?>"><?php echo app_escape($brand['name']); ?></option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="bulk-target d-none" data-for="set_category">
+            <label class="form-label small mb-1">Category</label>
+            <select name="bulk_category_id" class="form-select form-select-sm" form="products-bulk-form">
+                <option value="">Select category</option>
+                <?php foreach ($filterCategories as $cat): ?>
+                    <option value="<?php echo (int) $cat['id']; ?>"><?php echo str_repeat('&nbsp;&nbsp;', $cat['depth']) . app_escape($cat['name']); ?></option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="bulk-target d-none" data-for="set_collection">
+            <label class="form-label small mb-1">Collection</label>
+            <select name="bulk_collection_id" class="form-select form-select-sm" form="products-bulk-form">
+                <option value="">Select collection</option>
+                <?php foreach ($filterCollections as $collection): ?>
+                    <option value="<?php echo (int) $collection['id']; ?>"><?php echo app_escape($collection['name']); ?></option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="bulk-target d-none" data-for="add_tags">
+            <label class="form-label small mb-1">Tags to add</label>
+            <select name="bulk_tag_ids[]" class="form-select form-select-sm" form="products-bulk-form" multiple size="4" style="min-width: 160px;">
+                <?php foreach (catalog_list_tags($pdo) as $tag): ?>
+                    <option value="<?php echo (int) $tag['id']; ?>"><?php echo app_escape($tag['name']); ?></option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div>
+            <button type="submit" id="bulk-submit-btn" class="btn btn-sm btn-primary" form="products-bulk-form" disabled>Apply</button>
+            <span id="bulk-selected-count" class="text-muted small ms-2">0 selected</span>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
 <div class="card p-4">
     <div class="table-responsive">
     <table class="table table-hover align-middle">
         <thead>
             <tr>
+                <?php if ($canManage): ?><th><input type="checkbox" id="products-bulk-select-all" aria-label="Select all products on this page"></th><?php endif; ?>
                 <th></th>
                 <th>Product</th>
                 <th>Category</th>
@@ -385,6 +478,9 @@ require_once __DIR__ . '/../../includes/header.php';
                 ]);
                 ?>
                 <tr>
+                    <?php if ($canManage): ?>
+                        <td><input type="checkbox" class="products-bulk-checkbox" name="product_ids[]" value="<?php echo (int) $product['id']; ?>" form="products-bulk-form" aria-label="Select <?php echo app_escape($product['name']); ?>"></td>
+                    <?php endif; ?>
                     <td>
                         <?php if (!empty($product['thumb_path'])): ?>
                             <img src="/<?php echo app_escape($product['thumb_path']); ?>" alt="" style="width:56px;height:56px;object-fit:cover;border-radius:8px;">
@@ -431,7 +527,7 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php endforeach; ?>
             <?php if ($products === []): ?>
                 <tr>
-                    <td colspan="12">
+                    <td colspan="<?php echo $canManage ? 13 : 12; ?>">
                         <div class="empty-state">
                             <div class="empty-state-title">No Products Match These Filters</div>
                             <p class="empty-state-text">Try adjusting or clearing your filters to see more results.</p>
@@ -468,4 +564,81 @@ require_once __DIR__ . '/../../includes/header.php';
         <?php endif; ?>
     </div>
 </div>
+<?php if ($canManage): ?>
+<script>
+(function () {
+    var selectAll = document.getElementById('products-bulk-select-all');
+    var checkboxes = document.querySelectorAll('.products-bulk-checkbox');
+    var actionSelect = document.getElementById('bulk-action-select');
+    var submitBtn = document.getElementById('bulk-submit-btn');
+    var countLabel = document.getElementById('bulk-selected-count');
+    var targets = document.querySelectorAll('.bulk-target');
+
+    function selectedCount() {
+        var count = 0;
+        checkboxes.forEach(function (cb) { if (cb.checked) { count++; } });
+        return count;
+    }
+
+    function actionNeedsTarget(action) {
+        return action === 'set_brand' || action === 'set_category' || action === 'set_collection' || action === 'add_tags';
+    }
+
+    function refreshState() {
+        var count = selectedCount();
+        countLabel.textContent = count + ' selected';
+        var action = actionSelect.value;
+        var ready = count > 0 && action !== '';
+        submitBtn.disabled = !ready;
+
+        targets.forEach(function (target) {
+            target.classList.toggle('d-none', target.getAttribute('data-for') !== action);
+        });
+    }
+
+    if (selectAll) {
+        selectAll.addEventListener('change', function () {
+            checkboxes.forEach(function (cb) { cb.checked = selectAll.checked; });
+            refreshState();
+        });
+    }
+    checkboxes.forEach(function (cb) {
+        cb.addEventListener('change', refreshState);
+    });
+    if (actionSelect) {
+        actionSelect.addEventListener('change', refreshState);
+    }
+
+    var bulkForm = document.getElementById('products-bulk-form');
+    if (bulkForm) {
+        bulkForm.addEventListener('submit', function (event) {
+            var action = actionSelect.value;
+            // The target-value pickers live in the toolbar <div>, associated with this
+            // <form> only via the HTML5 form="products-bulk-form" attribute (so the table's
+            // per-row Duplicate <form> never ends up nested inside a table-wrapping form) -
+            // they are not DOM descendants of bulkForm, so look them up from the document.
+            if (actionNeedsTarget(action)) {
+                if (action === 'add_tags') {
+                    var tagSelect = document.querySelector('select[name="bulk_tag_ids[]"]');
+                    if (!tagSelect || tagSelect.selectedOptions.length === 0) {
+                        event.preventDefault();
+                        alert('Select at least one tag to add.');
+                        return;
+                    }
+                } else {
+                    var targetSelect = document.querySelector('.bulk-target[data-for="' + action + '"] select');
+                    if (!targetSelect || targetSelect.value === '') {
+                        event.preventDefault();
+                        alert('Select a value for this bulk action.');
+                        return;
+                    }
+                }
+            }
+        });
+    }
+
+    refreshState();
+})();
+</script>
+<?php endif; ?>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

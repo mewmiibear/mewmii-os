@@ -425,6 +425,14 @@ $appTitle = 'Mewmii OS';
     <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm">
         <div class="container-fluid px-4">
             <a class="navbar-brand" href="/index.php">🌸 Mewmii OS</a>
+            <?php if (app_is_logged_in()): ?>
+                <div class="position-relative mx-3 flex-grow-1" style="max-width: 420px;" id="global-search-wrapper">
+                    <form method="get" action="/modules/search/index.php" role="search" autocomplete="off">
+                        <input type="search" id="global-search-input" name="q" class="form-control form-control-sm" placeholder="Search products, orders, customers...">
+                    </form>
+                    <div id="global-search-dropdown" class="card shadow-sm d-none" style="position: absolute; top: 100%; left: 0; right: 0; z-index: 1050; max-height: 420px; overflow-y: auto;"></div>
+                </div>
+            <?php endif; ?>
             <div class="ms-auto">
                 <?php if (app_is_logged_in()): ?>
                     <span class="me-3 text-muted">Hello, <?php echo app_escape($_SESSION['user_name'] ?? 'Admin'); ?></span>
@@ -435,6 +443,9 @@ $appTitle = 'Mewmii OS';
             </div>
         </div>
     </nav>
+    <?php if (app_is_logged_in()): ?>
+        <script src="/assets/js/global_search.js"></script>
+    <?php endif; ?>
     <div class="container-fluid">
         <div class="row">
             <?php if (app_is_logged_in()): ?>

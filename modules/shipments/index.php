@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/shipments.php';
+require_once __DIR__ . '/../../includes/saved_views_widget.php';
 app_require_permission('shipments.view');
 
 $appTitle = 'Shipments';
@@ -13,6 +14,10 @@ $pdo = app_db();
 // modules/supplier-orders/index.php already established for a filterable list.
 $searchTerm = trim((string) ($_GET['q'] ?? ''));
 $filterStatus = isset($_GET['status']) && in_array($_GET['status'], SHIPMENT_STATUSES, true) ? $_GET['status'] : null;
+// Sprint 10: mirrors the exact "awaiting tracking" condition the dashboard's Operations
+// Overview card already computes (index.php's $shipmentAwaitingTrackingCount) - the same
+// tracking_number IS NULL AND shipping_status <> 'cancelled' rule, not a new definition.
+$filterAwaitingTracking = ($_GET['awaiting_tracking'] ?? '') === '1';
 
 $sql = '
     SELECT s.id, s.shipment_number, s.source_type, s.carrier, s.tracking_number, s.shipping_status, s.shipped_at, s.created_at, c.name AS customer_name
@@ -25,6 +30,9 @@ if ($filterStatus !== null) {
     $conditions[] = 's.shipping_status = ?';
     $params[] = $filterStatus;
 }
+if ($filterAwaitingTracking) {
+    $conditions[] = "s.tracking_number IS NULL AND s.shipping_status <> 'cancelled'";
+}
 if ($searchTerm !== '') {
     $conditions[] = '(s.shipment_number LIKE ? OR c.name LIKE ? OR s.tracking_number LIKE ?)';
     $likeTerm = '%' . $searchTerm . '%';
@@ -32,10 +40,21 @@ if ($searchTerm !== '') {
     $params[] = $likeTerm;
     $params[] = $likeTerm;
 }
-if ($conditions !== []) {
-    $sql .= ' WHERE ' . implode(' AND ', $conditions);
-}
-$sql .= ' ORDER BY s.created_at DESC LIMIT 200';
+$whereSql = $conditions !== [] ? (' WHERE ' . implode(' AND ', $conditions)) : '';
+
+// Sprint 10: real pagination, replacing the previous hardcoded LIMIT 200 with no way to
+// reach anything beyond it - same COUNT + LIMIT/OFFSET convention as every other list page.
+$perPage = 50;
+$page = isset($_GET['page']) && ctype_digit((string) $_GET['page']) && (int) $_GET['page'] > 0 ? (int) $_GET['page'] : 1;
+
+$countStmt = $pdo->prepare("SELECT COUNT(*) FROM shipments s INNER JOIN customers c ON c.id = s.customer_id{$whereSql}");
+$countStmt->execute($params);
+$totalCount = (int) $countStmt->fetchColumn();
+$totalPages = max(1, (int) ceil($totalCount / $perPage));
+$page = min($page, $totalPages);
+$offset = ($page - 1) * $perPage;
+
+$sql .= $whereSql . " ORDER BY s.created_at DESC LIMIT {$perPage} OFFSET {$offset}";
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $shipments = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -74,6 +93,8 @@ require_once __DIR__ . '/../../includes/header.php';
     <?php endif; ?>
 </div>
 
+<?php render_saved_views_widget($pdo, 'shipments'); ?>
+
 <div class="card filter-card p-3 mb-4">
     <form method="get" class="row g-2 align-items-end">
         <div class="col-md-5">
@@ -88,6 +109,12 @@ require_once __DIR__ . '/../../includes/header.php';
                     <option value="<?php echo app_escape($statusOption); ?>" <?php echo $filterStatus === $statusOption ? 'selected' : ''; ?>><?php echo app_escape(shipment_status_label($statusOption)); ?></option>
                 <?php endforeach; ?>
             </select>
+        </div>
+        <div class="col-md-3 d-flex align-items-center">
+            <div class="form-check mt-2">
+                <input type="checkbox" class="form-check-input" id="awaiting-tracking-toggle" name="awaiting_tracking" value="1" <?php echo $filterAwaitingTracking ? 'checked' : ''; ?> onchange="this.form.submit()">
+                <label class="form-check-label small" for="awaiting-tracking-toggle">Awaiting tracking only</label>
+            </div>
         </div>
         <div class="col-auto">
             <button type="submit" class="btn btn-sm btn-primary">Filter</button>
@@ -137,12 +164,13 @@ require_once __DIR__ . '/../../includes/header.php';
                 </tr>
             <?php endforeach; ?>
             <?php if ($shipments === []): ?>
+                <?php $hasFilters = $searchTerm !== '' || $filterStatus !== null || $filterAwaitingTracking; ?>
                 <tr>
                     <td colspan="9">
                         <div class="empty-state">
                             <div class="empty-state-title">No Shipments Match</div>
-                            <p class="empty-state-text"><?php echo ($searchTerm !== '' || $filterStatus !== null) ? 'Try adjusting or clearing your filters.' : 'Packages leaving the warehouse - from orders, Ship My Box, or manual - will appear here.'; ?></p>
-                            <?php if ($canManage && $searchTerm === '' && $filterStatus === null): ?>
+                            <p class="empty-state-text"><?php echo $hasFilters ? 'Try adjusting or clearing your filters.' : 'Packages leaving the warehouse - from orders, Ship My Box, or manual - will appear here.'; ?></p>
+                            <?php if ($canManage && !$hasFilters): ?>
                                 <a class="btn btn-primary btn-sm" href="/modules/shipments/create.php">New Manual Shipment</a>
                             <?php endif; ?>
                         </div>
@@ -151,6 +179,30 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php endif; ?>
         </tbody>
     </table>
+    </div>
+
+    <?php
+    $pageUrl = static function (int $targetPage): string {
+        return '/modules/shipments/index.php?' . http_build_query(array_merge($_GET, ['page' => $targetPage]));
+    };
+    $rangeStart = $totalCount === 0 ? 0 : (($page - 1) * $perPage) + 1;
+    $rangeEnd = min($totalCount, $page * $perPage);
+    ?>
+    <div class="d-flex justify-content-between align-items-center mt-3">
+        <p class="text-muted small mb-0">
+            <?php if ($totalCount > 0): ?>
+                Showing <?php echo (int) $rangeStart; ?>&ndash;<?php echo (int) $rangeEnd; ?> of <?php echo (int) $totalCount; ?> shipment<?php echo $totalCount === 1 ? '' : 's'; ?>
+            <?php else: ?>
+                0 shipments
+            <?php endif; ?>
+        </p>
+        <?php if ($totalPages > 1): ?>
+            <div class="d-flex gap-2 align-items-center">
+                <a class="btn btn-sm btn-outline-secondary <?php echo $page <= 1 ? 'disabled' : ''; ?>" href="<?php echo app_escape($pageUrl(max(1, $page - 1))); ?>">&laquo; Prev</a>
+                <span class="text-muted small">Page <?php echo (int) $page; ?> of <?php echo (int) $totalPages; ?></span>
+                <a class="btn btn-sm btn-outline-secondary <?php echo $page >= $totalPages ? 'disabled' : ''; ?>" href="<?php echo app_escape($pageUrl(min($totalPages, $page + 1))); ?>">Next &raquo;</a>
+            </div>
+        <?php endif; ?>
     </div>
 </div>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

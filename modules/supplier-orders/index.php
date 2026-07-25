@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/supplier_orders.php';
+require_once __DIR__ . '/../../includes/saved_views_widget.php';
 app_require_permission('supplier-orders.view');
 
 $appTitle = 'Supplier Orders';
@@ -137,6 +138,8 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php if (isset($_GET['deleted'])): ?>
     <div class="alert alert-success">Supplier order deleted.</div>
 <?php endif; ?>
+
+<?php render_saved_views_widget($pdo, 'supplier-orders'); ?>
 
 <div class="card filter-card p-3 mb-4">
     <form method="get" class="row g-2 align-items-end">

@@ -5,6 +5,7 @@ require_once __DIR__ . '/includes/inventory.php';
 require_once __DIR__ . '/includes/customer_storage.php';
 require_once __DIR__ . '/includes/orders.php';
 require_once __DIR__ . '/includes/wc_order_import.php';
+require_once __DIR__ . '/includes/dashboard.php';
 
 app_require_permission('dashboard.view');
 
@@ -361,22 +362,17 @@ $pendingActionsCount = $pendingReceiptCount + $reservationCount + $allocationCou
     + $shipRequestPendingCount + $customerStorageAttentionCount + $overdueSupplierOrderCount
     + $shipmentAwaitingTrackingCount;
 
-// --- 11. Recent Activity (UI/UX Phase 5A) ----------------------------------------------------
-// New query, but not new logic - a plain read of mewmii_order_events (already populated by
-// every order action across the app: receipt/payment decisions, status changes, WooCommerce
-// imports), ordered newest-first for a timeline. No write path touched.
-$recentActivity = [];
-if ($canViewOrders) {
-    $recentActivityStmt = $pdo->query("
-        SELECT e.description, e.event_type, e.created_at, o.id AS order_id, o.order_number, u.name AS user_name
-        FROM mewmii_order_events e
-        INNER JOIN mewmii_orders o ON o.id = e.order_id
-        LEFT JOIN users u ON u.id = e.created_by
-        ORDER BY e.created_at DESC, e.id DESC
-        LIMIT 8
-    ");
-    $recentActivity = $recentActivityStmt->fetchAll(PDO::FETCH_ASSOC);
-}
+// --- 11. Recent Activity (UI/UX Phase 5A; extended cross-entity in Sprint 10) --------------
+// Was order-events-only; now a UNION ALL across every module that has its own created_at
+// timeline already (see includes/dashboard.php's dashboard_recent_activity()) - no new
+// tracking table, each branch only runs if its own permission flag is true.
+$recentActivity = dashboard_recent_activity($pdo, [
+    'orders' => $canViewOrders,
+    'supplier_orders' => $canViewSupplierOrders,
+    'shipments' => $canViewShipments,
+    'customers' => $canViewCustomers,
+    'product_sync' => $canManageIntegrations && $canViewProducts,
+], 8);
 
 require_once __DIR__ . '/includes/header.php';
 ?>
@@ -396,10 +392,10 @@ require_once __DIR__ . '/includes/header.php';
         </div>
     <?php endif; ?>
     <div class="col">
-        <div class="card stat-card p-3 h-100">
+        <a class="card stat-card stat-card-link p-3 h-100" href="#needs-attention">
             <div class="stat-label">Pending Actions</div>
             <div class="stat-value <?php echo $pendingActionsCount > 0 ? 'stat-value-alert' : ''; ?>" style="font-size: 1.6rem;"><?php echo (int) $pendingActionsCount; ?></div>
-        </div>
+        </a>
     </div>
     <?php if ($canViewInventory): ?>
         <div class="col">
@@ -457,7 +453,7 @@ if ($canViewSupplierOrders) {
     $operationsOverviewCards[] = ['label' => 'Overdue Supplier Orders', 'count' => $overdueSupplierOrderCount, 'url' => '/modules/supplier-orders/index.php?filter=overdue'];
 }
 if ($canViewShipments) {
-    $operationsOverviewCards[] = ['label' => 'Shipments Waiting Action', 'count' => $shipmentAwaitingTrackingCount, 'url' => '/modules/shipments/index.php'];
+    $operationsOverviewCards[] = ['label' => 'Shipments Waiting Action', 'count' => $shipmentAwaitingTrackingCount, 'url' => '/modules/shipments/index.php?awaiting_tracking=1'];
 }
 ?>
 <?php if ($operationsOverviewCards !== []): ?>
@@ -478,7 +474,7 @@ if ($canViewShipments) {
 
 <div class="row g-4 mb-4">
     <div class="col-lg-7">
-        <div class="card p-4 h-100">
+        <div class="card p-4 h-100" id="needs-attention">
             <h5 class="mb-3">Needs Attention</h5>
             <?php if ($needsAttention === []): ?>
                 <p class="text-muted small mb-0">All caught up - nothing needs attention right now.</p>
@@ -501,21 +497,15 @@ if ($canViewShipments) {
         <div class="card p-4 h-100">
             <h5 class="mb-3">Recent Activity</h5>
             <?php if ($recentActivity === []): ?>
-                <p class="text-muted small mb-0">No recent order activity.</p>
+                <p class="text-muted small mb-0">No recent activity.</p>
             <?php else: ?>
                 <ul class="list-unstyled mb-0">
                     <?php foreach ($recentActivity as $event): ?>
                         <li class="mb-3 pb-3 border-bottom">
                             <div class="small">
-                                <a href="/modules/orders/view.php?id=<?php echo (int) $event['order_id']; ?>"><?php echo app_escape(order_display_number_compact($event['order_number'])); ?></a>
-                                &mdash; <?php echo app_escape($event['description']); ?>
+                                <a href="<?php echo app_escape($event['url']); ?>"><?php echo app_escape($event['description']); ?></a>
                             </div>
-                            <div class="text-muted small mt-1">
-                                <?php echo app_escape($event['created_at']); ?>
-                                <?php if (!empty($event['user_name'])): ?>
-                                    &middot; <?php echo app_escape($event['user_name']); ?>
-                                <?php endif; ?>
-                            </div>
+                            <div class="text-muted small mt-1"><?php echo app_escape($event['occurred_at']); ?></div>
                         </li>
                     <?php endforeach; ?>
                 </ul>
@@ -524,12 +514,26 @@ if ($canViewShipments) {
     </div>
 </div>
 
+<?php
+$canManageProducts = app_has_permission('products.manage');
+$canManageCustomers = app_has_permission('customers.manage');
+?>
 <div class="mb-4">
     <h4 class="mb-3">Quick Actions</h4>
     <div class="row g-3">
         <?php if ($canManageOrders): ?>
             <div class="col-md-4 col-lg-2">
                 <a class="btn btn-primary w-100 h-100 py-3" href="/modules/orders/create.php">Create Customer Order</a>
+            </div>
+        <?php endif; ?>
+        <?php if ($canManageProducts): ?>
+            <div class="col-md-4 col-lg-2">
+                <a class="btn btn-primary w-100 h-100 py-3" href="/modules/products/create.php">Add Product</a>
+            </div>
+        <?php endif; ?>
+        <?php if ($canManageCustomers): ?>
+            <div class="col-md-4 col-lg-2">
+                <a class="btn btn-primary w-100 h-100 py-3" href="/modules/customers/create.php">Add Customer</a>
             </div>
         <?php endif; ?>
         <?php if ($canManageSupplierOrders): ?>
