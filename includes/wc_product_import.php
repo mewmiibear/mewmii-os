@@ -945,36 +945,48 @@ function wc_product_import_run_body(PDO $pdo, bool $dryRun, int $batchSize = WC_
             $stats['products_failed']++;
             $processedCount++;
 
+            // Default: no connection was lost, so $pdo is still the one that just failed and
+            // is fine to log with below. Only the connection-lost branch below can change this.
+            $canLogWithCurrentPdo = true;
+            $stopRun = false;
+
             if (wc_product_import_is_connection_lost($e)) {
-                $recovered = false;
+                $canLogWithCurrentPdo = false;
 
                 try {
                     $pdo = wc_product_import_reconnect();
                     $relockStmt = $pdo->prepare('SELECT GET_LOCK(?, 5)');
                     $relockStmt->execute([WC_PRODUCT_IMPORT_LOCK_NAME]);
-                    $recovered = (int) $relockStmt->fetchColumn() === 1;
+                    $canLogWithCurrentPdo = (int) $relockStmt->fetchColumn() === 1;
                 } catch (Throwable $ignored) {
-                    $recovered = false;
+                    $canLogWithCurrentPdo = false;
                 }
 
-                if (!$recovered) {
+                if (!$canLogWithCurrentPdo) {
                     // Either the reconnect itself failed, or another product-import run has
                     // since claimed exclusivity in the gap - stop here rather than continue
                     // unprotected, or on a connection that still isn't usable. Whatever
                     // already committed for earlier products in this run stays committed.
                     $fullyCompleted = false;
-                    break;
+                    $stopRun = true;
                 }
-
-                continue;
             }
 
-            if (!$dryRun) {
+            // Logged in BOTH the ordinary-failure and the recovered-reconnect case - a
+            // connection drop mid-product must still leave an audit trail (using whichever
+            // $pdo currently works), not just move the count into $stats silently. Skipped
+            // only when there's truly no working connection left to log with (the run is
+            // stopping anyway in that case).
+            if (!$dryRun && $canLogWithCurrentPdo) {
                 try {
                     sync_log_failure($pdo, WC_PRODUCT_IMPORT_SYNC_TYPE, "Product {$sku}: " . $e->getMessage());
                 } catch (Throwable $ignored) {
                     // Never let a logging failure mask this run's actual result.
                 }
+            }
+
+            if ($stopRun) {
+                break;
             }
 
             continue;

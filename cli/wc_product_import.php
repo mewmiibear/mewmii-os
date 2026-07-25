@@ -5,9 +5,14 @@
  * CLI-only WooCommerce -> Mewmii OS product/variation import runner.
  *
  * Usage:
- *   php cli/wc_product_import.php             Import for real.
- *   php cli/wc_product_import.php --dry-run    Hit the WooCommerce API and preview what would
- *                                               happen, but make no database writes at all.
+ *   php cli/wc_product_import.php                    Import for real.
+ *   php cli/wc_product_import.php --dry-run           Hit the WooCommerce API and preview what
+ *                                                      would happen, but make no database
+ *                                                      writes at all.
+ *   php cli/wc_product_import.php --batch-size=100    Process at most 100 products this run
+ *                                                      instead of the default
+ *                                                      WC_PRODUCT_IMPORT_BATCH_SIZE (see
+ *                                                      includes/wc_product_import.php).
  *
  * A thin wrapper, matching cli/wc_order_sync.php exactly: this script decides WHEN
  * wc_product_import_run() (includes/wc_product_import.php) gets called and how its result is
@@ -40,7 +45,17 @@ function wc_product_import_cli_error(string $message): void
 
 $dryRun = in_array('--dry-run', $argv, true);
 
-wc_product_import_cli_log('WooCommerce product import starting' . ($dryRun ? ' (DRY RUN - no database writes will be made)' : '') . '.');
+$batchSize = WC_PRODUCT_IMPORT_BATCH_SIZE;
+foreach ($argv as $arg) {
+    if (strpos($arg, '--batch-size=') === 0) {
+        $requested = (int) substr($arg, strlen('--batch-size='));
+        if ($requested > 0) {
+            $batchSize = $requested;
+        }
+    }
+}
+
+wc_product_import_cli_log('WooCommerce product import starting' . ($dryRun ? ' (DRY RUN - no database writes will be made)' : '') . " (batch size {$batchSize}).");
 
 if (!wc_client_is_configured()) {
     wc_product_import_cli_error('WooCommerce API is not configured (check config.php woocommerce.url/consumer_key/consumer_secret).');
@@ -50,7 +65,7 @@ if (!wc_client_is_configured()) {
 $pdo = app_db();
 
 try {
-    $stats = wc_product_import_run($pdo, $dryRun);
+    $stats = wc_product_import_run($pdo, $dryRun, $batchSize);
 } catch (RuntimeException $e) {
     if ($e->getCode() === WC_PRODUCT_IMPORT_LOCK_BUSY_CODE) {
         // Benign, expected condition - another sync (cron or the manual "Import Products Now"
