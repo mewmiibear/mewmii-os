@@ -18,6 +18,18 @@ $uploadsFsInfo = system_health_uploads_filesystem_info($uploadsSample['path'] ??
 $uploadsCheckError = '';
 $uploadsReachability = null;
 
+// Bugfix pass ("stop relying on static code tracing") - a real disk write, right now, on
+// this server - see system_health_test_image_write()'s own docblock. On-demand only (POST),
+// same reasoning as the reachability probe below: this one actually writes a file, so it
+// should never run on a plain page load.
+$writeTestResults = null;
+
+// Cheap (DB + is_file() only, no network/disk writes) - safe to compute on every load, same
+// as the filesystem info above. Shows every stored image's on-disk status at a glance,
+// including brand-new ones, so a systemic failure is visibly different from a couple of old
+// orphaned rows.
+$allImages = system_health_list_all_images($pdo);
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         app_require_csrf();
@@ -33,6 +45,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $uploadsReachability = system_health_check_url_reachable($uploadsSample['url']);
         }
+    } elseif ($uploadsCheckError === '' && (string) ($_POST['action'] ?? '') === 'test_write') {
+        $writeTestResults = [
+            'products' => system_health_test_image_write('products'),
+            'variations' => system_health_test_image_write('variations'),
+        ];
     }
 }
 
@@ -161,6 +178,84 @@ require_once __DIR__ . '/../../includes/header.php';
         <input type="hidden" name="action" value="check_uploads">
         <button type="submit" class="btn btn-outline-secondary btn-sm">Check Public Reachability</button>
     </form>
+</div>
+
+<div class="card p-4 mb-4">
+    <h5 class="mb-3">Live Upload Write Test</h5>
+    <p class="text-muted small">Writes a tiny real test image to <code>uploads/products/</code> and <code>uploads/variations/</code> on THIS server right now (deleted again immediately after), and reports every step - this is the actual runtime behaviour, not a re-read of the source code.</p>
+
+    <?php if ($writeTestResults !== null): ?>
+        <?php foreach ($writeTestResults as $label => $r): ?>
+            <div class="alert <?php echo $r['file_exists_after_write'] ? 'alert-success' : 'alert-danger'; ?> mb-3">
+                <h6 class="mb-2">uploads/<?php echo app_escape($label); ?>/</h6>
+                <table class="table table-sm mb-0">
+                    <tbody>
+                        <tr><td>GD available</td><td><?php echo $r['gd_available'] ? 'Yes' : 'No'; ?></td></tr>
+                        <tr><td>WebP support available</td><td><?php echo $r['webp_available'] ? 'Yes' : 'No'; ?></td></tr>
+                        <tr><td>image_upload_base_dir()</td><td><code><?php echo app_escape($r['base_dir']); ?></code></td></tr>
+                        <tr><td>Target directory</td><td><code><?php echo app_escape($r['target_dir']); ?></code></td></tr>
+                        <tr><td>Directory create/ensure succeeded</td><td><?php echo $r['target_dir_created_ok'] ? 'Yes' : ('No - ' . app_escape((string) $r['target_dir_error'])); ?></td></tr>
+                        <tr><td>is_dir()</td><td><?php echo $r['is_dir'] ? 'true' : 'false'; ?></td></tr>
+                        <tr><td>is_writable()</td><td><?php echo $r['is_writable'] ? 'true' : 'false'; ?></td></tr>
+                        <tr><td>Destination filename</td><td><code><?php echo app_escape($r['filename']); ?></code></td></tr>
+                        <tr><td>Full destination path</td><td><code><?php echo app_escape($r['full_path']); ?></code></td></tr>
+                        <tr><td>imagewebp() return value</td><td><?php echo $r['imagewebp_returned'] === null ? '&mdash;' : ($r['imagewebp_returned'] ? 'true' : 'false'); ?></td></tr>
+                        <tr><td><strong>file_exists() immediately after write</strong></td><td><strong><?php echo $r['file_exists_after_write'] ? 'true' : 'FALSE'; ?></strong></td></tr>
+                        <tr><td>filesize()</td><td><?php echo $r['filesize_after_write'] !== null ? app_escape(number_format($r['filesize_after_write']) . ' bytes') : '&mdash;'; ?></td></tr>
+                        <tr><td>Generated public URL</td><td><code><?php echo app_escape($r['public_url']); ?></code></td></tr>
+                        <tr><td>Test file cleaned up afterward</td><td><?php echo $r['cleaned_up'] ? 'Yes' : ($r['file_exists_after_write'] ? 'No - left in place, remove manually' : 'N/A'); ?></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        <?php endforeach; ?>
+    <?php endif; ?>
+
+    <form method="post">
+        <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+        <input type="hidden" name="action" value="test_write">
+        <button type="submit" class="btn btn-outline-danger btn-sm">Run Live Write Test</button>
+    </form>
+</div>
+
+<div class="card p-4 mb-4">
+    <h5 class="mb-3">Stored Images Audit (last <?php echo count($allImages); ?>)</h5>
+    <p class="text-muted small">Every recent <code>product_images</code> row checked against the real filesystem, right now - a missing file on a brand-new row points at the write flow itself; only old rows missing points at something that removed files afterward (a deploy that didn't preserve uploads/, a manual cleanup, etc).</p>
+    <?php if ($allImages === []): ?>
+        <p class="text-muted mb-0">No images stored yet.</p>
+    <?php else: ?>
+        <?php $missingCount = count(array_filter($allImages, static fn (array $img): bool => !$img['exists_on_disk'])); ?>
+        <p class="mb-2"><?php echo $missingCount > 0 ? ('<span class="text-danger">' . (int) $missingCount . ' of ' . count($allImages) . ' missing on disk.</span>') : '<span class="text-success">All present on disk.</span>'; ?></p>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Product</th>
+                        <th>Variation</th>
+                        <th>Type</th>
+                        <th>Path</th>
+                        <th>On disk?</th>
+                        <th>Size</th>
+                        <th>Created</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($allImages as $img): ?>
+                        <tr class="<?php echo $img['exists_on_disk'] ? '' : 'table-danger'; ?>">
+                            <td><?php echo (int) $img['id']; ?></td>
+                            <td><a href="/modules/products/edit.php?id=<?php echo (int) $img['product_id']; ?>"><?php echo (int) $img['product_id']; ?></a></td>
+                            <td><?php echo $img['variation_id'] !== null ? (int) $img['variation_id'] : '&mdash;'; ?></td>
+                            <td><?php echo app_escape($img['image_type']); ?></td>
+                            <td class="small"><code><?php echo app_escape($img['image_path']); ?></code></td>
+                            <td><?php echo $img['exists_on_disk'] ? '<span class="text-success">Yes</span>' : '<span class="text-danger">No</span>'; ?></td>
+                            <td><?php echo $img['filesize'] !== null ? app_escape(number_format($img['filesize'])) : '&mdash;'; ?></td>
+                            <td class="small text-muted"><?php echo app_escape($img['created_at']); ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    <?php endif; ?>
 </div>
 
 <p class="text-muted small">This page checks one representative column/table per migration script, not the full historical schema - it's meant to catch a whole migration never having been run, not to audit every column ever added. See <a href="/modules/sync-logs/index.php">Sync Logs</a> for runtime sync activity.</p>

@@ -198,6 +198,138 @@ function system_health_uploads_filesystem_info(?string $sampleRelativePath): arr
 }
 
 /**
+ * Bugfix pass ("do not assume the upload succeeded because the code path says it should") -
+ * runs the EXACT same steps image_upload_encode_webp() (includes/image_upload.php) runs for
+ * a real upload, against a tiny synthetic image, and reports every intermediate result
+ * instead of only a final pass/fail. This is a real disk write on THIS server, right now -
+ * not a re-read of the source code - so it answers "does this actually work here" directly,
+ * for whichever of uploads/products or uploads/variations is passed in. The test file is
+ * deleted again immediately after every check is captured, whether the test passed or not.
+ *
+ * @return array{
+ *   sub_dir: string,
+ *   gd_available: bool,
+ *   webp_available: bool,
+ *   base_dir: string,
+ *   target_dir: string,
+ *   target_dir_created_ok: bool,
+ *   target_dir_error: ?string,
+ *   is_dir: bool,
+ *   is_writable: bool,
+ *   filename: string,
+ *   full_path: string,
+ *   imagewebp_returned: ?bool,
+ *   file_exists_after_write: bool,
+ *   filesize_after_write: ?int,
+ *   public_url: string,
+ *   cleaned_up: bool,
+ * }
+ */
+function system_health_test_image_write(string $subDir): array
+{
+    $result = [
+        'sub_dir' => $subDir,
+        'gd_available' => function_exists('imagecreatetruecolor'),
+        'webp_available' => function_exists('imagewebp'),
+        'base_dir' => image_upload_base_dir(),
+        'target_dir' => '',
+        'target_dir_created_ok' => false,
+        'target_dir_error' => null,
+        'is_dir' => false,
+        'is_writable' => false,
+        'filename' => '',
+        'full_path' => '',
+        'imagewebp_returned' => null,
+        'file_exists_after_write' => false,
+        'filesize_after_write' => null,
+        'public_url' => '',
+        'cleaned_up' => false,
+    ];
+
+    if (!$result['gd_available'] || !$result['webp_available']) {
+        return $result;
+    }
+
+    $baseDir = image_upload_base_dir();
+    $targetDir = $baseDir . '/' . trim($subDir, '/');
+    $result['target_dir'] = $targetDir;
+
+    try {
+        image_upload_ensure_dir($baseDir);
+        image_upload_ensure_dir($targetDir);
+        $result['target_dir_created_ok'] = true;
+    } catch (Throwable $e) {
+        $result['target_dir_error'] = $e->getMessage();
+
+        return $result;
+    }
+
+    $result['is_dir'] = is_dir($targetDir);
+    $result['is_writable'] = is_writable($targetDir);
+
+    $filename = 'health-check-' . bin2hex(random_bytes(6)) . '.webp';
+    $fullPath = $targetDir . '/' . $filename;
+    $result['filename'] = $filename;
+    $result['full_path'] = $fullPath;
+
+    // A trivial 4x4 solid-color image - the point is exercising the real write path
+    // (imagewebp() to this exact directory), not testing image processing itself.
+    $image = imagecreatetruecolor(4, 4);
+    imagefill($image, 0, 0, imagecolorallocate($image, 200, 100, 50));
+    $result['imagewebp_returned'] = imagewebp($image, $fullPath, 82);
+    imagedestroy($image);
+
+    $result['file_exists_after_write'] = is_file($fullPath);
+    $result['filesize_after_write'] = $result['file_exists_after_write'] ? filesize($fullPath) : null;
+
+    if ($result['file_exists_after_write']) {
+        $result['public_url'] = image_upload_public_url('uploads/' . trim($subDir, '/') . '/' . $filename);
+        $result['cleaned_up'] = @unlink($fullPath);
+    }
+
+    return $result;
+}
+
+/**
+ * Bugfix pass - every product_images row (not just one sample), each checked against the
+ * real filesystem right now, so a systemic write problem (every recent upload missing) is
+ * visibly different from an isolated one (a couple of old orphaned rows from a past
+ * incident). Ordered newest-first and capped, since this is a diagnostic list for a human
+ * to scan, not a paginated admin table.
+ *
+ * @return array<array{id: int, product_id: int, variation_id: ?int, image_type: string, image_path: string, exists_on_disk: bool, filesize: ?int, created_at: string}>
+ */
+function system_health_list_all_images(PDO $pdo, int $limit = 50): array
+{
+    $stmt = $pdo->prepare('
+        SELECT id, product_id, variation_id, image_type, image_path, created_at
+        FROM product_images
+        ORDER BY id DESC
+        LIMIT ' . max(1, $limit) . '
+    ');
+    $stmt->execute();
+
+    $rows = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $absolutePath = dirname(__DIR__) . '/' . ltrim((string) $row['image_path'], '/');
+        $exists = is_file($absolutePath);
+
+        $rows[] = [
+            'id' => (int) $row['id'],
+            'product_id' => (int) $row['product_id'],
+            'variation_id' => $row['variation_id'] !== null ? (int) $row['variation_id'] : null,
+            'image_type' => (string) $row['image_type'],
+            'image_path' => (string) $row['image_path'],
+            'exists_on_disk' => $exists,
+            'filesize' => $exists ? filesize($absolutePath) : null,
+            'created_at' => (string) $row['created_at'],
+        ];
+    }
+
+    return $rows;
+}
+
+/**
  * @return array{migrations: array, indexes: array{present: int, total: int, missing: array}, pending: array}
  */
 function system_health_check(PDO $pdo): array
