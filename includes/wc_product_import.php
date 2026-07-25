@@ -3,9 +3,9 @@
 /**
  * WooCommerce -> Mewmii OS product/variation import (initial + delta catalog sync).
  *
- * Mirrors includes/wc_order_import.php's architecture exactly: one wc_product_import_run()
+ * Mirrors includes/wc_order_import.php's architecture: one wc_product_import_run()
  * entrypoint (MySQL advisory lock + delta cursor stored in the `settings` table), callable
- * from both cli/wc_product_import.php (cron/manual CLI, now a thin wrapper) and
+ * from both cli/wc_product_import.php (cron/manual CLI, a thin wrapper) and
  * modules/integrations/woocommerce.php (the "Import Products Now" button) - both call this
  * exact function, unchanged from either caller's point of view.
  *
@@ -24,13 +24,28 @@
  * an inventory_transactions row (transaction_type = 'opening_stock') and updates
  * mewmii_inventory.available_quantity in the same call, and refuses outright if that unit
  * already has ANY transaction history, which is exactly what keeps re-runs from double-
- * counting stock that's already been through normal use.
+ * counting stock that's already been through normal use. See
+ * wc_product_import_set_opening_stock() below for how this safety check stays intact even
+ * with per-write-unit transactions.
  *
  * v1 scope: imports products, variations, images, prices, and stock only. Brand/category/
  * collection mapping is deliberately NOT included yet, even though categories.woocommerce_term_id
  * (see database/schema.sql) exists for exactly this purpose - out of scope for this pass. A
  * product's brand_id/category/collection assignment is left completely untouched by this
  * importer, whether the product is newly created or already exists.
+ *
+ * Transaction boundaries (MySQL error 2006 "server has gone away" fix): every write is
+ * wrapped in its own short, single-purpose transaction (product upsert; each opening-stock
+ * call; each variation upsert+attribute-sync) - NONE of them ever span a network call.
+ * Downloading and WebP-converting an image happens with no transaction open at all; the
+ * resulting INSERT into product_images is then a single already-atomic statement. Previously
+ * one transaction wrapped an entire product - every image download AND the variations API
+ * fetch - leaving the MySQL connection idle-but-in-a-transaction for however long that
+ * network I/O took. On hosts with a low wait_timeout (common on shared hosting - see
+ * cli/wc_order_sync.php's docblock for the same "Hostinger" context), MySQL would kill that
+ * idle connection mid-transaction; the next query on it then fails with error 2006. See
+ * wc_product_import_is_connection_lost()/wc_product_import_reconnect() for the other half of
+ * this fix: automatic recovery if it still happens (a slow image host, a network blip, etc.).
  */
 
 require_once __DIR__ . '/wc_client.php';
@@ -54,6 +69,15 @@ const WC_PRODUCT_IMPORT_SETTING_LAST_RUN_SUMMARY = 'wc_product_import_last_run_s
 // whatever was past the ceiling. 100/page matches this importer's original (CLI-only) page size.
 const WC_PRODUCT_IMPORT_PAGE_SIZE = 100;
 const WC_PRODUCT_IMPORT_MAX_PAGES = 25;
+
+// Cap on how many products are FULLY processed (upsert + images + stock + variations) in one
+// run - distinct from WC_PRODUCT_IMPORT_MAX_PAGES, which only bounds how many pages of the
+// lightweight /products LISTING are fetched. Bounds total run duration (and therefore how
+// long the web button's single HTTP request runs, subject to the host's PHP execution-time
+// limit, independent of MySQL) regardless of how many products WooCommerce reports. Same
+// "don't advance the cursor if we stopped early" treatment as the page ceiling - see
+// wc_product_import_run_body().
+const WC_PRODUCT_IMPORT_BATCH_SIZE = 50;
 
 // MySQL advisory lock name - distinct from WC_ORDER_IMPORT_LOCK_NAME (includes/wc_order_import.php)
 // so an order sync and a product sync can run concurrently without contending for the same lock;
@@ -126,7 +150,8 @@ function wc_import_price_or_zero($value): float
  * (includes/wc_client.php) already handles auth, transient-failure retry, and error decoding -
  * this only adds the paging loop on top, shared by both the /products and
  * /products/<id>/variations endpoints. $query carries extra filters (e.g. modified_after for
- * the delta cursor); per_page/page are always added here, never passed in by the caller.
+ * the delta cursor); per_page/page are always added here, never passed in by the caller. Pure
+ * network I/O - never called with a transaction open (see wc_product_import_run_body()).
  *
  * fully_completed is true only when the walk ended because a page came back with fewer than
  * WC_PRODUCT_IMPORT_PAGE_SIZE items (i.e. there was nothing left to fetch) - false if the
@@ -392,35 +417,53 @@ function wc_import_sync_variation_attributes(PDO $pdo, int $localProductId, int 
     }
 }
 
-// --- Images (unchanged from the original CLI-only importer) -------------------------------
+// --- Images ---------------------------------------------------------------------------------
 
+/**
+ * Streams straight to a temp file via CURLOPT_FILE rather than buffering the whole response
+ * in memory (the original CLI-only importer used CURLOPT_RETURNTRANSFER + file_put_contents,
+ * holding an entire image as a PHP string before writing it out) - avoids doubling memory use
+ * on top of whatever GD then needs to decode it in image_upload_process_from_path(). Size is
+ * still enforced the same way as before, just after the fact: image_upload_process_from_path()
+ * already rejects anything over IMAGE_UPLOAD_MAX_BYTES once it's on disk (see
+ * includes/image_upload.php) - unchanged.
+ */
 function wc_import_download_to_tmp(string $url): string
 {
+    $tmpPath = tempnam(sys_get_temp_dir(), 'wcimg_');
+    if ($tmpPath === false) {
+        throw new RuntimeException('could not create a local temp file.');
+    }
+
+    $fileHandle = fopen($tmpPath, 'wb');
+    if ($fileHandle === false) {
+        @unlink($tmpPath);
+        throw new RuntimeException('could not open a local temp file for writing.');
+    }
+
     $ch = curl_init($url);
     curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FILE => $fileHandle,
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_MAXREDIRS => 3,
         CURLOPT_TIMEOUT => 30,
         CURLOPT_CONNECTTIMEOUT => 10,
         CURLOPT_SSL_VERIFYPEER => true,
     ]);
-    $body = curl_exec($ch);
+    curl_exec($ch);
     $errno = curl_errno($ch);
     $error = curl_error($ch);
     $statusCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
+    fclose($fileHandle);
 
     if ($errno !== 0) {
+        @unlink($tmpPath);
         throw new RuntimeException('download failed: ' . $error);
     }
-    if ($statusCode < 200 || $statusCode >= 300 || $body === false || $body === '') {
+    if ($statusCode < 200 || $statusCode >= 300 || filesize($tmpPath) === 0) {
+        @unlink($tmpPath);
         throw new RuntimeException('download failed: HTTP ' . $statusCode);
-    }
-
-    $tmpPath = tempnam(sys_get_temp_dir(), 'wcimg_');
-    if ($tmpPath === false || file_put_contents($tmpPath, $body) === false) {
-        throw new RuntimeException('could not write to a local temp file.');
     }
 
     return $tmpPath;
@@ -434,6 +477,12 @@ function wc_import_download_to_tmp(string $url): string
  * uploaded a different one" - treating any existing image as authoritative and untouchable is
  * the safe direction to err in, matching this whole importer's "never clobber a manual edit"
  * rule for every other field.
+ *
+ * Deliberately called with NO transaction open (see wc_product_import_run_body()/
+ * wc_product_import_process_one_product()) - the download+WebP-conversion happens first with
+ * no DB interaction at all, then this function's own INSERT is a single, already-atomic
+ * statement. This is the actual MySQL-error-2006 fix: a transaction must never sit open for
+ * the duration of a network download.
  */
 function wc_import_set_main_image_if_missing(PDO $pdo, int $productId, string $imageUrl): bool
 {
@@ -497,6 +546,237 @@ function wc_import_set_variation_image_if_missing(PDO $pdo, int $productId, int 
     return true;
 }
 
+// --- Connection-loss detection and recovery (MySQL error 2006 fix) ------------------------
+
+/**
+ * Whether $e represents a dropped MySQL connection (error 2006 "server has gone away", 2013
+ * "lost connection to MySQL server during query") rather than a data/logic problem with this
+ * specific product - i.e. whether reconnecting and continuing makes sense, as opposed to a
+ * real error a fresh connection wouldn't fix. Checked by PDOException::errorInfo's driver code
+ * first (the reliable signal), falling back to a message match in case the error surfaced
+ * through a code path (e.g. during beginTransaction()/commit() rather than a plain query)
+ * where the driver code isn't populated the same way.
+ */
+function wc_product_import_is_connection_lost(Throwable $e): bool
+{
+    if (!$e instanceof PDOException) {
+        return false;
+    }
+
+    $driverCode = is_array($e->errorInfo ?? null) ? ($e->errorInfo[1] ?? null) : null;
+    if (in_array($driverCode, [2006, 2013], true)) {
+        return true;
+    }
+
+    $message = $e->getMessage();
+
+    return strpos($message, 'server has gone away') !== false
+        || strpos($message, 'Lost connection') !== false;
+}
+
+/**
+ * Rebuilds a fresh PDO connection using the exact same connection parameters as
+ * config/database.php, for recovering from wc_product_import_is_connection_lost(). Also
+ * updates the global $pdo that app_db() (includes/bootstrap.php) reads from, so anything else
+ * that happens to run later in the same request transparently picks up the fresh connection
+ * too, exactly as if the request had started with it - this import run is the only thing
+ * both current callers (cli/wc_product_import.php, modules/integrations/woocommerce.php's
+ * button) do with $pdo afterward, but keeping the global consistent costs nothing and avoids
+ * a subtle trap for any future caller that reads app_db() after calling this.
+ */
+function wc_product_import_reconnect(): PDO
+{
+    $configPath = __DIR__ . '/../config.php';
+    $config = is_file($configPath) ? require $configPath : [];
+    $db = $config['db'] ?? [];
+
+    $host = $db['host'] ?? 'localhost';
+    $dbname = $db['database'] ?? '';
+    $username = $db['username'] ?? '';
+    $password = $db['password'] ?? '';
+    $charset = $db['charset'] ?? 'utf8mb4';
+
+    $fresh = new PDO("mysql:host={$host};dbname={$dbname};charset={$charset}", $username, $password);
+    $fresh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+    global $pdo;
+    $pdo = $fresh;
+
+    return $fresh;
+}
+
+// --- Opening stock (shared by the simple-product and per-variation cases) -----------------
+
+/**
+ * Wraps inventory_import_opening_stock() in its own short, self-contained transaction -
+ * deliberately separate from the product/variation upsert transaction and from any image
+ * download, so a connection drop during a slow image download can never leave this
+ * multi-statement, ledger-writing call half-committed (it checks history, then updates
+ * mewmii_inventory, then inserts an inventory_transactions row - all three must succeed or
+ * none may). Used for both a simple product's own stock and each variation's stock -
+ * deduplicates what was two near-identical inline blocks in the original importer.
+ *
+ * The "already has history" RuntimeException (see inventory_import_opening_stock()'s own
+ * docblock in includes/inventory.php) is caught and treated as a benign per-unit skip, not a
+ * failure - this IS the Inventory Ledger Compliance safety check this importer has always
+ * relied on, unchanged: opening stock is refused, never silently reapplied, once a unit has
+ * any transaction history. Matched by exact class (not `instanceof`) because PDOException
+ * also extends RuntimeException - a dropped connection must never be mistaken for this one
+ * specific, deliberate condition and silently swallowed as a "skip".
+ */
+function wc_product_import_set_opening_stock(PDO $pdo, int $productId, ?int $variationId, array $wcUnit, array &$stats): void
+{
+    $stockManaged = !empty($wcUnit['manage_stock']);
+    $stockQuantity = (int) ($wcUnit['stock_quantity'] ?? 0);
+
+    if (!$stockManaged || $stockQuantity < 1) {
+        return;
+    }
+
+    $pdo->beginTransaction();
+
+    try {
+        inventory_import_opening_stock($pdo, $productId, $variationId, $stockQuantity, 'Imported from WooCommerce initial sync');
+        $pdo->commit();
+        $stats['opening_stock_set']++;
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+
+        if (get_class($e) === RuntimeException::class) {
+            // Already has ledger history (typically a re-run) - expected, not an error.
+            $stats['opening_stock_skipped']++;
+            return;
+        }
+
+        throw $e;
+    }
+}
+
+// --- Per-product processing ----------------------------------------------------------------
+
+/**
+ * Processes one WooCommerce product end to end: upsert, images, opening stock, and (if
+ * variable) every variation. Every DB write happens in its own short transaction, and NONE of
+ * them are ever open while a network call (image download, or the variations API fetch) is in
+ * flight - see the file-level docblock. A Throwable propagating out of this function means
+ * this product's remaining work stops here (matches the original importer's per-product
+ * all-stop-on-first-error granularity), but whatever already committed for this product
+ * (the product row itself, earlier variations, earlier images) stays committed rather than
+ * being rolled back - a deliberate improvement over the original single-giant-transaction
+ * design, where a late failure (e.g. one bad variation) would roll back even the already-
+ * succeeded product upsert, silently making the returned $stats count a "created" product
+ * that the rollback had actually just erased.
+ *
+ * @return int the local product id (0 in dry-run when the product doesn't exist locally yet)
+ */
+function wc_product_import_process_one_product(PDO $pdo, array $wcProduct, bool $dryRun, array &$stats): int
+{
+    if (!$dryRun) {
+        $pdo->beginTransaction();
+    }
+    $productResult = wc_import_upsert_product($pdo, $wcProduct, $dryRun);
+    if (!$dryRun) {
+        $pdo->commit();
+    }
+
+    $localProductId = $productResult['id'];
+    $stats[$productResult['created'] ? 'products_created' : 'products_updated']++;
+
+    if ($dryRun) {
+        // Dry run never touches images/stock/variations beyond the product-level preview -
+        // unchanged from the original CLI-only importer's behavior.
+        return $localProductId;
+    }
+
+    if ($localProductId > 0) {
+        $images = $wcProduct['images'] ?? [];
+        if (is_array($images) && $images !== []) {
+            $mainImage = array_shift($images);
+            $mainUrl = is_array($mainImage) ? trim((string) ($mainImage['src'] ?? '')) : '';
+
+            if ($mainUrl !== '') {
+                try {
+                    if (wc_import_set_main_image_if_missing($pdo, $localProductId, $mainUrl)) {
+                        $stats['images_downloaded']++;
+                    }
+                } catch (Throwable $e) {
+                    if (wc_product_import_is_connection_lost($e)) {
+                        throw $e;
+                    }
+                    $stats['images_failed']++;
+                }
+            }
+
+            $galleryUrls = [];
+            foreach ($images as $galleryImage) {
+                if (is_array($galleryImage) && !empty($galleryImage['src'])) {
+                    $galleryUrls[] = (string) $galleryImage['src'];
+                }
+            }
+
+            if ($galleryUrls !== []) {
+                try {
+                    $stats['images_downloaded'] += wc_import_add_gallery_images_if_empty($pdo, $localProductId, $galleryUrls);
+                } catch (Throwable $e) {
+                    if (wc_product_import_is_connection_lost($e)) {
+                        throw $e;
+                    }
+                    $stats['images_failed']++;
+                }
+            }
+        }
+
+        $isVariableProduct = ($wcProduct['type'] ?? 'simple') === 'variable';
+        if (!$isVariableProduct) {
+            wc_product_import_set_opening_stock($pdo, $localProductId, null, $wcProduct, $stats);
+        }
+    }
+
+    if (($wcProduct['type'] ?? 'simple') === 'variable' && (int) ($wcProduct['id'] ?? 0) > 0) {
+        // Network fetch - deliberately outside any transaction, same as every image download.
+        $variationsFetch = wc_import_fetch_all('products/' . (int) $wcProduct['id'] . '/variations', [], static function (int $page, int $count): void {});
+        $wcVariations = $variationsFetch['items'];
+
+        foreach ($wcVariations as $wcVariation) {
+            $variationSku = trim((string) ($wcVariation['sku'] ?? ''));
+            if ($variationSku === '') {
+                continue;
+            }
+
+            $pdo->beginTransaction();
+            $variationResult = wc_import_upsert_variation($pdo, $localProductId, $wcVariation);
+            $localVariationId = $variationResult['id'];
+
+            $wcAttributes = $wcVariation['attributes'] ?? [];
+            if (is_array($wcAttributes) && $wcAttributes !== []) {
+                wc_import_sync_variation_attributes($pdo, $localProductId, $localVariationId, $wcAttributes);
+            }
+
+            $pdo->commit();
+            $stats[$variationResult['created'] ? 'variations_created' : 'variations_updated']++;
+
+            $variationImage = $wcVariation['image'] ?? null;
+            $variationImageUrl = is_array($variationImage) ? trim((string) ($variationImage['src'] ?? '')) : '';
+            if ($variationImageUrl !== '') {
+                try {
+                    if (wc_import_set_variation_image_if_missing($pdo, $localProductId, $localVariationId, $variationImageUrl)) {
+                        $stats['images_downloaded']++;
+                    }
+                } catch (Throwable $e) {
+                    if (wc_product_import_is_connection_lost($e)) {
+                        throw $e;
+                    }
+                    $stats['images_failed']++;
+                }
+            }
+
+            wc_product_import_set_opening_stock($pdo, $localProductId, $localVariationId, $wcVariation, $stats);
+        }
+    }
+
+    return $localProductId;
+}
+
 // --- Run entrypoint --------------------------------------------------------------------
 
 /**
@@ -506,16 +786,18 @@ function wc_import_set_variation_image_if_missing(PDO $pdo, int $productId, int 
  * wc_product_import_run_body() in a MySQL advisory lock, identical reasoning to
  * wc_order_import_run() in includes/wc_order_import.php: GET_LOCK(name, 0) never waits - if
  * another product sync already holds the lock, this fails fast rather than queuing up behind
- * it. Released in both the success and failure paths via `finally`, and MySQL also
- * auto-releases it if this PHP process dies before reaching the `finally` (the lock is scoped
- * to this request's own DB session, and this app never uses persistent PDO connections - see
- * config/database.php) - so a crashed run can never leave the lock stuck.
+ * it. Released via `finally` on a best-effort basis: if wc_product_import_run_body() had to
+ * reconnect mid-run (see wc_product_import_reconnect()), the ORIGINAL connection this function
+ * received is already dead, so releasing the lock on it here will itself fail - swallowed
+ * deliberately, since MySQL already auto-released that connection's advisory lock the moment
+ * it dropped, same as it would on any crashed process (the lock is scoped to a DB session, and
+ * this app never uses persistent PDO connections - see config/database.php).
  *
  * @throws RuntimeException with code WC_PRODUCT_IMPORT_LOCK_BUSY_CODE if another product sync
  * is already running - callers (see cli/wc_product_import.php) should treat this as benign/
  * expected, not a real failure.
  */
-function wc_product_import_run(PDO $pdo, bool $dryRun = false): array
+function wc_product_import_run(PDO $pdo, bool $dryRun = false, int $batchSize = WC_PRODUCT_IMPORT_BATCH_SIZE): array
 {
     $lockStmt = $pdo->prepare('SELECT GET_LOCK(?, 0)');
     $lockStmt->execute([WC_PRODUCT_IMPORT_LOCK_NAME]);
@@ -528,31 +810,44 @@ function wc_product_import_run(PDO $pdo, bool $dryRun = false): array
     }
 
     try {
-        return wc_product_import_run_body($pdo, $dryRun);
+        return wc_product_import_run_body($pdo, $dryRun, $batchSize);
     } finally {
-        $pdo->prepare('SELECT RELEASE_LOCK(?)')->execute([WC_PRODUCT_IMPORT_LOCK_NAME]);
+        try {
+            $pdo->prepare('SELECT RELEASE_LOCK(?)')->execute([WC_PRODUCT_IMPORT_LOCK_NAME]);
+        } catch (Throwable $e) {
+            // See docblock above - expected if this connection was replaced mid-run.
+        }
     }
 }
 
 /**
  * The actual delta-sync logic, only ever called by wc_product_import_run() above, which
- * holds the advisory lock for the entire duration of this function. Fetches /products with
+ * holds the advisory lock for the entire duration of this function (on whichever connection
+ * currently holds it - see the reconnect handling below). Fetches /products with
  * modified_after set to the stored cursor (omitted entirely on the very first run, which
  * fetches the full catalog up to the page ceiling). Per-product processing (upsert, images,
- * opening stock, variations+their attributes) is completely unchanged from the original
- * CLI-only importer - see wc_import_upsert_product()/wc_import_upsert_variation()/etc. above -
- * each product is still imported inside its own transaction so one bad product never rolls
- * back the rest of the run, and a product with no SKU is still skipped (not logged to
+ * opening stock, variations+their attributes) lives in
+ * wc_product_import_process_one_product() - unchanged business logic from the original
+ * CLI-only importer, restructured only in WHEN each write commits relative to network I/O
+ * (see the file-level docblock). A product with no SKU is still skipped (not logged to
  * sync_logs, only counted - matching wc_order_import_single()'s "skipped means no log row"
  * convention).
  *
  * The delta cursor only advances if the /products walk fully completed (reached a page with
- * fewer than WC_PRODUCT_IMPORT_PAGE_SIZE results) AND this was not a dry run. A fetch failure
- * partway through, or hitting the page-count safety ceiling, leaves the cursor untouched - the
- * next run simply re-covers the same ground. Already-imported products/variations in that
+ * fewer than WC_PRODUCT_IMPORT_PAGE_SIZE results), the batch size limit was not hit, the
+ * connection was never lost beyond recovery, AND this was not a dry run. Any of those leaving
+ * the cursor untouched means the next run simply re-covers the same ground rather than risk
+ * skipping something this run never reached - already-imported products/variations in that
  * re-covered range are harmless no-op updates (matched via woocommerce_product_id/
- * woocommerce_variation_id, see wc_import_upsert_product()/wc_import_upsert_variation()), so
- * this is always safe to retry, never duplicates.
+ * woocommerce_variation_id), so this is always safe to retry, never duplicates.
+ *
+ * If a product's processing fails with a dropped connection (see
+ * wc_product_import_is_connection_lost()), this reconnects (wc_product_import_reconnect())
+ * and re-acquires the advisory lock on the fresh connection before continuing - mutual
+ * exclusion with any other product-import run must never lapse just because this one
+ * reconnected. If either step fails (the reconnect itself, or another run has since claimed
+ * the lock), the run stops where it is rather than continue unprotected; whatever already
+ * committed for earlier products stays committed, and the cursor is not advanced.
  *
  * $dryRun makes every write a no-op - not just the product/variation/image/inventory writes
  * the original CLI script already gated, but also the new sync_logs rows and the settings
@@ -560,7 +855,7 @@ function wc_product_import_run(PDO $pdo, bool $dryRun = false): array
  * paging against the real API, respecting the stored cursor) so it accurately previews what
  * the next real run would do, it just never persists anything.
  */
-function wc_product_import_run_body(PDO $pdo, bool $dryRun): array
+function wc_product_import_run_body(PDO $pdo, bool $dryRun, int $batchSize = WC_PRODUCT_IMPORT_BATCH_SIZE): array
 {
     $stats = [
         'products_created' => 0, 'products_updated' => 0, 'products_skipped' => 0, 'products_failed' => 0,
@@ -599,138 +894,96 @@ function wc_product_import_run_body(PDO $pdo, bool $dryRun): array
     }
 
     $wcProducts = $fetchResult['items'];
+    $fullyCompleted = $fetchResult['fully_completed'];
+
+    if (!$fullyCompleted && !$dryRun) {
+        sync_log_write($pdo, WC_PRODUCT_IMPORT_SYNC_TYPE, 'failed', null,
+            'Stopped after ' . WC_PRODUCT_IMPORT_MAX_PAGES . ' page(s) (safety limit) - more products may remain. Cursor not advanced; re-run to continue.');
+    }
+
+    $processedCount = 0;
 
     foreach ($wcProducts as $wcProduct) {
-        $sku = trim((string) ($wcProduct['sku'] ?? ''));
+        if ($processedCount >= $batchSize) {
+            // Hit the per-run processing cap before finishing the fetched list - same
+            // "don't advance the cursor" treatment as hitting the page ceiling above: this run
+            // did not fully cover the delta window, so the next run must re-cover the same
+            // ground rather than silently skip whatever was left.
+            $fullyCompleted = false;
 
+            if (!$dryRun) {
+                sync_log_write($pdo, WC_PRODUCT_IMPORT_SYNC_TYPE, 'failed', null,
+                    'Stopped after ' . $batchSize . ' product(s) (batch size limit) - more products may remain. Cursor not advanced; re-run to continue.');
+            }
+
+            break;
+        }
+
+        $sku = trim((string) ($wcProduct['sku'] ?? ''));
         if ($sku === '') {
             $stats['products_skipped']++;
+            $processedCount++;
             continue;
         }
 
-        if (!$dryRun) {
-            $pdo->beginTransaction();
-        }
-
         try {
-            $productResult = wc_import_upsert_product($pdo, $wcProduct, $dryRun);
-            $localProductId = $productResult['id'];
-            $stats[$productResult['created'] ? 'products_created' : 'products_updated']++;
-
-            if (!$dryRun && $localProductId > 0) {
-                $images = $wcProduct['images'] ?? [];
-                if (is_array($images) && $images !== []) {
-                    $mainImage = array_shift($images);
-                    $mainUrl = is_array($mainImage) ? trim((string) ($mainImage['src'] ?? '')) : '';
-
-                    if ($mainUrl !== '') {
-                        try {
-                            if (wc_import_set_main_image_if_missing($pdo, $localProductId, $mainUrl)) {
-                                $stats['images_downloaded']++;
-                            }
-                        } catch (Throwable $e) {
-                            $stats['images_failed']++;
-                        }
-                    }
-
-                    $galleryUrls = [];
-                    foreach ($images as $galleryImage) {
-                        if (is_array($galleryImage) && !empty($galleryImage['src'])) {
-                            $galleryUrls[] = (string) $galleryImage['src'];
-                        }
-                    }
-
-                    if ($galleryUrls !== []) {
-                        try {
-                            $stats['images_downloaded'] += wc_import_add_gallery_images_if_empty($pdo, $localProductId, $galleryUrls);
-                        } catch (Throwable $e) {
-                            $stats['images_failed']++;
-                        }
-                    }
-                }
-
-                $isVariableProduct = ($wcProduct['type'] ?? 'simple') === 'variable';
-                if (!$isVariableProduct) {
-                    $stockManaged = !empty($wcProduct['manage_stock']);
-                    $stockQuantity = (int) ($wcProduct['stock_quantity'] ?? 0);
-
-                    if ($stockManaged && $stockQuantity > 0) {
-                        try {
-                            inventory_import_opening_stock($pdo, $localProductId, null, $stockQuantity, 'Imported from WooCommerce initial sync');
-                            $stats['opening_stock_set']++;
-                        } catch (RuntimeException $e) {
-                            // Already has ledger history (typically a re-run) - expected, not an error.
-                            $stats['opening_stock_skipped']++;
-                        }
-                    }
-                }
-            }
-
-            if (($wcProduct['type'] ?? 'simple') === 'variable' && (int) ($wcProduct['id'] ?? 0) > 0) {
-                $variationsFetch = wc_import_fetch_all('products/' . (int) $wcProduct['id'] . '/variations', [], $noopPageCallback);
-                $wcVariations = $variationsFetch['items'];
-
-                foreach ($wcVariations as $wcVariation) {
-                    $variationSku = trim((string) ($wcVariation['sku'] ?? ''));
-                    if ($variationSku === '') {
-                        continue;
-                    }
-
-                    if ($dryRun) {
-                        continue;
-                    }
-
-                    $variationResult = wc_import_upsert_variation($pdo, $localProductId, $wcVariation);
-                    $localVariationId = $variationResult['id'];
-                    $stats[$variationResult['created'] ? 'variations_created' : 'variations_updated']++;
-
-                    $wcAttributes = $wcVariation['attributes'] ?? [];
-                    if (is_array($wcAttributes) && $wcAttributes !== []) {
-                        wc_import_sync_variation_attributes($pdo, $localProductId, $localVariationId, $wcAttributes);
-                    }
-
-                    $variationImage = $wcVariation['image'] ?? null;
-                    $variationImageUrl = is_array($variationImage) ? trim((string) ($variationImage['src'] ?? '')) : '';
-                    if ($variationImageUrl !== '') {
-                        try {
-                            if (wc_import_set_variation_image_if_missing($pdo, $localProductId, $localVariationId, $variationImageUrl)) {
-                                $stats['images_downloaded']++;
-                            }
-                        } catch (Throwable $e) {
-                            $stats['images_failed']++;
-                        }
-                    }
-
-                    $variationStockManaged = !empty($wcVariation['manage_stock']);
-                    $variationStockQuantity = (int) ($wcVariation['stock_quantity'] ?? 0);
-                    if ($variationStockManaged && $variationStockQuantity > 0) {
-                        try {
-                            inventory_import_opening_stock($pdo, $localProductId, $localVariationId, $variationStockQuantity, 'Imported from WooCommerce initial sync');
-                            $stats['opening_stock_set']++;
-                        } catch (RuntimeException $e) {
-                            $stats['opening_stock_skipped']++;
-                        }
-                    }
-                }
-            }
+            $localProductId = wc_product_import_process_one_product($pdo, $wcProduct, $dryRun, $stats);
 
             if (!$dryRun) {
-                $pdo->commit();
                 sync_log_success($pdo, WC_PRODUCT_IMPORT_SYNC_TYPE, $localProductId);
             }
         } catch (Throwable $e) {
             if (!$dryRun && $pdo->inTransaction()) {
-                $pdo->rollBack();
+                try {
+                    $pdo->rollBack();
+                } catch (Throwable $ignored) {
+                    // The connection may already be gone - nothing more to do here, the
+                    // reconnect branch below is what actually recovers.
+                }
             }
+
             $stats['products_failed']++;
+            $processedCount++;
+
+            if (wc_product_import_is_connection_lost($e)) {
+                $recovered = false;
+
+                try {
+                    $pdo = wc_product_import_reconnect();
+                    $relockStmt = $pdo->prepare('SELECT GET_LOCK(?, 5)');
+                    $relockStmt->execute([WC_PRODUCT_IMPORT_LOCK_NAME]);
+                    $recovered = (int) $relockStmt->fetchColumn() === 1;
+                } catch (Throwable $ignored) {
+                    $recovered = false;
+                }
+
+                if (!$recovered) {
+                    // Either the reconnect itself failed, or another product-import run has
+                    // since claimed exclusivity in the gap - stop here rather than continue
+                    // unprotected, or on a connection that still isn't usable. Whatever
+                    // already committed for earlier products in this run stays committed.
+                    $fullyCompleted = false;
+                    break;
+                }
+
+                continue;
+            }
 
             if (!$dryRun) {
-                sync_log_failure($pdo, WC_PRODUCT_IMPORT_SYNC_TYPE, "Product {$sku}: " . $e->getMessage());
+                try {
+                    sync_log_failure($pdo, WC_PRODUCT_IMPORT_SYNC_TYPE, "Product {$sku}: " . $e->getMessage());
+                } catch (Throwable $ignored) {
+                    // Never let a logging failure mask this run's actual result.
+                }
             }
+
+            continue;
         }
+
+        $processedCount++;
     }
 
-    if ($fetchResult['fully_completed'] && !$dryRun) {
+    if ($fullyCompleted && !$dryRun) {
         wc_product_import_set_setting($pdo, WC_PRODUCT_IMPORT_SETTING_LAST_SYNCED_AT, $syncStartedAt);
     }
 
