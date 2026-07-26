@@ -950,6 +950,13 @@ function wc_client_sync_if_changed(PDO $pdo, array $product, bool $force = false
 
     $storedHash = $product['woocommerce_sync_hash'] ?? null;
     $wooCommerceProductId = (int) ($product['woocommerce_product_id'] ?? 0);
+    // Bugfix pass (new-product false-positive conflict) - a product with no
+    // woocommerce_product_id yet has, by definition, never been pushed or imported, so there is
+    // nothing on the WooCommerce side it could conflict with. $alreadyPublished being false
+    // skips BOTH the unchanged-fingerprint skip below (a product must always attempt its first
+    // real push) AND the staleness/conflict check further down (there is no prior WooCommerce
+    // edit to protect against yet) - see wc_client_check_product_staleness()'s own docblock for
+    // why this same signal doubles as its required baseline.
     $alreadyPublished = $wooCommerceProductId > 0;
 
     if (!$force && $alreadyPublished && $storedHash !== null && hash_equals($storedHash, $fingerprint)) {
@@ -972,9 +979,20 @@ function wc_client_sync_if_changed(PDO $pdo, array $product, bool $force = false
 
     $result = wc_client_sync_any_product_from_mewmii($pdo, $product);
 
-    // The push response's own date_modified (reflecting the state immediately AFTER this
-    // push) takes priority over the pre-push read above as the new baseline.
-    $newBaseline = $result['date_modified'] ?? $remoteModifiedAt;
+    // Bugfix pass - re-read the just-pushed product instead of trusting the write response's
+    // own echoed date_modified as the new baseline. WooCommerce can touch a product again
+    // internally in the moments right after a create/update (stock/price lookup-table
+    // recalculation, image attachment bookkeeping, etc.), which can leave the create/update
+    // response's date_modified slightly behind WooCommerce's own true state - the exact gap
+    // that previously made a product's very next sync attempt (e.g. Auto Sync during save
+    // immediately followed by a manual "Sync"/"Retry" click) look like an external edit and get
+    // flagged stale, even though nothing outside Mewmii OS ever touched it. Falls back to the
+    // write response's value (then the pre-push read) if this confirmation read fails, so a
+    // transient WooCommerce error right after a successful push never blocks the product from
+    // being marked as synced.
+    $remoteProductId = (int) ($result['id'] ?? $wooCommerceProductId);
+    $confirmed = $remoteProductId > 0 ? wc_client_find_product_by_id($remoteProductId) : null;
+    $newBaseline = $confirmed['date_modified'] ?? $result['date_modified'] ?? $remoteModifiedAt;
 
     $pdo->prepare('UPDATE products SET woocommerce_sync_hash = ?, woocommerce_last_seen_modified_at = ? WHERE id = ?')
         ->execute([$fingerprint, $newBaseline, $productId]);
