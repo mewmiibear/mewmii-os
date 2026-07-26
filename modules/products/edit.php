@@ -3,6 +3,7 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/catalog.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
 require_once __DIR__ . '/../../includes/wc_client.php';
+require_once __DIR__ . '/../../includes/pricing_engine.php';
 app_require_permission('products.manage');
 
 $appTitle = 'Edit Product';
@@ -47,6 +48,16 @@ $product['preorder_reopened_at'] = $product['preorder_reopened_at'] ?? null;
 $product['availability_override'] = $product['availability_override'] ?? 'auto';
 $product['cost_currency'] = $product['cost_currency'] ?? null;
 $product['exchange_rate'] = $product['exchange_rate'] ?? null;
+// Phase 9D (Pricing Engine) - older rows predate these columns, same ?? requirement as above.
+$product['original_price'] = $product['original_price'] ?? null;
+$product['original_currency'] = $product['original_currency'] ?? null;
+$product['original_exchange_rate'] = $product['original_exchange_rate'] ?? null;
+$product['market_price'] = $product['market_price'] ?? null;
+$product['market_currency'] = $product['market_currency'] ?? null;
+$product['market_exchange_rate'] = $product['market_exchange_rate'] ?? null;
+$product['selling_multiplier'] = $product['selling_multiplier'] ?? null;
+$product['weight_grams'] = $product['weight_grams'] ?? null;
+$product['shipping_origin_country_id'] = $product['shipping_origin_country_id'] ?? null;
 
 $catalogTypes = ['simple', 'variable'];
 $productTypes = ['ready_stock', 'preorder', 'early_bird'];
@@ -103,6 +114,27 @@ $form = [
     'estimated_release_month' => (string) ($product['estimated_release_month'] ?? ''),
     'moq' => (string) $product['moq'],
     'preorder_closing_date' => (string) ($product['preorder_closing_date'] ?? ''),
+    // Phase 9D (Pricing Engine) - same "known value or OTHER + free text" pattern as
+    // cost_currency above.
+    'original_price' => $product['original_price'] !== null ? (string) $product['original_price'] : '',
+    'original_currency' => $product['original_currency'] === null || in_array($product['original_currency'], PRICING_REFERENCE_CURRENCY_OPTIONS, true)
+        ? ($product['original_currency'] ?? 'MYR')
+        : 'OTHER',
+    'original_currency_other' => $product['original_currency'] !== null && !in_array($product['original_currency'], PRICING_REFERENCE_CURRENCY_OPTIONS, true)
+        ? $product['original_currency']
+        : '',
+    'original_exchange_rate' => $product['original_exchange_rate'] !== null ? (string) $product['original_exchange_rate'] : '',
+    'market_price' => $product['market_price'] !== null ? (string) $product['market_price'] : '',
+    'market_currency' => $product['market_currency'] === null || in_array($product['market_currency'], PRICING_REFERENCE_CURRENCY_OPTIONS, true)
+        ? ($product['market_currency'] ?? 'MYR')
+        : 'OTHER',
+    'market_currency_other' => $product['market_currency'] !== null && !in_array($product['market_currency'], PRICING_REFERENCE_CURRENCY_OPTIONS, true)
+        ? $product['market_currency']
+        : '',
+    'market_exchange_rate' => $product['market_exchange_rate'] !== null ? (string) $product['market_exchange_rate'] : '',
+    'selling_multiplier' => $product['selling_multiplier'] !== null ? (string) $product['selling_multiplier'] : '',
+    'weight_grams' => $product['weight_grams'] !== null ? (string) $product['weight_grams'] : '',
+    'shipping_origin_country_id' => $product['shipping_origin_country_id'] !== null ? (string) $product['shipping_origin_country_id'] : '',
 ];
 $selectedTagIds = catalog_get_product_tag_ids($pdo, $productId);
 
@@ -146,6 +178,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form['moq'] = trim((string) ($_POST['moq'] ?? '1'));
     $form['preorder_closing_date'] = trim((string) ($_POST['preorder_closing_date'] ?? ''));
     $selectedTagIds = array_map('intval', $_POST['tag_ids'] ?? []);
+
+    // Phase 9D (Pricing Engine)
+    $form['original_price'] = trim((string) ($_POST['original_price'] ?? ''));
+    $form['original_currency'] = trim((string) ($_POST['original_currency'] ?? 'MYR'));
+    $form['original_currency_other'] = trim((string) ($_POST['original_currency_other'] ?? ''));
+    $form['original_exchange_rate'] = trim((string) ($_POST['original_exchange_rate'] ?? ''));
+    $form['market_price'] = trim((string) ($_POST['market_price'] ?? ''));
+    $form['market_currency'] = trim((string) ($_POST['market_currency'] ?? 'MYR'));
+    $form['market_currency_other'] = trim((string) ($_POST['market_currency_other'] ?? ''));
+    $form['market_exchange_rate'] = trim((string) ($_POST['market_exchange_rate'] ?? ''));
+    $form['selling_multiplier'] = trim((string) ($_POST['selling_multiplier'] ?? ''));
+    $form['weight_grams'] = trim((string) ($_POST['weight_grams'] ?? ''));
+    $form['shipping_origin_country_id'] = trim((string) ($_POST['shipping_origin_country_id'] ?? ''));
 
     if ($error === '') {
         if ($form['sku'] === '' || strlen($form['sku']) > 100) {
@@ -192,6 +237,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Enter a valid exchange rate (1 ' . $costCurrency . ' = ? MYR).';
         } else {
             $exchangeRateValue = (float) $form['exchange_rate'];
+        }
+    }
+
+    // Phase 9D (Pricing Engine) - same shape as modules/products/create.php.
+    $originalCurrency = $form['original_currency'] === 'OTHER' ? strtoupper($form['original_currency_other']) : strtoupper($form['original_currency']);
+    $originalExchangeRateValue = null;
+    if ($error === '' && $form['original_price'] !== '') {
+        if (!is_numeric($form['original_price']) || (float) $form['original_price'] < 0) {
+            $error = 'Original Price must be a valid non-negative number.';
+        } elseif ($form['original_currency'] === 'OTHER' && ($originalCurrency === '' || strlen($originalCurrency) > 10)) {
+            $error = 'Enter a valid Original Currency code (up to 10 characters).';
+        } elseif ($form['original_currency'] !== 'OTHER' && !in_array($form['original_currency'], PRICING_REFERENCE_CURRENCY_OPTIONS, true)) {
+            $error = 'Invalid Original Currency.';
+        } elseif ($originalCurrency !== 'MYR') {
+            if ($form['original_exchange_rate'] === '' || !is_numeric($form['original_exchange_rate']) || (float) $form['original_exchange_rate'] <= 0) {
+                $error = 'Enter a valid Original Exchange Rate (1 ' . $originalCurrency . ' = ? MYR).';
+            } else {
+                $originalExchangeRateValue = (float) $form['original_exchange_rate'];
+            }
+        }
+    }
+
+    $marketCurrency = $form['market_currency'] === 'OTHER' ? strtoupper($form['market_currency_other']) : strtoupper($form['market_currency']);
+    $marketExchangeRateValue = null;
+    if ($error === '' && $form['market_price'] !== '') {
+        if (!is_numeric($form['market_price']) || (float) $form['market_price'] < 0) {
+            $error = 'Market Price must be a valid non-negative number.';
+        } elseif ($form['market_currency'] === 'OTHER' && ($marketCurrency === '' || strlen($marketCurrency) > 10)) {
+            $error = 'Enter a valid Market Currency code (up to 10 characters).';
+        } elseif ($form['market_currency'] !== 'OTHER' && !in_array($form['market_currency'], PRICING_REFERENCE_CURRENCY_OPTIONS, true)) {
+            $error = 'Invalid Market Currency.';
+        } elseif ($marketCurrency !== 'MYR') {
+            if ($form['market_exchange_rate'] === '' || !is_numeric($form['market_exchange_rate']) || (float) $form['market_exchange_rate'] <= 0) {
+                $error = 'Enter a valid Market Exchange Rate (1 ' . $marketCurrency . ' = ? MYR).';
+            } else {
+                $marketExchangeRateValue = (float) $form['market_exchange_rate'];
+            }
+        }
+    }
+
+    if ($error === '' && $form['selling_multiplier'] !== '' && (!is_numeric($form['selling_multiplier']) || (float) $form['selling_multiplier'] <= 0)) {
+        $error = 'Selling Multiplier must be a valid number greater than 0.';
+    }
+
+    if ($error === '' && $form['weight_grams'] !== '' && (!is_numeric($form['weight_grams']) || (float) $form['weight_grams'] < 0)) {
+        $error = 'Weight cannot be negative.';
+    }
+
+    $shippingOriginCountryId = null;
+    if ($error === '' && $form['shipping_origin_country_id'] !== '') {
+        $shippingOriginCountryId = (int) $form['shipping_origin_country_id'];
+        $check = $pdo->prepare('SELECT COUNT(*) FROM shipping_rate_countries WHERE id = ?');
+        $check->execute([$shippingOriginCountryId]);
+        if ((int) $check->fetchColumn() === 0) {
+            $error = 'Selected shipping origin does not exist.';
         }
     }
 
@@ -263,7 +363,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     supplier_sku = ?, internal_code = ?,
                     supplier_id = ?, product_cost = ?, cost_currency = ?, exchange_rate = ?, selling_price = ?, sale_enabled = ?, sale_price = ?,
                     min_stock_threshold = ?, target_stock_level = ?, sale_start_date = ?, estimated_arrival_date = ?, estimated_release_month = ?,
-                    preorder_closing_date = ?, preorder_reopened_at = ?, expiry_date = ?, moq = ?, status = ?, availability_override = ?
+                    preorder_closing_date = ?, preorder_reopened_at = ?, expiry_date = ?, moq = ?, status = ?, availability_override = ?,
+                    original_price = ?, original_currency = ?, original_exchange_rate = ?,
+                    market_price = ?, market_currency = ?, market_exchange_rate = ?,
+                    selling_multiplier = ?, weight_grams = ?, shipping_origin_country_id = ?
                 WHERE id = ?
             ');
             $stmt->execute([
@@ -295,6 +398,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $form['moq'] !== '' ? max(1, (int) $form['moq']) : 1,
                 $form['status'],
                 $form['availability_override'],
+                $form['original_price'] !== '' ? round((float) $form['original_price'], 2) : null,
+                $form['original_price'] !== '' && $originalCurrency !== 'MYR' ? $originalCurrency : null,
+                $form['original_price'] !== '' && $originalCurrency !== 'MYR' ? $originalExchangeRateValue : null,
+                $form['market_price'] !== '' ? round((float) $form['market_price'], 2) : null,
+                $form['market_price'] !== '' && $marketCurrency !== 'MYR' ? $marketCurrency : null,
+                $form['market_price'] !== '' && $marketCurrency !== 'MYR' ? $marketExchangeRateValue : null,
+                $form['selling_multiplier'] !== '' ? round((float) $form['selling_multiplier'], 2) : null,
+                $form['weight_grams'] !== '' ? round((float) $form['weight_grams'], 2) : null,
+                $shippingOriginCountryId,
                 $productId,
             ]);
 
@@ -373,6 +485,7 @@ $attributes = array_map(static function (array $attribute) use ($pdo): array {
 
     return $attribute;
 }, catalog_list_attributes($pdo));
+$shippingCountries = pricing_list_shipping_rate_countries($pdo);
 
 $existingAssignments = [];
 foreach (catalog_get_product_attribute_assignments($pdo, $productId) as $assignment) {

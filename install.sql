@@ -149,6 +149,14 @@ CREATE TABLE IF NOT EXISTS suppliers (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS shipping_rate_countries (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  country_name VARCHAR(100) NOT NULL UNIQUE,
+  rate_per_gram DECIMAL(10,4) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Catalog taxonomies. Defined before `products` because products.brand_id references brands.
 CREATE TABLE IF NOT EXISTS brands (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -232,6 +240,15 @@ CREATE TABLE IF NOT EXISTS products (
   product_cost DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   cost_currency VARCHAR(10) NULL,
   exchange_rate DECIMAL(10,4) NULL,
+  original_price DECIMAL(12,2) NULL,
+  original_currency VARCHAR(10) NULL,
+  original_exchange_rate DECIMAL(10,4) NULL,
+  market_price DECIMAL(12,2) NULL,
+  market_currency VARCHAR(10) NULL,
+  market_exchange_rate DECIMAL(10,4) NULL,
+  selling_multiplier DECIMAL(6,2) NULL,
+  weight_grams DECIMAL(10,2) NULL,
+  shipping_origin_country_id INT UNSIGNED NULL,
   sale_enabled TINYINT(1) NOT NULL DEFAULT 0,
   sale_price DECIMAL(12,2) NULL,
   min_stock_threshold INT UNSIGNED NULL,
@@ -255,6 +272,7 @@ CREATE TABLE IF NOT EXISTS products (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_products_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE SET NULL,
   CONSTRAINT fk_products_brand FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE SET NULL,
+  CONSTRAINT fk_products_shipping_origin_country FOREIGN KEY (shipping_origin_country_id) REFERENCES shipping_rate_countries(id) ON DELETE SET NULL,
   INDEX idx_products_catalog_type (catalog_type),
   INDEX idx_products_status (status),
   INDEX idx_products_product_type (product_type)
