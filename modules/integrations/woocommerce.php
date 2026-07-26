@@ -3,13 +3,16 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/wc_client.php';
 require_once __DIR__ . '/../../includes/wc_order_import.php';
 require_once __DIR__ . '/../../includes/wc_product_import.php';
+require_once __DIR__ . '/../../includes/wc_webhook.php';
 app_require_permission('settings.manage');
 
 /**
- * WooCommerce sync diagnostics + manual triggers (Phase 1: polling only, no webhook).
- * Read-only status page plus three POST actions (Test Connection, Import Orders Now, Import
- * Products Now) - all the actual import logic lives in includes/wc_order_import.php and
- * includes/wc_product_import.php, this file is presentation only.
+ * WooCommerce sync diagnostics + manual triggers. Read-only status page plus three POST
+ * actions (Test Connection, Import Orders Now, Import Products Now) - all the actual import
+ * logic lives in includes/wc_order_import.php and includes/wc_product_import.php, this file
+ * is presentation only. Phase 6E added an additive Webhooks status section at the bottom
+ * (read-only here too - the receiver is modules/webhooks/woocommerce.php, the processor is
+ * cli/wc_webhook_process.php) without changing any control above it.
  */
 
 $appTitle = 'WooCommerce Sync';
@@ -166,12 +169,29 @@ $recentPushLogs = $recentPushLogsStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $autoSyncEnabled = wc_client_auto_sync_enabled($pdo);
 
+// Phase 6E (WooCommerce webhook integration) - additive only, does not touch any of the
+// polling/push stats or controls above. "Enabled" here means "a receive secret is
+// configured", i.e. the receiver at modules/webhooks/woocommerce.php will actually accept a
+// signed delivery - there is no separate on/off toggle, since an unconfigured secret already
+// makes the endpoint reject everything with 503.
+$webhookConfig = wc_client_config();
+$webhookReceiveSecretSet = trim((string) ($webhookConfig['webhook_receive_secret'] ?? '')) !== '';
+$webhookReceiverUrl = rtrim(app_base_url(), '/') . '/modules/webhooks/woocommerce.php';
+
+$webhookCountsStmt = $pdo->query("
+    SELECT
+        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
+        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_count
+    FROM webhook_events
+");
+$webhookCounts = $webhookCountsStmt->fetch(PDO::FETCH_ASSOC);
+
 require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <h2 class="mb-1">WooCommerce Sync</h2>
-        <p class="text-muted mb-0">Import orders and products between mewmiibear.com and Mewmii OS. Manual, admin-triggered - no webhook yet.</p>
+        <p class="text-muted mb-0">Import orders and products between mewmiibear.com and Mewmii OS. Manual/scheduled polling below, plus an optional webhook receiver (Webhooks section) for near-real-time updates.</p>
     </div>
     <div class="action-bar">
         <form method="post" class="d-inline">
@@ -558,5 +578,50 @@ require_once __DIR__ . '/../../includes/header.php';
         </tbody>
     </table>
     </div>
+</div>
+
+<h5 class="mb-3 mt-5">Webhooks</h5>
+<p class="text-muted small">
+    Additive to the polling above, not a replacement - "Import Orders Now"/"Import Products
+    Now" and the cron-based sync still work exactly as before, whether or not webhooks are
+    configured. When set up, WooCommerce pushes product/order/customer changes here
+    near-real-time instead of waiting for the next poll; a separate queue processor
+    (<code>cli/wc_webhook_process.php</code>, cron-ticked every 1-2 minutes) does the actual
+    processing, reusing the exact same import functions as the polling above.
+</p>
+<div class="row g-3 mb-3">
+    <div class="col-md-3">
+        <div class="card stat-card p-4 h-100 d-flex flex-column">
+            <div class="stat-label">Receiver Status</div>
+            <div class="stat-value <?php echo $webhookReceiveSecretSet ? '' : 'stat-value-alert'; ?>" style="font-size: 1.5rem;">
+                <?php echo $webhookReceiveSecretSet ? 'Enabled' : 'Not Configured'; ?>
+            </div>
+            <div class="stat-helper mb-0"><?php echo $webhookReceiveSecretSet ? 'Signed deliveries are accepted.' : 'Set woocommerce.webhook_receive_secret in config.php.'; ?></div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card p-4 h-100 d-flex flex-column">
+            <div class="stat-label">Pending Events</div>
+            <div class="stat-value"><?php echo (int) ($webhookCounts['pending_count'] ?? 0); ?></div>
+            <div class="stat-helper mb-0">Waiting for the next processing run.</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card p-4 h-100 d-flex flex-column">
+            <div class="stat-label">Failed Events</div>
+            <div class="stat-value <?php echo (int) ($webhookCounts['failed_count'] ?? 0) > 0 ? 'stat-value-alert' : ''; ?>"><?php echo (int) ($webhookCounts['failed_count'] ?? 0); ?></div>
+            <div class="stat-helper mb-0">Includes auto-retrying and attempts-exhausted events.</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card p-4 h-100 d-flex flex-column justify-content-center">
+            <a class="btn btn-outline-primary" href="/modules/webhooks/events.php">View Webhook Events</a>
+        </div>
+    </div>
+</div>
+<div class="card p-4">
+    <h6 class="mb-2">Receiver URL</h6>
+    <p class="text-muted small mb-2">Register this URL in WooCommerce (Settings &gt; Advanced &gt; Webhooks) once per topic: product.created, product.updated, order.created, order.updated, customer.created, customer.updated - all can point at this same URL.</p>
+    <code><?php echo app_escape($webhookReceiverUrl); ?></code>
 </div>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

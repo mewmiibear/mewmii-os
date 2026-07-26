@@ -520,6 +520,27 @@ CREATE TABLE IF NOT EXISTS sync_logs (
   INDEX idx_sync_logs_type_reference_created (sync_type, reference_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS webhook_events (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  woocommerce_delivery_id VARCHAR(100) NULL,
+  topic VARCHAR(50) NOT NULL,
+  resource VARCHAR(20) NOT NULL,
+  resource_id BIGINT UNSIGNED NULL,
+  payload_hash CHAR(64) NOT NULL,
+  payload_json LONGTEXT NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  attempts INT UNSIGNED NOT NULL DEFAULT 0,
+  last_error TEXT NULL,
+  next_retry_at TIMESTAMP NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  processed_at TIMESTAMP NULL,
+  UNIQUE KEY uq_webhook_events_delivery_id (woocommerce_delivery_id),
+  INDEX idx_webhook_events_status_retry (status, next_retry_at),
+  INDEX idx_webhook_events_resource (resource, resource_id),
+  INDEX idx_webhook_events_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS saved_views (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   module VARCHAR(40) NOT NULL,

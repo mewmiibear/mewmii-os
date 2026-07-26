@@ -61,6 +61,14 @@ return [
         'consumer_key' => getenv('WC_CONSUMER_KEY') ?: '',
         'consumer_secret' => getenv('WC_CONSUMER_SECRET') ?: '',
         'webhook_secret' => getenv('WC_WEBHOOK_SECRET') ?: '',
+        // Phase 6E (WooCommerce webhook integration) - the secret configured on the
+        // WooCommerce side (Settings > Advanced > Webhooks) for signing INBOUND deliveries
+        // to modules/webhooks/woocommerce.php. Deliberately a separate key from
+        // webhook_secret above, which is the OUTBOUND token this app sends to a custom
+        // WordPress endpoint (see includes/wc_receipt_verification.php) - a different
+        // direction, different trust boundary, so a compromise of one never compromises
+        // the other.
+        'webhook_receive_secret' => getenv('WC_WEBHOOK_RECEIVE_SECRET') ?: '',
     ],
 
 ];
