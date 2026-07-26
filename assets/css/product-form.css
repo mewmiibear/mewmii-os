@@ -8,10 +8,6 @@
  * modules/products/_form.php) so no other page's layout is affected.
  */
 
-.pf-page {
-    max-width: 1360px;
-}
-
 .pf-actionbar {
     display: flex;
     align-items: center;
