@@ -67,15 +67,18 @@ $form = [
     'estimated_release_month' => '',
     'moq' => '1',
     'preorder_closing_date' => '',
-    // Phase 9D/9F/9F.1 (Pricing Engine) - only raw amounts/currencies are collected here.
-    // Exchange rates are never entered anywhere - includes/currency_rates.php looks them up
-    // automatically from the centrally-managed rate table (modules/settings/currency_rates.php).
+    // Phase 9D/9F/9F.1/9F.2/9G (Pricing Engine) - only raw amounts/currencies are collected
+    // here. Exchange rates are never entered anywhere - includes/currency_rates.php looks
+    // them up automatically from the centrally-managed rate table. Market Price has no
+    // amount input at all (Phase 9G) - it's calculated from Original Price, only its
+    // currency is picked here.
     'original_price' => '',
     'original_currency' => 'MYR',
     'original_currency_other' => '',
-    'market_price' => '',
     'market_currency' => 'MYR',
     'market_currency_other' => '',
+    'weight_grams' => '',
+    'shipping_origin_country_id' => '',
 ];
 $selectedTagIds = [];
 
@@ -126,13 +129,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form['preorder_closing_date'] = trim((string) ($_POST['preorder_closing_date'] ?? ''));
     $selectedTagIds = array_map('intval', $_POST['tag_ids'] ?? []);
 
-    // Phase 9D/9F/9F.1 (Pricing Engine)
+    // Phase 9D/9F/9F.1/9F.2/9G (Pricing Engine)
     $form['original_price'] = trim((string) ($_POST['original_price'] ?? ''));
     $form['original_currency'] = trim((string) ($_POST['original_currency'] ?? 'MYR'));
     $form['original_currency_other'] = trim((string) ($_POST['original_currency_other'] ?? ''));
-    $form['market_price'] = trim((string) ($_POST['market_price'] ?? ''));
     $form['market_currency'] = trim((string) ($_POST['market_currency'] ?? 'MYR'));
     $form['market_currency_other'] = trim((string) ($_POST['market_currency_other'] ?? ''));
+    $form['weight_grams'] = trim((string) ($_POST['weight_grams'] ?? ''));
+    $form['shipping_origin_country_id'] = trim((string) ($_POST['shipping_origin_country_id'] ?? ''));
 
     if ($error === '') {
         if ($form['sku'] === '' || strlen($form['sku']) > 100) {
@@ -187,14 +191,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    // Phase 9G - Market Price has no amount input at all (it's calculated from Original
+    // Price) - only the currency selection is validated here.
     $marketCurrency = $form['market_currency'] === 'OTHER' ? strtoupper($form['market_currency_other']) : strtoupper($form['market_currency']);
-    if ($error === '' && $form['market_price'] !== '') {
-        if (!is_numeric($form['market_price']) || (float) $form['market_price'] < 0) {
-            $error = 'Market Price must be a valid non-negative number.';
-        } elseif ($form['market_currency'] === 'OTHER' && ($marketCurrency === '' || strlen($marketCurrency) > 10)) {
+    if ($error === '') {
+        if ($form['market_currency'] === 'OTHER' && ($marketCurrency === '' || strlen($marketCurrency) > 10)) {
             $error = 'Enter a valid Market Currency code (up to 10 characters).';
         } elseif ($form['market_currency'] !== 'OTHER' && !in_array($form['market_currency'], CURRENCY_RATE_OPTIONS, true)) {
             $error = 'Invalid Market Currency.';
+        }
+    }
+
+    if ($error === '' && $form['weight_grams'] !== '' && (!is_numeric($form['weight_grams']) || (float) $form['weight_grams'] < 0)) {
+        $error = 'Weight cannot be negative.';
+    }
+
+    $shippingOriginCountryId = null;
+    if ($error === '' && $form['shipping_origin_country_id'] !== '') {
+        $shippingOriginCountryId = (int) $form['shipping_origin_country_id'];
+        $check = $pdo->prepare('SELECT COUNT(*) FROM shipping_rate_countries WHERE id = ?');
+        $check->execute([$shippingOriginCountryId]);
+        if ((int) $check->fetchColumn() === 0) {
+            $error = 'Selected shipping origin does not exist.';
         }
     }
 
@@ -280,8 +298,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     supplier_id, product_cost, cost_currency, selling_price, sale_enabled, sale_price,
                     min_stock_threshold, target_stock_level, sale_start_date, estimated_arrival_date, estimated_release_month,
                     preorder_closing_date, expiry_date, moq, status, availability_override,
-                    original_price, original_currency, market_price, market_currency
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    original_price, original_currency, market_currency, weight_grams, shipping_origin_country_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ');
             $stmt->execute([
                 $form['sku'],
@@ -312,8 +330,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $form['availability_override'],
                 $form['original_price'] !== '' ? round((float) $form['original_price'], 2) : null,
                 $form['original_price'] !== '' && $originalCurrency !== 'MYR' ? $originalCurrency : null,
-                $form['market_price'] !== '' ? round((float) $form['market_price'], 2) : null,
-                $form['market_price'] !== '' && $marketCurrency !== 'MYR' ? $marketCurrency : null,
+                $marketCurrency !== 'MYR' ? $marketCurrency : null,
+                $form['weight_grams'] !== '' ? round((float) $form['weight_grams'], 2) : null,
+                $shippingOriginCountryId,
             ]);
             $productId = (int) $pdo->lastInsertId();
 
@@ -420,6 +439,13 @@ $attributes = array_map(static function (array $attribute) use ($pdo): array {
 
     return $attribute;
 }, catalog_list_attributes($pdo));
+
+// Phase 9G (Inline Pricing & Inventory Calculation UI) - $currencyRateMaps feeds the inline
+// calculator's live JS (see _form.php); no server-side $pricingPreview here - a brand-new
+// product has nothing saved yet to look up, so the calculator starts blank and is entirely
+// JS-driven from the first keystroke.
+$shippingCountries = pricing_list_shipping_rate_countries($pdo);
+$currencyRateMaps = currency_rates_all_maps($pdo);
 
 require_once __DIR__ . '/../../includes/header.php';
 require __DIR__ . '/_form.php';

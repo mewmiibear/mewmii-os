@@ -113,7 +113,6 @@ require_once __DIR__ . '/../../includes/header.php';
         <?php if ($canManage): ?>
             <a class="btn btn-primary btn-sm" href="/modules/products/edit.php?id=<?php echo (int) $productId; ?>">Edit Product</a>
             <a class="btn btn-outline-primary btn-sm" href="/modules/products/control-center.php?id=<?php echo (int) $productId; ?>">Open Product Control Center</a>
-            <a class="btn btn-outline-primary btn-sm" href="/modules/products/tabs/pricing.php?id=<?php echo (int) $productId; ?>">Price Calculation Setting</a>
         <?php endif; ?>
         <a class="btn btn-outline-secondary btn-sm" href="/modules/products/index.php">Back to Products</a>
     </div>

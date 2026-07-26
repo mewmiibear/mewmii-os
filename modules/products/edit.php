@@ -48,13 +48,14 @@ $product['preorder_reopened_at'] = $product['preorder_reopened_at'] ?? null;
 $product['availability_override'] = $product['availability_override'] ?? 'auto';
 $product['cost_currency'] = $product['cost_currency'] ?? null;
 $product['exchange_rate'] = $product['exchange_rate'] ?? null;
-// Phase 9D/9F/9F.1 (Pricing Engine) - older rows predate these columns, same ?? requirement
-// as above. Weight and Shipping Origin are read/edited exclusively by
-// modules/products/tabs/pricing.php, not this form.
+// Phase 9D/9F/9F.1/9F.2/9G (Pricing Engine) - older rows predate these columns, same ??
+// requirement as above. products.market_price is left unused (Phase 9G - Market Price is
+// calculated from Original Price, no separate amount input exists).
 $product['original_price'] = $product['original_price'] ?? null;
 $product['original_currency'] = $product['original_currency'] ?? null;
-$product['market_price'] = $product['market_price'] ?? null;
 $product['market_currency'] = $product['market_currency'] ?? null;
+$product['weight_grams'] = $product['weight_grams'] ?? null;
+$product['shipping_origin_country_id'] = $product['shipping_origin_country_id'] ?? null;
 
 $catalogTypes = ['simple', 'variable'];
 $productTypes = ['ready_stock', 'preorder', 'early_bird'];
@@ -111,10 +112,10 @@ $form = [
     'estimated_release_month' => (string) ($product['estimated_release_month'] ?? ''),
     'moq' => (string) $product['moq'],
     'preorder_closing_date' => (string) ($product['preorder_closing_date'] ?? ''),
-    // Phase 9D/9F/9F.1 (Pricing Engine) - only raw amounts/currencies are editable on this
-    // form; exchange rates are never entered anywhere (see includes/currency_rates.php).
-    // Weight/Shipping Origin live on the Price Calculation Setting tab instead. Same "known
-    // value or OTHER + free text" pattern as cost_currency above.
+    // Phase 9D/9F/9F.1/9F.2/9G (Pricing Engine) - only raw amounts/currencies are editable on
+    // this form; exchange rates are never entered anywhere (see includes/currency_rates.php).
+    // Market Price has no amount input (Phase 9G - calculated from Original Price). Same
+    // "known value or OTHER + free text" pattern as cost_currency above.
     'original_price' => $product['original_price'] !== null ? (string) $product['original_price'] : '',
     'original_currency' => $product['original_currency'] === null || in_array($product['original_currency'], CURRENCY_RATE_OPTIONS, true)
         ? ($product['original_currency'] ?? 'MYR')
@@ -122,13 +123,14 @@ $form = [
     'original_currency_other' => $product['original_currency'] !== null && !in_array($product['original_currency'], CURRENCY_RATE_OPTIONS, true)
         ? $product['original_currency']
         : '',
-    'market_price' => $product['market_price'] !== null ? (string) $product['market_price'] : '',
     'market_currency' => $product['market_currency'] === null || in_array($product['market_currency'], CURRENCY_RATE_OPTIONS, true)
         ? ($product['market_currency'] ?? 'MYR')
         : 'OTHER',
     'market_currency_other' => $product['market_currency'] !== null && !in_array($product['market_currency'], CURRENCY_RATE_OPTIONS, true)
         ? $product['market_currency']
         : '',
+    'weight_grams' => $product['weight_grams'] !== null ? (string) $product['weight_grams'] : '',
+    'shipping_origin_country_id' => $product['shipping_origin_country_id'] !== null ? (string) $product['shipping_origin_country_id'] : '',
 ];
 $selectedTagIds = catalog_get_product_tag_ids($pdo, $productId);
 
@@ -173,13 +175,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form['preorder_closing_date'] = trim((string) ($_POST['preorder_closing_date'] ?? ''));
     $selectedTagIds = array_map('intval', $_POST['tag_ids'] ?? []);
 
-    // Phase 9D/9F/9F.1 (Pricing Engine)
+    // Phase 9D/9F/9F.1/9F.2/9G (Pricing Engine)
     $form['original_price'] = trim((string) ($_POST['original_price'] ?? ''));
     $form['original_currency'] = trim((string) ($_POST['original_currency'] ?? 'MYR'));
     $form['original_currency_other'] = trim((string) ($_POST['original_currency_other'] ?? ''));
-    $form['market_price'] = trim((string) ($_POST['market_price'] ?? ''));
     $form['market_currency'] = trim((string) ($_POST['market_currency'] ?? 'MYR'));
     $form['market_currency_other'] = trim((string) ($_POST['market_currency_other'] ?? ''));
+    $form['weight_grams'] = trim((string) ($_POST['weight_grams'] ?? ''));
+    $form['shipping_origin_country_id'] = trim((string) ($_POST['shipping_origin_country_id'] ?? ''));
 
     if ($error === '') {
         if ($form['sku'] === '' || strlen($form['sku']) > 100) {
@@ -233,14 +236,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    // Phase 9G - Market Price has no amount input at all (calculated from Original Price) -
+    // only the currency selection is validated here.
     $marketCurrency = $form['market_currency'] === 'OTHER' ? strtoupper($form['market_currency_other']) : strtoupper($form['market_currency']);
-    if ($error === '' && $form['market_price'] !== '') {
-        if (!is_numeric($form['market_price']) || (float) $form['market_price'] < 0) {
-            $error = 'Market Price must be a valid non-negative number.';
-        } elseif ($form['market_currency'] === 'OTHER' && ($marketCurrency === '' || strlen($marketCurrency) > 10)) {
+    if ($error === '') {
+        if ($form['market_currency'] === 'OTHER' && ($marketCurrency === '' || strlen($marketCurrency) > 10)) {
             $error = 'Enter a valid Market Currency code (up to 10 characters).';
         } elseif ($form['market_currency'] !== 'OTHER' && !in_array($form['market_currency'], CURRENCY_RATE_OPTIONS, true)) {
             $error = 'Invalid Market Currency.';
+        }
+    }
+
+    if ($error === '' && $form['weight_grams'] !== '' && (!is_numeric($form['weight_grams']) || (float) $form['weight_grams'] < 0)) {
+        $error = 'Weight cannot be negative.';
+    }
+
+    $shippingOriginCountryId = null;
+    if ($error === '' && $form['shipping_origin_country_id'] !== '') {
+        $shippingOriginCountryId = (int) $form['shipping_origin_country_id'];
+        $check = $pdo->prepare('SELECT COUNT(*) FROM shipping_rate_countries WHERE id = ?');
+        $check->execute([$shippingOriginCountryId]);
+        if ((int) $check->fetchColumn() === 0) {
+            $error = 'Selected shipping origin does not exist.';
         }
     }
 
@@ -313,16 +330,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     supplier_id = ?, product_cost = ?, cost_currency = ?, selling_price = ?, sale_enabled = ?, sale_price = ?,
                     min_stock_threshold = ?, target_stock_level = ?, sale_start_date = ?, estimated_arrival_date = ?, estimated_release_month = ?,
                     preorder_closing_date = ?, preorder_reopened_at = ?, expiry_date = ?, moq = ?, status = ?, availability_override = ?,
-                    original_price = ?, original_currency = ?, market_price = ?, market_currency = ?
+                    original_price = ?, original_currency = ?, market_currency = ?, weight_grams = ?, shipping_origin_country_id = ?
                 WHERE id = ?
             ');
-            // Phase 9F.1 - exchange_rate/original_exchange_rate/market_exchange_rate/
-            // selling_multiplier/weight_grams/shipping_origin_country_id are deliberately NOT
-            // in this UPDATE. Exchange rates are never entered anywhere anymore (auto-synced
-            // below instead); weight/shipping origin are edited exclusively on the Price
-            // Calculation Setting tab (modules/products/tabs/pricing.php). Including any of
-            // them here (even as "unchanged" values from a $form that never collects them)
-            // would silently overwrite what that tab/the sync has saved on every basic save.
+            // Phase 9G - exchange_rate/original_exchange_rate/market_exchange_rate/
+            // selling_multiplier are deliberately NOT in this UPDATE. Exchange rates are never
+            // entered anywhere (auto-synced below instead). market_price is also never set -
+            // Market Price is calculated from Original Price (see includes/pricing_engine.php),
+            // there is no separate amount column to write. Weight/Shipping Origin ARE part of
+            // this form again now that the separate Pricing tab was removed.
             $stmt->execute([
                 $form['sku'],
                 $form['name'],
@@ -353,8 +369,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $form['availability_override'],
                 $form['original_price'] !== '' ? round((float) $form['original_price'], 2) : null,
                 $form['original_price'] !== '' && $originalCurrency !== 'MYR' ? $originalCurrency : null,
-                $form['market_price'] !== '' ? round((float) $form['market_price'], 2) : null,
-                $form['market_price'] !== '' && $marketCurrency !== 'MYR' ? $marketCurrency : null,
+                $marketCurrency !== 'MYR' ? $marketCurrency : null,
+                $form['weight_grams'] !== '' ? round((float) $form['weight_grams'], 2) : null,
+                $shippingOriginCountryId,
                 $productId,
             ]);
 
@@ -473,6 +490,13 @@ unset($variation);
 
 $mainImage = product_image_get_main($pdo, $productId);
 $galleryImages = product_image_list_gallery($pdo, $productId);
+
+// Phase 9G (Inline Pricing & Inventory Calculation UI) - feeds the inline calculator's live
+// JS (see _form.php); the JS itself computes the initial display from these same rate maps
+// and the form's own pre-filled values on load, so there's no separate server-computed
+// preview to keep in sync with it.
+$shippingCountries = pricing_list_shipping_rate_countries($pdo);
+$currencyRateMaps = currency_rates_all_maps($pdo);
 
 require_once __DIR__ . '/../../includes/header.php';
 require __DIR__ . '/_form.php';

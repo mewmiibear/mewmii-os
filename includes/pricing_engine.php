@@ -3,7 +3,7 @@
 require_once __DIR__ . '/currency_rates.php';
 
 /**
- * Phase 9D/9F/9F.1/9F.2 - Pricing Engine. A separate, read-only planning layer alongside (never
+ * Phase 9D/9F/9F.1/9F.2/9G - Pricing Engine. A separate, read-only planning layer alongside (never
  * inside) includes/product_cost.php's actual Landed Cost engine - see that file's own
  * docblock for "Converted Supplier Cost + Shipping Allocation + Additional Costs" from REAL
  * received supplier orders. This file answers a different question: BEFORE any supplier
@@ -37,10 +37,17 @@ require_once __DIR__ . '/currency_rates.php';
  *     configured, never assumed 1:1 - same convention product_cost.php already uses for
  *     Supplier Price.
  *   Supplier Discount % = (Original MYR - Supplier MYR) / Original MYR x 100
+ *   Market Price MYR (Phase 9G, confirmed) = Original Price (the SAME raw amount as Original
+ *     Price above, not a separate market_price amount) x the 'market' rate_type rate for
+ *     market_currency. products.market_price is left unused (no destructive column drop) -
+ *     there is deliberately no manual Market Price amount input anywhere.
  *   Estimated Shipping Cost = weight_grams x shipping_rate_countries.rate_per_gram
  *   Estimated Cost = Supplier Price MYR + Estimated Shipping Cost (partial/"estimated" if
  *     shipping isn't configured yet, same as product_cost.php's is_estimated flag - never
  *     silently treated as zero)
+ *   Profit = Selling Price - Estimated Cost; Margin % = Profit / Selling Price x 100 (Phase
+ *     9G - purely a planning-layer display figure, never written back to any column, and
+ *     never used to compute or auto-fill products.selling_price).
  *
  * Explicitly removed (not just moved): selling multiplier, recommended selling price, any
  * auto-fill of selling_price - products.selling_price is manually controlled only, from
@@ -93,12 +100,34 @@ function pricing_calculate_supplier_price(?float $supplierPrice, ?string $suppli
 }
 
 /**
- * Market Price - its own quoted amount/currency (a competitor/reseller reference, genuinely
- * independent of Original Price), converted the exact same way as Original/Supplier above.
+ * Market Price (Phase 9G) - deliberately reuses the Original Price amount (there is no
+ * separate market_price amount input anywhere), converted via market_currency's own 'market'
+ * rate_type rate. $originalPrice is the SAME value passed to pricing_calculate_original_price()
+ * for this same product - callers must not pass a different amount.
  */
-function pricing_calculate_market_price(?float $marketPrice, ?string $marketCurrency, ?float $marketExchangeRate): array
+function pricing_calculate_market_price(?float $originalPrice, ?string $marketCurrency, ?float $marketExchangeRate): array
 {
-    return pricing_convert_to_myr($marketPrice, $marketCurrency, $marketExchangeRate);
+    return pricing_convert_to_myr($originalPrice, $marketCurrency, $marketExchangeRate);
+}
+
+/**
+ * Profit = Selling Price - Estimated Cost; Margin % = Profit / Selling Price x 100. Phase 9G
+ * - a pure planning-layer display figure computed here so modules/products/_form.php's inline
+ * calculator and any future consumer share one formula. Never written to any column, never
+ * used to compute or auto-fill products.selling_price (that stays manually controlled).
+ */
+function pricing_calculate_profit_margin(float $sellingPrice, ?float $estimatedCost): array
+{
+    if ($estimatedCost === null) {
+        return ['profit' => null, 'margin_percent' => null];
+    }
+
+    $profit = $sellingPrice - $estimatedCost;
+
+    return [
+        'profit' => $profit,
+        'margin_percent' => $sellingPrice > 0 ? ($profit / $sellingPrice * 100) : null,
+    ];
 }
 
 /**
@@ -169,7 +198,7 @@ function pricing_calculate_batch(PDO $pdo, array $productIds): array
             p.id, p.selling_price,
             p.product_cost, p.cost_currency,
             p.original_price, p.original_currency,
-            p.market_price, p.market_currency,
+            p.market_currency,
             p.weight_grams, p.shipping_origin_country_id,
             src.country_name AS shipping_origin_country_name,
             src.rate_per_gram AS shipping_rate_per_gram
@@ -235,7 +264,7 @@ function pricing_build_breakdown(array $row, array $rateMaps): array
         $row['cost_currency'] !== null ? ($rateMaps['supplier'][$row['cost_currency']] ?? null) : null
     );
     $market = pricing_calculate_market_price(
-        $row['market_price'] !== null ? (float) $row['market_price'] : null,
+        $row['original_price'] !== null ? (float) $row['original_price'] : null,
         $row['market_currency'],
         $row['market_currency'] !== null ? ($rateMaps['market'][$row['market_currency']] ?? null) : null
     );
@@ -246,6 +275,8 @@ function pricing_build_breakdown(array $row, array $rateMaps): array
 
     $estimatedCost = pricing_calculate_estimated_cost($supplier['converted'], $shippingCost);
     $supplierDiscountPercent = pricing_calculate_supplier_discount_percent($original['converted'], $supplier['converted']);
+    $sellingPrice = (float) $row['selling_price'];
+    $profitMargin = pricing_calculate_profit_margin($sellingPrice, $estimatedCost['estimated_cost']);
 
     return [
         'original_price' => $original['raw'],
@@ -276,13 +307,15 @@ function pricing_build_breakdown(array $row, array $rateMaps): array
         'estimated_cost' => $estimatedCost['estimated_cost'],
         'estimated_cost_is_partial' => $estimatedCost['is_partial'],
 
-        'selling_price' => (float) $row['selling_price'],
+        'selling_price' => $sellingPrice,
+        'profit' => $profitMargin['profit'],
+        'margin_percent' => $profitMargin['margin_percent'],
     ];
 }
 
 /**
  * Every configured shipping origin country, cheapest first isn't meaningful here so just
- * alphabetical - for modules/products/tabs/pricing.php's dropdown and
+ * alphabetical - for modules/products/_form.php's Shipping Origin dropdown and
  * modules/settings/shipping_rates.php's list.
  */
 function pricing_list_shipping_rate_countries(PDO $pdo): array

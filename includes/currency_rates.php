@@ -45,6 +45,27 @@ function currency_rates_list(PDO $pdo, string $rateType): array
 }
 
 /**
+ * Phase 9G (Inline Pricing & Inventory Calculation UI) - every configured rate for all three
+ * types in one shape: ['supplier' => [code => rate], 'original' => [...], 'market' => [...]].
+ * One query, not three-per-page-load-times-N-fields - for modules/products/_form.php's
+ * inline calculator to embed as JSON and recompute Supplier/Original/Market Price RM live in
+ * the browser as the admin types, without a server round-trip per keystroke.
+ */
+function currency_rates_all_maps(PDO $pdo): array
+{
+    $maps = [];
+    foreach (CURRENCY_RATE_TYPES as $rateType) {
+        $map = [];
+        foreach (currency_rates_list($pdo, $rateType) as $row) {
+            $map[$row['currency_code']] = (float) $row['exchange_rate'];
+        }
+        $maps[$rateType] = $map;
+    }
+
+    return $maps;
+}
+
+/**
  * One batched lookup for a set of currency codes WITHIN ONE rate type - returns
  * [code => rate] for only the codes that actually have a configured row for that type; a
  * code with no row is simply absent from the returned array (the "not configured" signal -

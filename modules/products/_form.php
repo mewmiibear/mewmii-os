@@ -90,7 +90,6 @@ $productFormCssVersion = is_file($productFormCssPath) ? filemtime($productFormCs
         <?php endif; ?>
         <?php if ($isEdit): ?>
             <a class="btn btn-outline-primary btn-sm" href="/modules/products/control-center.php?id=<?php echo (int) $productId; ?>">Open Product Control Center</a>
-            <a class="btn btn-outline-primary btn-sm" href="/modules/products/tabs/pricing.php?id=<?php echo (int) $productId; ?>">Price Calculation Setting</a>
         <?php endif; ?>
         <a class="btn btn-outline-secondary btn-sm" href="/modules/products/index.php">Back to Products</a>
     </div>
@@ -310,28 +309,15 @@ $productFormCssVersion = is_file($productFormCssPath) ? filemtime($productFormCs
         </div>
 
         <div class="pf-group">
-            <div class="pf-group-label">Pricing</div>
+            <div class="pf-group-label">Supplier Price</div>
             <div class="row g-3">
                 <div class="col-md-4">
-                    <label class="form-label">Supplier Price (RM) <span class="text-danger">*</span></label>
-                    <input type="number" step="0.01" min="0" class="form-control" name="product_cost" value="<?php echo app_escape($form['product_cost']); ?>" placeholder="0.00" required>
+                    <label class="form-label">Supplier Price <span class="text-danger">*</span></label>
+                    <input type="number" step="0.01" min="0" class="form-control" name="product_cost" id="pf-supplier-price" value="<?php echo app_escape($form['product_cost']); ?>" placeholder="0.00" required>
                     <div class="invalid-feedback">Supplier price is required.</div>
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label">Selling Price (RM) <span class="text-danger">*</span></label>
-                    <input type="number" step="0.01" min="0" class="form-control" name="selling_price" id="pf-selling-price-input" value="<?php echo app_escape($form['selling_price']); ?>" placeholder="0.00" required>
-                    <div class="invalid-feedback">Regular price is required.</div>
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label d-block">&nbsp;</label>
-                    <label class="form-check">
-                        <input type="checkbox" class="form-check-input" name="sale_enabled" value="1" id="enable-sale" <?php echo $form['sale_enabled'] ? 'checked' : ''; ?>>
-                        <span class="form-check-label">Enable Sale (Early Bird)</span>
-                    </label>
-                </div>
-
-                <div class="col-md-4">
-                    <label class="form-label">Cost Currency</label>
+                    <label class="form-label">Supplier Currency</label>
                     <select class="form-select" name="cost_currency" id="cost-currency-select">
                         <?php foreach (PRODUCT_COST_CURRENCY_OPTIONS as $currencyOption): ?>
                             <option value="<?php echo app_escape($currencyOption); ?>" <?php echo $form['cost_currency'] === $currencyOption ? 'selected' : ''; ?>><?php echo app_escape($currencyOption); ?></option>
@@ -339,12 +325,21 @@ $productFormCssVersion = is_file($productFormCssPath) ? filemtime($productFormCs
                         <option value="OTHER" <?php echo $form['cost_currency'] === 'OTHER' ? 'selected' : ''; ?>>Other</option>
                     </select>
                     <input type="text" class="form-control mt-2<?php echo $form['cost_currency'] !== 'OTHER' ? ' d-none' : ''; ?>" id="cost-currency-other" name="cost_currency_other" maxlength="10" placeholder="e.g. KRW" value="<?php echo app_escape($form['cost_currency_other']); ?>">
-                    <div class="form-text">Currency Cost Price was quoted in. Leave as MYR if it's already in ringgit. Exchange rate is looked up automatically from Settings &gt; Currency Exchange Rates.</div>
+                    <div class="form-text" id="pf-supplier-rate-display">Rate looked up automatically from Settings &gt; Currency Exchange Rates.</div>
                 </div>
                 <div class="col-md-4">
+                    <label class="form-label d-block">Supplier Cost (RM)</label>
+                    <div class="form-control-plaintext fw-semibold" id="pf-supplier-cost-rm">&mdash;</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="pf-group">
+            <div class="pf-group-label">Original Price <span class="text-muted fw-normal text-lowercase">(brand/official retail reference)</span></div>
+            <div class="row g-3">
+                <div class="col-md-4">
                     <label class="form-label">Original Price</label>
-                    <input type="number" step="0.01" min="0" class="form-control" name="original_price" value="<?php echo app_escape($form['original_price']); ?>" placeholder="0.00">
-                    <div class="form-text">Official brand/retail reference price. Exchange rate is looked up automatically from Settings &gt; Currency Exchange Rates - never entered here.</div>
+                    <input type="number" step="0.01" min="0" class="form-control" name="original_price" id="pf-original-price" value="<?php echo app_escape($form['original_price']); ?>" placeholder="0.00">
                 </div>
                 <div class="col-md-4">
                     <label class="form-label">Original Currency</label>
@@ -355,12 +350,18 @@ $productFormCssVersion = is_file($productFormCssPath) ? filemtime($productFormCs
                         <option value="OTHER" <?php echo $form['original_currency'] === 'OTHER' ? 'selected' : ''; ?>>Other</option>
                     </select>
                     <input type="text" class="form-control mt-2<?php echo $form['original_currency'] !== 'OTHER' ? ' d-none' : ''; ?>" id="original-currency-other" name="original_currency_other" maxlength="10" placeholder="e.g. KRW" value="<?php echo app_escape($form['original_currency_other']); ?>">
+                    <div class="form-text" id="pf-original-rate-display">Rate looked up automatically from Settings &gt; Currency Exchange Rates.</div>
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label">Market Price</label>
-                    <input type="number" step="0.01" min="0" class="form-control" name="market_price" value="<?php echo app_escape($form['market_price']); ?>" placeholder="0.00">
-                    <div class="form-text">Other sellers' price reference - optional.</div>
+                    <label class="form-label d-block">Original Price (RM)</label>
+                    <div class="form-control-plaintext fw-semibold" id="pf-original-price-rm">&mdash;</div>
                 </div>
+            </div>
+        </div>
+
+        <div class="pf-group">
+            <div class="pf-group-label">Market Price <span class="text-muted fw-normal text-lowercase">(calculated from Original Price)</span></div>
+            <div class="row g-3">
                 <div class="col-md-4">
                     <label class="form-label">Market Currency</label>
                     <select class="form-select" name="market_currency" id="market-currency-select">
@@ -370,6 +371,79 @@ $productFormCssVersion = is_file($productFormCssPath) ? filemtime($productFormCs
                         <option value="OTHER" <?php echo $form['market_currency'] === 'OTHER' ? 'selected' : ''; ?>>Other</option>
                     </select>
                     <input type="text" class="form-control mt-2<?php echo $form['market_currency'] !== 'OTHER' ? ' d-none' : ''; ?>" id="market-currency-other" name="market_currency_other" maxlength="10" placeholder="e.g. KRW" value="<?php echo app_escape($form['market_currency_other']); ?>">
+                    <div class="form-text" id="pf-market-rate-display">Rate looked up automatically from Settings &gt; Currency Exchange Rates.</div>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label d-block">Market Price (RM)</label>
+                    <div class="form-control-plaintext fw-semibold" id="pf-market-price-rm">&mdash;</div>
+                    <div class="form-text">Original Price &times; Market Exchange Rate - no separate Market Price amount is entered.</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="pf-group">
+            <div class="pf-group-label">Weight &amp; Shipping</div>
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label">Weight (grams)</label>
+                    <input type="number" step="0.01" min="0" class="form-control" name="weight_grams" id="pf-weight-grams" value="<?php echo app_escape($form['weight_grams']); ?>" placeholder="0.00">
+                </div>
+                <div class="col-md-4">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <label class="form-label mb-1">Shipping Origin</label>
+                        <a class="small" href="/modules/settings/shipping_rates.php" target="_blank" rel="noopener">Manage &#8599;</a>
+                    </div>
+                    <select class="form-select" name="shipping_origin_country_id" id="pf-shipping-origin">
+                        <option value="">None</option>
+                        <?php foreach ($shippingCountries as $shippingCountry): ?>
+                            <option value="<?php echo (int) $shippingCountry['id']; ?>" data-rate-per-gram="<?php echo app_escape((string) $shippingCountry['rate_per_gram']); ?>" <?php echo $form['shipping_origin_country_id'] === (string) $shippingCountry['id'] ? 'selected' : ''; ?>><?php echo app_escape($shippingCountry['country_name']); ?> (RM <?php echo app_escape(number_format((float) $shippingCountry['rate_per_gram'], 4)); ?>/g)</option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label d-block">Estimated Shipping Cost (RM)</label>
+                    <div class="form-control-plaintext fw-semibold" id="pf-shipping-cost-rm">&mdash;</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="pf-group">
+            <div class="pf-group-label">Cost Summary</div>
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <div class="text-muted small">Supplier Cost (RM)</div>
+                    <div class="fw-semibold" id="pf-summary-supplier-cost">&mdash;</div>
+                </div>
+                <div class="col-md-4">
+                    <div class="text-muted small">Shipping Cost (RM)</div>
+                    <div class="fw-semibold" id="pf-summary-shipping-cost">&mdash;</div>
+                </div>
+                <div class="col-md-4">
+                    <div class="text-muted small">Estimated Cost (RM)</div>
+                    <div class="fw-semibold" id="pf-summary-estimated-cost">&mdash;</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="pf-group">
+            <div class="pf-group-label">Selling Price</div>
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label">Selling Price (RM) <span class="text-danger">*</span></label>
+                    <input type="number" step="0.01" min="0" class="form-control" name="selling_price" id="pf-selling-price-input" value="<?php echo app_escape($form['selling_price']); ?>" placeholder="0.00" required>
+                    <div class="invalid-feedback">Regular price is required.</div>
+                    <div class="form-text">Manually controlled - never auto-filled or overwritten by the calculation below.</div>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label d-block">&nbsp;</label>
+                    <label class="form-check">
+                        <input type="checkbox" class="form-check-input" name="sale_enabled" value="1" id="enable-sale" <?php echo $form['sale_enabled'] ? 'checked' : ''; ?>>
+                        <span class="form-check-label">Enable Sale (Early Bird)</span>
+                    </label>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label d-block">Profit / Margin</label>
+                    <div class="fw-semibold"><span id="pf-profit">&mdash;</span> <span class="text-muted small">(<span id="pf-margin">&mdash;</span>)</span></div>
                 </div>
 
                 <div class="col-md-4 js-sale-fields">
@@ -699,6 +773,16 @@ $productFormCssVersion = is_file($productFormCssPath) ? filemtime($productFormCs
     'isEdit' => $isEdit,
     'productId' => $productId,
     'parentSku' => $form['sku'],
+    // Phase 9G (Inline Pricing & Inventory Calculation UI) - every configured rate for all
+    // three rate types (see includes/currency_rates.php), plus shipping_rate_countries keyed
+    // by id - lets the inline calculator below recompute Supplier/Original/Market Price RM
+    // and Estimated Shipping Cost instantly in the browser as fields change, with zero
+    // server round-trips per keystroke. Mirrors includes/pricing_engine.php's own formulas
+    // exactly so this preview never disagrees with what gets saved.
+    'pricingCalculator' => [
+        'rates' => $currencyRateMaps,
+        'shippingRatesByCountryId' => array_column($shippingCountries, 'rate_per_gram', 'id'),
+    ],
     'attributes' => array_map(static function (array $attribute): array {
         return [
             'id' => (int) $attribute['id'],
@@ -802,5 +886,159 @@ $entryFormJsVersion = is_file($entryFormJsPath) ? filemtime($entryFormJsPath) : 
     setupCurrencyToggle('cost-currency-select', 'cost-currency-other', 'js-cost-currency-foreign', 'cost-currency-rate-label');
     setupCurrencyToggle('original-currency-select', 'original-currency-other', 'js-original-currency-foreign', 'original-currency-rate-label');
     setupCurrencyToggle('market-currency-select', 'market-currency-other', 'js-market-currency-foreign', 'market-currency-rate-label');
+
+    // Phase 9G (Inline Pricing & Inventory Calculation UI) - mirrors includes/pricing_engine.php's
+    // formulas exactly (Supplier/Original/Market Price MYR = amount x that rate_type's rate;
+    // Market Price reuses the Original Price amount, never a separate amount; Estimated
+    // Shipping Cost = weight x rate_per_gram; Estimated Cost = Supplier Cost + Shipping;
+    // Profit = Selling Price - Estimated Cost) so this preview never disagrees with what's
+    // actually saved. Recomputed on every relevant field's input/change - no server round-trip.
+    var pricingConfigEl = document.getElementById('product-form-data');
+    var pricingConfig = pricingConfigEl ? JSON.parse(pricingConfigEl.textContent || '{}') : {};
+    var pricingCalculatorData = pricingConfig.pricingCalculator || { rates: {}, shippingRatesByCountryId: {} };
+    var pricingRates = pricingCalculatorData.rates || {};
+    var shippingRatesByCountryId = pricingCalculatorData.shippingRatesByCountryId || {};
+
+    function pfResolveCurrencyCode(selectId, otherId) {
+        var select = document.getElementById(selectId);
+        if (!select) {
+            return 'MYR';
+        }
+        if (select.value === 'OTHER') {
+            var other = document.getElementById(otherId);
+            return other ? other.value.trim().toUpperCase() : '';
+        }
+        return select.value;
+    }
+
+    function pfEffectiveRate(currencyCode, rateMap) {
+        if (!currencyCode || currencyCode === 'MYR') {
+            return 1;
+        }
+        var rate = (rateMap || {})[currencyCode];
+        return (typeof rate === 'number') ? rate : null;
+    }
+
+    function pfFormatRM(value) {
+        return 'RM ' + value.toFixed(2);
+    }
+
+    function pfUpdateRateDisplay(elementId, label, currencyCode, rate) {
+        var el = document.getElementById(elementId);
+        if (!el) {
+            return;
+        }
+        if (!currencyCode || currencyCode === 'MYR') {
+            el.textContent = 'Already in MYR - no conversion needed.';
+        } else if (rate === null) {
+            el.innerHTML = label + ': ' + currencyCode + ' (<span class="text-danger">Exchange rate not configured</span>)';
+        } else {
+            el.textContent = label + ': ' + currencyCode + ' (current rate: ' + rate.toFixed(6) + ')';
+        }
+    }
+
+    function recomputeInlinePricing() {
+        var supplierAmountInput = document.getElementById('pf-supplier-price');
+        var originalAmountInput = document.getElementById('pf-original-price');
+        var weightInput = document.getElementById('pf-weight-grams');
+        var shippingSelect = document.getElementById('pf-shipping-origin');
+        var sellingPriceInput = document.getElementById('pf-selling-price-input');
+
+        var supplierAmount = supplierAmountInput ? parseFloat(supplierAmountInput.value) : NaN;
+        var originalAmount = originalAmountInput ? parseFloat(originalAmountInput.value) : NaN;
+        var weight = weightInput ? parseFloat(weightInput.value) : NaN;
+        var sellingPrice = sellingPriceInput ? parseFloat(sellingPriceInput.value) : NaN;
+
+        var supplierCurrency = pfResolveCurrencyCode('cost-currency-select', 'cost-currency-other');
+        var originalCurrency = pfResolveCurrencyCode('original-currency-select', 'original-currency-other');
+        var marketCurrency = pfResolveCurrencyCode('market-currency-select', 'market-currency-other');
+
+        var supplierRate = pfEffectiveRate(supplierCurrency, pricingRates.supplier);
+        var originalRate = pfEffectiveRate(originalCurrency, pricingRates.original);
+        var marketRate = pfEffectiveRate(marketCurrency, pricingRates.market);
+
+        pfUpdateRateDisplay('pf-supplier-rate-display', 'Supplier Currency', supplierCurrency, supplierRate);
+        pfUpdateRateDisplay('pf-original-rate-display', 'Original Currency', originalCurrency, originalRate);
+        pfUpdateRateDisplay('pf-market-rate-display', 'Market Currency', marketCurrency, marketRate);
+
+        var supplierCostRM = (!isNaN(supplierAmount) && supplierRate !== null) ? (supplierAmount * supplierRate) : null;
+        var originalPriceRM = (!isNaN(originalAmount) && originalRate !== null) ? (originalAmount * originalRate) : null;
+        // Market Price reuses the Original Price amount - never a separate amount input.
+        var marketPriceRM = (!isNaN(originalAmount) && marketRate !== null) ? (originalAmount * marketRate) : null;
+
+        var supplierCostDisplay = document.getElementById('pf-supplier-cost-rm');
+        var originalPriceDisplay = document.getElementById('pf-original-price-rm');
+        var marketPriceDisplay = document.getElementById('pf-market-price-rm');
+        if (supplierCostDisplay) {
+            supplierCostDisplay.textContent = supplierCostRM !== null ? pfFormatRM(supplierCostRM) : '—';
+        }
+        if (originalPriceDisplay) {
+            originalPriceDisplay.textContent = originalPriceRM !== null ? pfFormatRM(originalPriceRM) : '—';
+        }
+        if (marketPriceDisplay) {
+            marketPriceDisplay.textContent = marketPriceRM !== null ? pfFormatRM(marketPriceRM) : '—';
+        }
+
+        // Estimated Shipping Cost = weight x rate_per_gram for the selected origin.
+        var shippingCost = null;
+        if (shippingSelect && shippingSelect.value !== '' && !isNaN(weight)) {
+            var ratePerGram = shippingRatesByCountryId[shippingSelect.value];
+            if (typeof ratePerGram !== 'number') {
+                var selectedOption = shippingSelect.options[shippingSelect.selectedIndex];
+                ratePerGram = selectedOption ? parseFloat(selectedOption.getAttribute('data-rate-per-gram')) : NaN;
+            }
+            if (!isNaN(ratePerGram)) {
+                shippingCost = weight * ratePerGram;
+            }
+        }
+        var shippingCostDisplay = document.getElementById('pf-shipping-cost-rm');
+        if (shippingCostDisplay) {
+            shippingCostDisplay.textContent = shippingCost !== null ? pfFormatRM(shippingCost) : '—';
+        }
+
+        // Cost Summary: Estimated Cost = Supplier Cost + Shipping Cost (shipping missing = 0,
+        // supplier missing = whole thing unknown - matches pricing_calculate_estimated_cost()).
+        var estimatedCost = supplierCostRM !== null ? (supplierCostRM + (shippingCost || 0)) : null;
+        var summarySupplier = document.getElementById('pf-summary-supplier-cost');
+        var summaryShipping = document.getElementById('pf-summary-shipping-cost');
+        var summaryEstimated = document.getElementById('pf-summary-estimated-cost');
+        if (summarySupplier) {
+            summarySupplier.textContent = supplierCostRM !== null ? pfFormatRM(supplierCostRM) : '—';
+        }
+        if (summaryShipping) {
+            summaryShipping.textContent = shippingCost !== null ? pfFormatRM(shippingCost) : '—';
+        }
+        if (summaryEstimated) {
+            summaryEstimated.textContent = estimatedCost !== null ? pfFormatRM(estimatedCost) : '—';
+        }
+
+        // Profit / Margin - Selling Price stays manually controlled; never written back here.
+        var profitDisplay = document.getElementById('pf-profit');
+        var marginDisplay = document.getElementById('pf-margin');
+        if (profitDisplay && marginDisplay) {
+            if (estimatedCost !== null && !isNaN(sellingPrice)) {
+                var profit = sellingPrice - estimatedCost;
+                profitDisplay.textContent = pfFormatRM(profit);
+                marginDisplay.textContent = sellingPrice > 0 ? ((profit / sellingPrice) * 100).toFixed(1) + '%' : '—';
+            } else {
+                profitDisplay.textContent = '—';
+                marginDisplay.textContent = '—';
+            }
+        }
+    }
+
+    [
+        'pf-supplier-price', 'cost-currency-select', 'cost-currency-other',
+        'pf-original-price', 'original-currency-select', 'original-currency-other',
+        'market-currency-select', 'market-currency-other',
+        'pf-weight-grams', 'pf-shipping-origin', 'pf-selling-price-input',
+    ].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('input', recomputeInlinePricing);
+            el.addEventListener('change', recomputeInlinePricing);
+        }
+    });
+    recomputeInlinePricing();
 })();
 </script>
