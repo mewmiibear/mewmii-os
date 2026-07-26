@@ -485,15 +485,24 @@ CREATE TABLE IF NOT EXISTS expenses (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Phase 9B (Notification & Alert Center) added reference_id below - this table already
+-- existed (scaffolded, never wired up anywhere in the app until now) with everything else
+-- Phase 9B needed: type, message, read_status, created_at. reference_id is a plain nullable
+-- INT UNSIGNED with NO foreign key, deliberately - the entity it points to depends on `type`
+-- (a product for inventory_risk/cost_increase, a supplier for supplier_delay, a supplier_order
+-- for supplier_order_overdue), so it can never reference a single table. Same polymorphic-
+-- reference convention already established by sync_logs.reference_id above.
 CREATE TABLE IF NOT EXISTS mewmii_notifications (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id INT UNSIGNED NULL,
   title VARCHAR(255) NOT NULL,
   message TEXT NULL,
   type VARCHAR(30) NOT NULL DEFAULT 'info',
+  reference_id INT UNSIGNED NULL,
   read_status TINYINT(1) NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT fk_mewmii_notifications_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+  CONSTRAINT fk_mewmii_notifications_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_mewmii_notifications_type_reference_read (type, reference_id, read_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS sync_logs (

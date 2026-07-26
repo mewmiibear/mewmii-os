@@ -545,6 +545,9 @@ $appTitle = 'Mewmii OS';
                 <aside class="col-lg-2 sidebar p-3" id="app-sidebar">
                     <div class="d-flex flex-column">
                         <a class="nav-link<?php echo $navActive('/index.php'); ?>" href="/index.php"><i class="bi bi-speedometer2"></i> Dashboard</a>
+                        <?php if (app_has_permission('dashboard.view')): ?>
+                            <a class="nav-link nav-link-sub<?php echo $navActive('/modules/notifications/index.php'); ?>" href="/modules/notifications/index.php">Notifications</a>
+                        <?php endif; ?>
 
                         <div class="nav-section-label">Catalog</div>
                         <a class="nav-link<?php echo $navActive('/modules/products/index.php'); ?>" href="/modules/products/index.php"><i class="bi bi-box-seam"></i> Products</a>

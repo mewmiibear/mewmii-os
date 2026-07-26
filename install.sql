@@ -499,15 +499,19 @@ CREATE TABLE IF NOT EXISTS expenses (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Phase 9B (Notification & Alert Center) added reference_id - see database/schema.sql for the
+-- full rationale (polymorphic reference, same convention as sync_logs.reference_id).
 CREATE TABLE IF NOT EXISTS mewmii_notifications (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id INT UNSIGNED NULL,
   title VARCHAR(255) NOT NULL,
   message TEXT NULL,
   type VARCHAR(30) NOT NULL DEFAULT 'info',
+  reference_id INT UNSIGNED NULL,
   read_status TINYINT(1) NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT fk_mewmii_notifications_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+  CONSTRAINT fk_mewmii_notifications_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_mewmii_notifications_type_reference_read (type, reference_id, read_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS sync_logs (

@@ -470,6 +470,15 @@ if ($canViewInventory) {
     }
 }
 
+// --- 13. Notification & Alert Center (Phase 9B) - READ ONLY on this page. Generation only
+// ever happens via cli/generate_alerts.php (a cron entry) or the manual "Generate Alerts Now"
+// button on modules/notifications/index.php - loading this dashboard never creates a
+// notification, so viewing it repeatedly can never produce duplicates. dashboard.view is
+// already required just to reach this page at all, so no extra permission flag is needed here.
+require_once __DIR__ . '/includes/notifications.php';
+$unreadNotificationCount = notification_unread_count($pdo);
+$recentNotifications = notification_recent($pdo, 5);
+
 require_once __DIR__ . '/includes/header.php';
 ?>
 
@@ -636,6 +645,35 @@ if ($canViewInventory) {
     </div>
 </div>
 <?php endif; ?>
+
+<div class="mb-4">
+    <div class="card p-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0">
+                <i class="bi bi-bell"></i> Notifications
+                <?php if ($unreadNotificationCount > 0): ?>
+                    <span class="badge bg-danger ms-1"><?php echo (int) $unreadNotificationCount; ?> unread</span>
+                <?php endif; ?>
+            </h5>
+            <a class="small" href="/modules/notifications/index.php">View All &rarr;</a>
+        </div>
+        <?php if ($recentNotifications === []): ?>
+            <p class="text-muted small mb-0">No notifications yet - see the Notifications page to generate alerts on demand.</p>
+        <?php else: ?>
+            <div class="d-flex flex-column gap-2">
+                <?php foreach ($recentNotifications as $notification): ?>
+                    <div class="attention-item <?php echo $notification['read_status'] ? '' : 'tone-warning'; ?> d-flex justify-content-between align-items-center p-3">
+                        <span>
+                            <?php if (!$notification['read_status']): ?><span class="badge bg-danger me-1">Unread</span><?php endif; ?>
+                            <?php echo app_escape($notification['title']); ?>
+                        </span>
+                        <a class="btn btn-outline-primary btn-sm" href="<?php echo app_escape(notification_url_for($notification)); ?>">Review &rarr;</a>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+    </div>
+</div>
 
 <div class="row g-4 mb-4">
     <div class="col-lg-7">
