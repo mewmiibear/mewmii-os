@@ -182,6 +182,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $error = 'Failed to delete payment.';
                 }
             }
+        } elseif ($action === 'allocate_shipping') {
+            $allocationMethod = (string) ($_POST['allocation_method'] ?? '');
+            $totalShippingCost = (float) ($_POST['total_shipping_cost'] ?? 0);
+            $manualAllocations = [];
+            foreach ($_POST['shipping_allocated'] ?? [] as $itemIdKey => $rawAmount) {
+                $manualAllocations[(int) $itemIdKey] = (float) $rawAmount;
+            }
+
+            $pdo->beginTransaction();
+
+            try {
+                supplier_order_allocate_shipping($pdo, $orderId, $allocationMethod, $totalShippingCost, $manualAllocations);
+                supplier_order_log_event($pdo, $orderId, 'Shipping cost allocated (' . str_replace('_', ' ', $allocationMethod) . '): RM ' . number_format($totalShippingCost, 2));
+                $pdo->commit();
+
+                app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1&shipping_allocated=1');
+            } catch (RuntimeException $exception) {
+                $pdo->rollBack();
+                $error = $exception->getMessage();
+            } catch (Exception $exception) {
+                $pdo->rollBack();
+                $error = 'Failed to allocate shipping cost.';
+            }
         } elseif ($action === 'cancel') {
             $pdo->beginTransaction();
 
@@ -213,7 +236,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $itemsStmt = $pdo->prepare('
     SELECT soi.id, soi.product_id, soi.total_quantity, soi.supplier_price, soi.unit_cost_foreign, soi.subtotal, soi.variation_id,
-           soi.customer_quantity, soi.moq_quantity, soi.top_up_quantity,
+           soi.customer_quantity, soi.moq_quantity, soi.top_up_quantity, soi.shipping_allocated,
            COALESCE(pv.sku, p.sku) AS sku, p.name AS product_name, p.product_type
     FROM supplier_order_items soi
     INNER JOIN products p ON p.id = soi.product_id
@@ -239,6 +262,23 @@ unset($item);
 // UI/UX Phase 5C: receiving progress bar - purely derived from the totals just computed above,
 // no new query and no change to how received_quantity/remaining_quantity are calculated.
 $receivingProgressPct = $totalOrderedQty > 0 ? (int) round(($totalReceivedQty / $totalOrderedQty) * 100) : 0;
+
+// Phase 7D (Shipping Allocation) - purely derived from the shipping_allocated column already
+// fetched above, no new query. Compared against the order's own shipping_fee (the existing,
+// already-entered "total shipping cost for this order") rather than remembering whatever total
+// was typed into the allocation form last time - shipping_allocated is the only thing this
+// feature is allowed to store, so shipping_fee is the one persistent reference to check it
+// against on every page load, not just right after a save.
+$totalShippingAllocated = 0.0;
+$anyShippingAllocated = false;
+foreach ($items as $item) {
+    if ($item['shipping_allocated'] !== null) {
+        $anyShippingAllocated = true;
+        $totalShippingAllocated += (float) $item['shipping_allocated'];
+    }
+}
+$shippingAllocationMismatch = $anyShippingAllocated
+    && abs($totalShippingAllocated - (float) $order['shipping_fee']) > 0.01;
 
 // Receiving glue prompt (display-only): right after a receive/mark-arrived action, check the
 // SAME existing demand functions the Reservation/Allocation Centers already use
@@ -385,6 +425,9 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php endif; ?>
 <?php if (isset($_GET['updated'])): ?>
     <div class="alert alert-success">Supplier order updated.</div>
+<?php endif; ?>
+<?php if (isset($_GET['shipping_allocated'])): ?>
+    <div class="alert alert-success">Shipping cost allocated.</div>
 <?php endif; ?>
 <?php if (isset($_GET['delete_error'])): ?>
     <div class="alert alert-danger"><?php echo app_escape($_GET['delete_error'] === '1' ? 'Failed to delete supplier order.' : $_GET['delete_error']); ?></div>
@@ -616,6 +659,81 @@ require_once __DIR__ . '/../../includes/header.php';
                 </tbody>
             </table>
         </div>
+
+        <?php if ($items !== []): ?>
+        <div class="card p-4 mt-4">
+            <h5 class="mb-3"><i class="bi bi-box-seam"></i> Shipping Allocation</h5>
+
+            <?php if ($shippingAllocationMismatch): ?>
+                <div class="alert alert-warning py-2">
+                    Allocated total (RM <?php echo app_escape(number_format($totalShippingAllocated, 2)); ?>) does not match this order's Shipping Fee (RM <?php echo app_escape(number_format((float) $order['shipping_fee'], 2)); ?>).
+                </div>
+            <?php endif; ?>
+
+            <div class="d-flex justify-content-between small text-muted mb-3">
+                <span>Total Allocated</span>
+                <span>
+                    RM <?php echo app_escape(number_format($totalShippingAllocated, 2)); ?>
+                    of RM <?php echo app_escape(number_format((float) $order['shipping_fee'], 2)); ?> shipping fee
+                    <?php if (!$anyShippingAllocated): ?><span class="text-muted">(not yet allocated)</span><?php endif; ?>
+                </span>
+            </div>
+
+            <?php if ($canManage): ?>
+                <form method="post" id="shipping-allocation-form">
+                    <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                    <input type="hidden" name="action" value="allocate_shipping">
+                    <div class="row g-2 align-items-end mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label small mb-1">Total Shipment Shipping Cost (RM)</label>
+                            <input type="number" step="0.01" min="0" class="form-control form-control-sm" name="total_shipping_cost" id="shipping-total-input" value="<?php echo app_escape(number_format((float) $order['shipping_fee'], 2, '.', '')); ?>" required>
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label small mb-1">Allocation Method</label>
+                            <select class="form-select form-select-sm" name="allocation_method" id="shipping-method-select">
+                                <option value="by_quantity">By Item Quantity</option>
+                                <option value="by_cost">By Item Cost Value</option>
+                                <option value="manual">Manual Override</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <button type="submit" class="btn btn-sm btn-primary w-100">Allocate Shipping</button>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>SKU</th>
+                                    <th>Product</th>
+                                    <th class="text-end">Qty</th>
+                                    <th class="text-end">Cost Value</th>
+                                    <th class="text-end">Current Allocation</th>
+                                    <th class="text-end d-none" id="manual-alloc-header">Manual Amount (RM)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($items as $item): ?>
+                                    <tr>
+                                        <td><?php echo app_escape($item['sku']); ?></td>
+                                        <td><?php echo app_escape($item['product_name']); ?></td>
+                                        <td class="text-end"><?php echo (int) $item['total_quantity']; ?></td>
+                                        <td class="text-end">RM <?php echo app_escape(number_format((float) $item['subtotal'], 2)); ?></td>
+                                        <td class="text-end"><?php echo $item['shipping_allocated'] !== null ? ('RM ' . app_escape(number_format((float) $item['shipping_allocated'], 2))) : '&mdash;'; ?></td>
+                                        <td class="text-end d-none manual-alloc-cell">
+                                            <input type="number" step="0.01" min="0" class="form-control form-control-sm manual-alloc-input" name="shipping_allocated[<?php echo (int) $item['id']; ?>]" value="<?php echo $item['shipping_allocated'] !== null ? app_escape(number_format((float) $item['shipping_allocated'], 2, '.', '')) : '0.00'; ?>">
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="text-end small text-muted mt-2 d-none" id="manual-running-total">Manual total: RM <span id="manual-running-total-value">0.00</span></div>
+                </form>
+            <?php endif; ?>
+        </div>
+        <?php endif; ?>
     </div>
 
     <div class="col-lg-5">
@@ -746,4 +864,66 @@ require_once __DIR__ . '/../../includes/header.php';
     </div>
 </div>
 
+<?php if ($canManage && $items !== []): ?>
+<script>
+(function () {
+    // Phase 7D (Shipping Allocation) - same toggle-by-classList shape already used elsewhere
+    // in this app (e.g. modules/products/_form.php's Enable Sale / Cost Currency toggles),
+    // self-contained here since nothing else on this page needs it.
+    var methodSelect = document.getElementById('shipping-method-select');
+    var manualHeader = document.getElementById('manual-alloc-header');
+    var manualCells = document.querySelectorAll('.manual-alloc-cell');
+    var manualInputs = document.querySelectorAll('.manual-alloc-input');
+    var runningTotalWrap = document.getElementById('manual-running-total');
+    var runningTotalValue = document.getElementById('manual-running-total-value');
+    var hasExistingAllocation = <?php echo $anyShippingAllocated ? 'true' : 'false'; ?>;
+
+    function applyMethod() {
+        var isManual = methodSelect.value === 'manual';
+        if (manualHeader) {
+            manualHeader.classList.toggle('d-none', !isManual);
+        }
+        manualCells.forEach(function (cell) {
+            cell.classList.toggle('d-none', !isManual);
+        });
+        if (runningTotalWrap) {
+            runningTotalWrap.classList.toggle('d-none', !isManual);
+        }
+        updateRunningTotal();
+    }
+
+    function updateRunningTotal() {
+        if (!runningTotalValue) {
+            return;
+        }
+        var total = 0;
+        manualInputs.forEach(function (input) {
+            total += parseFloat(input.value) || 0;
+        });
+        runningTotalValue.textContent = total.toFixed(2);
+    }
+
+    if (methodSelect) {
+        methodSelect.addEventListener('change', applyMethod);
+        applyMethod();
+    }
+    manualInputs.forEach(function (input) {
+        input.addEventListener('input', updateRunningTotal);
+    });
+
+    var form = document.getElementById('shipping-allocation-form');
+    if (form) {
+        form.addEventListener('submit', function (event) {
+            // "Do not silently overwrite existing allocations" - every method (including
+            // switching from a prior manual allocation to an automatic one, or vice versa)
+            // replaces every line's shipping_allocated, so this fires regardless of which
+            // method is selected whenever an allocation already exists.
+            if (hasExistingAllocation && !confirm('This order already has a shipping allocation. Continue and overwrite it?')) {
+                event.preventDefault();
+            }
+        });
+    }
+})();
+</script>
+<?php endif; ?>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

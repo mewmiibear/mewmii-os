@@ -945,3 +945,89 @@ function supplier_order_picker_products(PDO $pdo): array
 
     return $result;
 }
+
+/**
+ * Phase 7D (Shipping Allocation) - writes ONLY supplier_order_items.shipping_allocated (the
+ * Sprint 13 costing-prep column that has existed since Phase 7C's migration but had no writer
+ * anywhere in the app until now). Never touches supplier_orders.shipping_fee, subtotal, or any
+ * receiving/inventory logic - this is pure cost-allocation bookkeeping, the same class of
+ * action as supplier_order_add_payment() (bookkeeping only, allowed on historical orders too).
+ *
+ * $method:
+ *   - 'by_quantity': each line's share of $totalShippingCost is proportional to its
+ *     total_quantity (already-stored ordered quantity, not re-derived).
+ *   - 'by_cost': each line's share is proportional to its subtotal (already-stored line cost).
+ *   - 'manual': $manualAllocations (item_id => amount) is used as-is; every item on the order
+ *     must have an entry, so a line can never be left silently unallocated by accident.
+ *
+ * For 'by_quantity'/'by_cost', every line's share is rounded to 2dp and the last line (by id)
+ * absorbs the rounding remainder, so SUM(shipping_allocated) always equals $totalShippingCost
+ * exactly for the two automatic methods - only 'manual' entry can end up not matching, which is
+ * why the caller (modules/supplier-orders/view.php) always displays Total Allocated next to the
+ * order's shipping_fee and warns on a mismatch rather than silently accepting or blocking it.
+ *
+ * Throws RuntimeException on any invalid input - the caller is expected to catch it and show
+ * the message, same convention as every other mutating function in this file.
+ */
+function supplier_order_allocate_shipping(PDO $pdo, int $orderId, string $method, float $totalShippingCost, array $manualAllocations = []): void
+{
+    if (!in_array($method, ['by_quantity', 'by_cost', 'manual'], true)) {
+        throw new RuntimeException('Invalid shipping allocation method.');
+    }
+    if ($totalShippingCost < 0) {
+        throw new RuntimeException('Shipping cost cannot be negative.');
+    }
+
+    $itemsStmt = $pdo->prepare('SELECT id, total_quantity, subtotal FROM supplier_order_items WHERE supplier_order_id = ? ORDER BY id ASC');
+    $itemsStmt->execute([$orderId]);
+    $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    if ($items === []) {
+        throw new RuntimeException('This order has no items to allocate shipping to.');
+    }
+
+    $allocations = [];
+
+    if ($method === 'manual') {
+        foreach ($items as $item) {
+            $itemId = (int) $item['id'];
+            if (!array_key_exists($itemId, $manualAllocations)) {
+                throw new RuntimeException('Enter a shipping allocation for every line item.');
+            }
+            $amount = (float) $manualAllocations[$itemId];
+            if ($amount < 0) {
+                throw new RuntimeException('Shipping allocation cannot be negative.');
+            }
+            $allocations[$itemId] = round($amount, 2);
+        }
+    } else {
+        $basisColumn = $method === 'by_quantity' ? 'total_quantity' : 'subtotal';
+        $basisTotal = array_sum(array_map(static fn (array $item): float => (float) $item[$basisColumn], $items));
+
+        if ($basisTotal <= 0) {
+            throw new RuntimeException($method === 'by_quantity'
+                ? 'Cannot allocate by quantity - this order has no ordered quantity.'
+                : 'Cannot allocate by cost value - this order has no cost value.');
+        }
+
+        $itemCount = count($items);
+        $runningTotal = 0.0;
+        foreach ($items as $index => $item) {
+            $itemId = (int) $item['id'];
+            if ($index === $itemCount - 1) {
+                // Last line absorbs whatever's left, so the stored allocations always sum to
+                // exactly $totalShippingCost regardless of rounding on the earlier lines.
+                $allocations[$itemId] = round($totalShippingCost - $runningTotal, 2);
+            } else {
+                $share = round(((float) $item[$basisColumn] / $basisTotal) * $totalShippingCost, 2);
+                $allocations[$itemId] = $share;
+                $runningTotal += $share;
+            }
+        }
+    }
+
+    $updateStmt = $pdo->prepare('UPDATE supplier_order_items SET shipping_allocated = ? WHERE id = ? AND supplier_order_id = ?');
+    foreach ($allocations as $itemId => $amount) {
+        $updateStmt->execute([$amount, $itemId, $orderId]);
+    }
+}
