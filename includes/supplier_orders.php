@@ -1117,3 +1117,44 @@ function supplier_order_item_delete_cost(PDO $pdo, int $costId): void
 {
     $pdo->prepare('DELETE FROM supplier_order_item_costs WHERE id = ?')->execute([$costId]);
 }
+
+/**
+ * Phase 8D (Demand Forecasting) - the exact "Average Delivery Time" formula
+ * modules/reports/suppliers.php / supplier_detail.php already compute (AVG(DATEDIFF(
+ * received_date, order_date)) over orders where both dates are on file), factored out here so
+ * modules/reports/forecast.php can reuse it for Supplier Lead Time instead of a second
+ * definition of "how long does this supplier take to deliver." Batched for every supplier a
+ * forecast run needs, not one query per supplier. Returns supplier_id => ['avg_lead_time_days'
+ * => float|null, 'sample_count' => int] - null lead time (sample_count === 0) means this
+ * supplier has no order with both dates on file, never guessed as 0 or any other default.
+ */
+function supplier_lead_time_stats_batch(PDO $pdo, array $supplierIds): array
+{
+    $supplierIds = array_values(array_unique(array_map('intval', $supplierIds)));
+    if ($supplierIds === []) {
+        return [];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($supplierIds), '?'));
+    $stmt = $pdo->prepare("
+        SELECT
+            supplier_id,
+            SUM(CASE WHEN order_date IS NOT NULL AND received_date IS NOT NULL THEN DATEDIFF(received_date, order_date) ELSE 0 END) AS delivery_days_sum,
+            SUM(CASE WHEN order_date IS NOT NULL AND received_date IS NOT NULL THEN 1 ELSE 0 END) AS sample_count
+        FROM supplier_orders
+        WHERE supplier_id IN ({$placeholders})
+        GROUP BY supplier_id
+    ");
+    $stmt->execute($supplierIds);
+
+    $bySupplier = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $sampleCount = (int) $row['sample_count'];
+        $bySupplier[(int) $row['supplier_id']] = [
+            'avg_lead_time_days' => $sampleCount > 0 ? ((float) $row['delivery_days_sum'] / $sampleCount) : null,
+            'sample_count' => $sampleCount,
+        ];
+    }
+
+    return $bySupplier;
+}
