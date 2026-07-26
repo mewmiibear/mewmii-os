@@ -201,6 +201,7 @@ const SYSTEM_HEALTH_MIGRATIONS = [
     ['label' => 'Additional costs framework', 'migration' => 'migrate_additional_costs.php', 'table' => 'supplier_order_item_costs', 'column' => null],
     ['label' => 'Product cost history', 'migration' => 'migrate_product_cost_history.php', 'table' => 'product_cost_history', 'column' => null],
     ['label' => 'Notification & Alert Center', 'migration' => 'migrate_notifications.php', 'table' => 'mewmii_notifications', 'column' => 'reference_id'],
+    ['label' => 'Notification Actions & Lifecycle', 'migration' => 'migrate_notification_lifecycle.php', 'table' => 'mewmii_notifications', 'column' => 'resolved_status'],
 ];
 
 // A subset of migrate_production_hardening.php's own performance indexes - grouped as one

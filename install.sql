@@ -501,6 +501,8 @@ CREATE TABLE IF NOT EXISTS expenses (
 
 -- Phase 9B (Notification & Alert Center) added reference_id - see database/schema.sql for the
 -- full rationale (polymorphic reference, same convention as sync_logs.reference_id).
+-- Phase 9C (Notification Actions & Lifecycle) added resolved_status/resolved_at - see
+-- database/schema.sql for the full lifecycle rationale.
 CREATE TABLE IF NOT EXISTS mewmii_notifications (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id INT UNSIGNED NULL,
@@ -509,9 +511,12 @@ CREATE TABLE IF NOT EXISTS mewmii_notifications (
   type VARCHAR(30) NOT NULL DEFAULT 'info',
   reference_id INT UNSIGNED NULL,
   read_status TINYINT(1) NOT NULL DEFAULT 0,
+  resolved_status TINYINT(1) NOT NULL DEFAULT 0,
+  resolved_at TIMESTAMP NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_mewmii_notifications_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
-  INDEX idx_mewmii_notifications_type_reference_read (type, reference_id, read_status)
+  INDEX idx_mewmii_notifications_type_reference_read (type, reference_id, read_status),
+  INDEX idx_mewmii_notifications_type_reference_resolved (type, reference_id, resolved_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS sync_logs (

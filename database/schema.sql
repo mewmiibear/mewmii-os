@@ -492,6 +492,11 @@ CREATE TABLE IF NOT EXISTS expenses (
 -- (a product for inventory_risk/cost_increase, a supplier for supplier_delay, a supplier_order
 -- for supplier_order_overdue), so it can never reference a single table. Same polymorphic-
 -- reference convention already established by sync_logs.reference_id above.
+-- Phase 9C (Notification Actions & Lifecycle) added resolved_status/resolved_at - the
+-- three-state lifecycle (Active/Acknowledged/Resolved) is derived from the existing
+-- read_status combined with these two new columns (Active = unread+unresolved, Acknowledged =
+-- read+unresolved, Resolved = resolved regardless of read_status) - read_status itself is
+-- unchanged. Old notifications are never deleted; resolving only sets these two columns.
 CREATE TABLE IF NOT EXISTS mewmii_notifications (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id INT UNSIGNED NULL,
@@ -500,9 +505,12 @@ CREATE TABLE IF NOT EXISTS mewmii_notifications (
   type VARCHAR(30) NOT NULL DEFAULT 'info',
   reference_id INT UNSIGNED NULL,
   read_status TINYINT(1) NOT NULL DEFAULT 0,
+  resolved_status TINYINT(1) NOT NULL DEFAULT 0,
+  resolved_at TIMESTAMP NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_mewmii_notifications_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
-  INDEX idx_mewmii_notifications_type_reference_read (type, reference_id, read_status)
+  INDEX idx_mewmii_notifications_type_reference_read (type, reference_id, read_status),
+  INDEX idx_mewmii_notifications_type_reference_resolved (type, reference_id, resolved_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS sync_logs (

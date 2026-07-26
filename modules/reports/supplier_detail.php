@@ -253,7 +253,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <?php endif; ?>
 </div>
 
-<div class="card p-4">
+<div class="card p-4" id="purchase-history">
     <h5 class="mb-3">Purchase History</h5>
     <?php if ($historyRows === []): ?>
         <p class="text-muted small mb-0">No supplier orders for this supplier yet.</p>

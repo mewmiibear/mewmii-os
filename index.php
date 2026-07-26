@@ -662,12 +662,22 @@ if ($canViewInventory) {
         <?php else: ?>
             <div class="d-flex flex-column gap-2">
                 <?php foreach ($recentNotifications as $notification): ?>
-                    <div class="attention-item <?php echo $notification['read_status'] ? '' : 'tone-warning'; ?> d-flex justify-content-between align-items-center p-3">
+                    <?php
+                    // Phase 9C - the same three-state lifecycle the full Notifications page
+                    // uses (notification_lifecycle_status()), not a re-derived read/unread
+                    // check. The primary review link reuses this notification's first action
+                    // link (notification_action_links()) when one exists, falling back to
+                    // notification_url_for() otherwise - never a third link definition.
+                    $notificationLifecycle = notification_lifecycle_status($notification);
+                    $notificationActionLinks = notification_action_links($notification);
+                    $notificationPrimaryUrl = $notificationActionLinks[0]['url'] ?? notification_url_for($notification);
+                    ?>
+                    <div class="attention-item <?php echo $notificationLifecycle === 'active' ? 'tone-warning' : ''; ?> d-flex justify-content-between align-items-center p-3">
                         <span>
-                            <?php if (!$notification['read_status']): ?><span class="badge bg-danger me-1">Unread</span><?php endif; ?>
+                            <?php if ($notificationLifecycle === 'active'): ?><span class="badge bg-danger me-1">Active</span><?php endif; ?>
                             <?php echo app_escape($notification['title']); ?>
                         </span>
-                        <a class="btn btn-outline-primary btn-sm" href="<?php echo app_escape(notification_url_for($notification)); ?>">Review &rarr;</a>
+                        <a class="btn btn-outline-primary btn-sm" href="<?php echo app_escape($notificationPrimaryUrl); ?>">Review &rarr;</a>
                     </div>
                 <?php endforeach; ?>
             </div>
