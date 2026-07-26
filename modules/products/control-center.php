@@ -65,10 +65,11 @@ $recentCustomerOrdersStmt = $pdo->prepare('
 $recentCustomerOrdersStmt->execute([$productId]);
 $recentCustomerOrders = $recentCustomerOrdersStmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Purchase History (capped)
+// Purchase History (capped) - Phase 8A added soi.supplier_price (Unit Cost) to this existing
+// query; the rest is unchanged.
 $recentSupplierOrdersStmt = $pdo->prepare('
     SELECT so.id, so.purchase_number, so.status, so.order_date, so.is_historical,
-           s.name AS supplier_name, soi.total_quantity
+           s.name AS supplier_name, soi.total_quantity, soi.supplier_price
     FROM supplier_order_items soi
     INNER JOIN supplier_orders so ON so.id = soi.supplier_order_id
     INNER JOIN suppliers s ON s.id = so.supplier_id
@@ -202,7 +203,7 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php else: ?>
                 <div class="table-responsive">
                     <table class="table table-sm align-middle mb-0">
-                        <thead><tr><th>Purchase #</th><th>Supplier</th><th>Date</th><th>Qty</th><th>Status</th></tr></thead>
+                        <thead><tr><th>Purchase #</th><th>Supplier</th><th>Date</th><th>Qty</th><th>Unit Cost</th><th>Status</th></tr></thead>
                         <tbody>
                             <?php foreach ($recentSupplierOrders as $historyOrder): ?>
                                 <tr>
@@ -217,6 +218,7 @@ require_once __DIR__ . '/../../includes/header.php';
                                     <td><?php echo app_escape($historyOrder['supplier_name']); ?></td>
                                     <td><?php echo app_escape($historyOrder['order_date'] ?? '-'); ?></td>
                                     <td><?php echo (int) $historyOrder['total_quantity']; ?></td>
+                                    <td>RM <?php echo app_escape(number_format((float) $historyOrder['supplier_price'], 2)); ?></td>
                                     <td><?php echo supplier_order_status_badge($historyOrder['status']); ?></td>
                                 </tr>
                             <?php endforeach; ?>

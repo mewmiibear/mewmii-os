@@ -223,6 +223,9 @@ $filterSuppliers = $pdo->query('SELECT id, name FROM suppliers ORDER BY name ASC
  * clearly labeled here too rather than merged into one number.
  */
 $supplierNameById = array_column($filterSuppliers, 'name', 'id');
+// Phase 8A - gates the "Create Supplier Order" action per recommendation group below, same
+// permission modules/purchase-planning/generate.php's manual review screen already requires.
+$canManageSupplierOrders = app_has_permission('supplier-orders.manage');
 
 $purchaseNeeds = purchase_planning_needs($pdo);
 if ($filterSupplierId !== null) {
@@ -295,6 +298,10 @@ require_once __DIR__ . '/../../includes/header.php';
         <p class="page-description">What to reorder, based on current stock, reservations, and incoming supplier orders.</p>
     </div>
 </div>
+
+<?php if (isset($_GET['create_order_error'])): ?>
+    <div class="alert alert-danger"><?php echo app_escape($_GET['create_order_error']); ?></div>
+<?php endif; ?>
 
 <div class="row g-3 mb-4">
     <div class="col-6 col-md-3">
@@ -505,7 +512,16 @@ require_once __DIR__ . '/../../includes/header.php';
                     <strong><?php echo app_escape($group['supplier_name']); ?></strong>
                     <span class="text-muted small ms-2"><?php echo count($group['lines']); ?> product<?php echo count($group['lines']) === 1 ? '' : 's'; ?></span>
                 </div>
-                <span class="badge bg-info text-dark">Est. RM <?php echo app_escape(number_format($group['total_cost'], 2)); ?></span>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-info text-dark">Est. RM <?php echo app_escape(number_format($group['total_cost'], 2)); ?></span>
+                    <?php if ($group['supplier_id'] !== null && $canManageSupplierOrders): ?>
+                        <form method="post" action="/modules/purchasing/create_order.php" class="d-inline" onclick="event.stopPropagation();" onsubmit="return confirm('Create a draft supplier order for <?php echo app_escape(addslashes($group['supplier_name'])); ?> with <?php echo count($group['lines']); ?> product(s)? You can review and edit it before sending.');">
+                            <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                            <input type="hidden" name="supplier_id" value="<?php echo (int) $group['supplier_id']; ?>">
+                            <button type="submit" class="btn btn-sm btn-primary">Create Supplier Order</button>
+                        </form>
+                    <?php endif; ?>
+                </div>
             </div>
             <div class="collapse show" id="<?php echo app_escape($groupDomId); ?>">
                 <div class="table-responsive">

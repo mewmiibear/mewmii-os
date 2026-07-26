@@ -474,6 +474,9 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php if (isset($_GET['created'])): ?>
     <div class="alert alert-success">Supplier order created.</div>
 <?php endif; ?>
+<?php if (isset($_GET['skipped']) && ctype_digit((string) $_GET['skipped'])): ?>
+    <div class="alert alert-warning"><?php echo (int) $_GET['skipped']; ?> product(s) were skipped when this order was created because they had no valid unit cost.</div>
+<?php endif; ?>
 <?php if (isset($_GET['updated'])): ?>
     <div class="alert alert-success">Supplier order updated.</div>
 <?php endif; ?>
