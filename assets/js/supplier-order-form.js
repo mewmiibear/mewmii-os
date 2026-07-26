@@ -41,6 +41,79 @@
         shippingFeeInput.addEventListener('input', recalcTotal);
     }
 
+    // ---------------------------------------------------------------------------------
+    // Phase 6B (Supplier Order currency): "Unit Cost"/"Subtotal" are entered/shown in the
+    // order's own currency, converted to MYR here purely for display (the same foreign x
+    // rate = MYR formula includes/supplier_orders.php's supplier_order_convert_to_myr()
+    // computes server-side on submit - this is only a live preview, never the value actually
+    // saved, which the server always re-derives itself).
+    // ---------------------------------------------------------------------------------
+    var currencySelect = document.getElementById('supplier-order-currency');
+    var currencyOtherInput = document.getElementById('supplier-order-currency-other');
+    var exchangeRateWrapper = document.getElementById('supplier-order-exchange-rate-wrapper');
+    var exchangeRateLabel = document.getElementById('supplier-order-exchange-rate-label');
+    var exchangeRateInput = document.getElementById('supplier-order-exchange-rate');
+    var unitCostHeader = document.getElementById('supplier-order-unit-cost-header');
+    var subtotalHeader = document.getElementById('supplier-order-subtotal-header');
+    var foreignSubtotalRow = document.getElementById('supplier-order-foreign-subtotal-row');
+    var foreignSubtotalCurrencyEl = document.getElementById('supplier-order-foreign-subtotal-currency');
+    var foreignSubtotalEl = document.getElementById('supplier-order-foreign-subtotal');
+
+    function currentCurrencyCode() {
+        if (!currencySelect) {
+            return 'MYR';
+        }
+        if (currencySelect.value === 'OTHER') {
+            return (currencyOtherInput && currencyOtherInput.value.trim().toUpperCase()) || 'OTHER';
+        }
+        return currencySelect.value;
+    }
+
+    function currentExchangeRate() {
+        var isForeign = currencySelect && currencySelect.value !== 'MYR';
+        var rate = isForeign && exchangeRateInput ? parseFloat(exchangeRateInput.value) : NaN;
+        return (!isNaN(rate) && rate > 0) ? rate : 1;
+    }
+
+    function applyCurrencyUi() {
+        var isForeign = !!currencySelect && currencySelect.value !== 'MYR';
+        var code = currentCurrencyCode();
+
+        if (currencyOtherInput) {
+            currencyOtherInput.classList.toggle('d-none', currencySelect.value !== 'OTHER');
+        }
+        if (exchangeRateWrapper) {
+            exchangeRateWrapper.classList.toggle('d-none', !isForeign);
+        }
+        if (exchangeRateLabel) {
+            exchangeRateLabel.textContent = 'Exchange Rate (1 ' + code + ' = ? MYR)';
+        }
+        if (unitCostHeader) {
+            unitCostHeader.textContent = isForeign ? ('Unit Cost (' + code + ')') : 'Unit Cost (RM)';
+        }
+        if (subtotalHeader) {
+            subtotalHeader.textContent = isForeign ? ('Subtotal (' + code + ')') : 'Subtotal (RM)';
+        }
+        if (foreignSubtotalRow) {
+            foreignSubtotalRow.classList.toggle('d-none', !isForeign);
+        }
+        if (foreignSubtotalCurrencyEl) {
+            foreignSubtotalCurrencyEl.textContent = code;
+        }
+
+        recalcTotal();
+    }
+
+    if (currencySelect) {
+        currencySelect.addEventListener('change', applyCurrencyUi);
+    }
+    if (currencyOtherInput) {
+        currencyOtherInput.addEventListener('input', applyCurrencyUi);
+    }
+    if (exchangeRateInput) {
+        exchangeRateInput.addEventListener('input', recalcTotal);
+    }
+
     function existingUnitKeys() {
         var keys = [];
         if (!tbody) {
@@ -75,13 +148,21 @@
         if (!tbody) {
             return;
         }
-        var productSubtotal = 0;
+        // Raw sum of qty x unit cost, in the order's own currency (the exact values every
+        // row's own name="supplier_price[]" input carries and posts as-is).
+        var foreignSubtotal = 0;
         tbody.querySelectorAll('tr[data-unit-key]').forEach(function (row) {
             var qty = parseFloat(row.querySelector('.item-quantity').value) || 0;
             var cost = parseFloat(row.querySelector('.item-cost').value) || 0;
-            productSubtotal += qty * cost;
+            foreignSubtotal += qty * cost;
         });
 
+        var rate = currentExchangeRate();
+        var productSubtotal = foreignSubtotal * rate;
+
+        if (foreignSubtotalEl) {
+            foreignSubtotalEl.textContent = formatMoney(foreignSubtotal);
+        }
         if (productSubtotalEl) {
             productSubtotalEl.textContent = formatMoney(productSubtotal);
         }
@@ -156,6 +237,11 @@
     (config.existingItems || []).forEach(function (item) {
         addRow(item.unit_key, item.label, item.sku, item.quantity, item.supplier_price, item.received_quantity, item.moq);
     });
+
+    // Sets header labels/row visibility to match whatever currency the page already loaded
+    // with (e.g. editing an existing foreign-currency order) - addRow() above already ran
+    // recalcTotal() per row, so this is just the one-time label/visibility pass.
+    applyCurrencyUi();
 
     // ---------------------------------------------------------------------------------
     // Product Picker modal.

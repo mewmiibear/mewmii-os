@@ -212,7 +212,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $itemsStmt = $pdo->prepare('
-    SELECT soi.id, soi.product_id, soi.total_quantity, soi.supplier_price, soi.subtotal, soi.variation_id,
+    SELECT soi.id, soi.product_id, soi.total_quantity, soi.supplier_price, soi.unit_cost_foreign, soi.subtotal, soi.variation_id,
            soi.customer_quantity, soi.moq_quantity, soi.top_up_quantity,
            COALESCE(pv.sku, p.sku) AS sku, p.name AS product_name, p.product_type
     FROM supplier_order_items soi
@@ -489,6 +489,38 @@ require_once __DIR__ . '/../../includes/header.php';
                     </div>
                 </div>
             </div>
+
+            <?php
+            // Phase 6B (Supplier Order currency) - only shown for a foreign-currency order;
+            // a plain MYR order (every order before this feature, and any new order left on
+            // MYR) looks exactly as it did before this card existed.
+            $supplierCurrency = (string) ($order['currency'] ?? 'MYR');
+            ?>
+            <?php if ($supplierCurrency !== 'MYR'): ?>
+                <?php
+                $currencySymbols = ['JPY' => '¥', 'CNY' => '¥', 'USD' => '$'];
+                $currencySymbol = $currencySymbols[$supplierCurrency] ?? ($supplierCurrency . ' ');
+                $orderExchangeRate = $order['exchange_rate'] !== null ? (float) $order['exchange_rate'] : 1.0;
+                // Small rates (e.g. JPY, where 1 unit is worth a fraction of a Ringgit) read
+                // clearer quoted per 100; anything else is shown per 1 - purely a display
+                // choice, the stored/calculated rate itself is always "1 unit = X MYR".
+                $exchangeRateDisplay = $orderExchangeRate < 0.1
+                    ? ('100 ' . $supplierCurrency . ' = RM' . number_format($orderExchangeRate * 100, 2))
+                    : ('1 ' . $supplierCurrency . ' = RM' . number_format($orderExchangeRate, 2));
+                ?>
+                <div class="col-md-6">
+                    <div class="card p-4 h-100">
+                        <h5 class="mb-3"><i class="bi bi-currency-exchange"></i> Supplier Currency</h5>
+                        <table class="table table-borderless mb-0">
+                            <tr><th>Supplier Currency</th><td class="text-end"><?php echo app_escape($supplierCurrency); ?></td></tr>
+                            <tr><th>Exchange Rate</th><td class="text-end"><?php echo app_escape($exchangeRateDisplay); ?></td></tr>
+                            <tr><th>Supplier Total</th><td class="text-end"><?php echo app_escape($currencySymbol . number_format((float) ($order['foreign_total'] ?? 0), 2)); ?></td></tr>
+                            <tr class="fw-semibold"><th>Converted Total</th><td class="text-end">RM <?php echo app_escape(number_format($orderTotal, 2)); ?></td></tr>
+                        </table>
+                        <div class="form-text mt-2">Product cost only - shipping fee and payments are tracked in RM.</div>
+                    </div>
+                </div>
+            <?php endif; ?>
         </div>
 
         <div class="card p-4">
@@ -553,7 +585,12 @@ require_once __DIR__ . '/../../includes/header.php';
                                 <?php endif; ?>
                             </td>
                             <td class="text-end"><?php echo app_escape((string) $item['remaining_quantity']); ?></td>
-                            <td class="text-end">RM <?php echo app_escape(number_format((float) $item['supplier_price'], 2)); ?></td>
+                            <td class="text-end">
+                                RM <?php echo app_escape(number_format((float) $item['supplier_price'], 2)); ?>
+                                <?php if ($supplierCurrency !== 'MYR' && $item['unit_cost_foreign'] !== null): ?>
+                                    <div class="text-muted small"><?php echo app_escape($currencySymbol . number_format((float) $item['unit_cost_foreign'], 2)); ?></div>
+                                <?php endif; ?>
+                            </td>
                             <?php if ($canManage): ?>
                                 <td class="text-end">
                                     <?php if (!empty($order['is_historical'])): ?>

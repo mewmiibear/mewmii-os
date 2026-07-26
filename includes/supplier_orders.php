@@ -571,6 +571,21 @@ function supplier_order_log_event(PDO $pdo, int $orderId, string $description): 
 }
 
 /**
+ * Phase 6B (Supplier Order currency) - the one formula "foreign amount x exchange rate = MYR
+ * amount" is computed with, so modules/supplier-orders/create.php and
+ * supplier_order_apply_edit() below can never drift into two different roundings/fallbacks
+ * of the same conversion. A null/non-positive rate (a plain MYR order, or a rate not yet
+ * entered) is treated as 1 - same "NULL means no conversion needed" convention already
+ * established by products.exchange_rate.
+ */
+function supplier_order_convert_to_myr(float $foreignAmount, ?float $exchangeRate): float
+{
+    $rate = ($exchangeRate !== null && $exchangeRate > 0) ? $exchangeRate : 1.0;
+
+    return round($foreignAmount * $rate, 2);
+}
+
+/**
  * Full add/edit/remove reconciliation for an existing supplier order - the only way its
  * line items change after creation (see modules/supplier-orders/edit.php). $newLines is
  * the same per-line shape modules/supplier-orders/create.php builds: a list of
@@ -587,9 +602,9 @@ function supplier_order_log_event(PDO $pdo, int $orderId, string $description): 
  * supplier_order_events. Caller is responsible for the surrounding transaction and for
  * blocking this entirely once the order is 'completed' (see modules/supplier-orders/edit.php).
  */
-function supplier_order_apply_edit(PDO $pdo, int $orderId, int $supplierId, string $notes, array $newLines, float $shippingFee = 0.00, ?string $paymentStatus = null): void
+function supplier_order_apply_edit(PDO $pdo, int $orderId, int $supplierId, string $notes, array $newLines, float $shippingFee = 0.00, ?string $paymentStatus = null, ?string $currency = null, ?float $exchangeRate = null): void
 {
-    $oldRowStmt = $pdo->prepare('SELECT shipping_fee, payment_status, purchase_number, is_historical FROM supplier_orders WHERE id = ?');
+    $oldRowStmt = $pdo->prepare('SELECT shipping_fee, payment_status, purchase_number, is_historical, currency, exchange_rate FROM supplier_orders WHERE id = ?');
     $oldRowStmt->execute([$orderId]);
     $oldRow = $oldRowStmt->fetch(PDO::FETCH_ASSOC);
     // A historical (imported) supplier order must never go through
@@ -602,6 +617,20 @@ function supplier_order_apply_edit(PDO $pdo, int $orderId, int $supplierId, stri
     $oldPaymentStatus = (string) $oldRow['payment_status'];
     if ($paymentStatus === null || !in_array($paymentStatus, SUPPLIER_ORDER_PAYMENT_STATUSES, true)) {
         $paymentStatus = $oldPaymentStatus;
+    }
+
+    // Phase 6B (Supplier Order currency) - $currency/$exchangeRate null (caller didn't pass
+    // them) falls back to whatever the order already had, same "unchanged unless explicitly
+    // posted" convention as $paymentStatus above.
+    $oldCurrency = (string) ($oldRow['currency'] ?? 'MYR');
+    $oldExchangeRate = $oldRow['exchange_rate'] !== null ? (float) $oldRow['exchange_rate'] : null;
+    if ($currency === null || trim($currency) === '') {
+        $currency = $oldCurrency;
+    }
+    if ($currency === 'MYR') {
+        $exchangeRate = null;
+    } elseif ($exchangeRate === null) {
+        $exchangeRate = $oldExchangeRate;
     }
 
     $existingStmt = $pdo->prepare('SELECT id, product_id, variation_id, total_quantity, supplier_price FROM supplier_order_items WHERE supplier_order_id = ?');
@@ -643,7 +672,13 @@ function supplier_order_apply_edit(PDO $pdo, int $orderId, int $supplierId, stri
         $productId = (int) $line['product_id'];
         $variationId = $line['variation_id'] !== null ? (int) $line['variation_id'] : null;
         $quantity = (int) $line['quantity'];
+        // Phase 6B (Supplier Order currency) - $line['supplier_price'] is always the already-
+        // converted MYR unit cost (the caller, modules/supplier-orders/edit.php, does the
+        // foreign x rate = MYR conversion via supplier_order_convert_to_myr() before building
+        // $newLines) - unchanged in meaning from before this feature. unit_cost_foreign falls
+        // back to the same MYR value when the caller doesn't supply it (a plain MYR line).
         $price = round((float) $line['supplier_price'], 2);
+        $unitCostForeign = isset($line['unit_cost_foreign']) ? round((float) $line['unit_cost_foreign'], 2) : $price;
         $subtotal = round($quantity * $price, 2);
 
         $unit = catalog_describe_unit($pdo, $productId, $variationId);
@@ -652,10 +687,10 @@ function supplier_order_apply_edit(PDO $pdo, int $orderId, int $supplierId, stri
         if (!isset($existingByKey[$key])) {
             // New line.
             $insertStmt = $pdo->prepare('
-                INSERT INTO supplier_order_items (supplier_order_id, product_id, variation_id, total_quantity, supplier_price, subtotal)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO supplier_order_items (supplier_order_id, product_id, variation_id, total_quantity, supplier_price, unit_cost_foreign, unit_cost_myr, subtotal)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ');
-            $insertStmt->execute([$orderId, $productId, $variationId, $quantity, $price, $subtotal]);
+            $insertStmt->execute([$orderId, $productId, $variationId, $quantity, $price, $unitCostForeign, $price, $subtotal]);
             $itemId = (int) $pdo->lastInsertId();
 
             supplier_order_mark_incoming($pdo, $productId, $itemId, $quantity, $variationId);
@@ -685,8 +720,8 @@ function supplier_order_apply_edit(PDO $pdo, int $orderId, int $supplierId, stri
             supplier_order_log_event($pdo, $orderId, 'Changed ' . $label . ' unit cost RM' . number_format($oldPrice, 2) . ' -> RM' . number_format($price, 2));
         }
 
-        $pdo->prepare('UPDATE supplier_order_items SET total_quantity = ?, supplier_price = ?, subtotal = ? WHERE id = ?')
-            ->execute([$quantity, $price, $subtotal, $itemId]);
+        $pdo->prepare('UPDATE supplier_order_items SET total_quantity = ?, supplier_price = ?, unit_cost_foreign = ?, unit_cost_myr = ?, subtotal = ? WHERE id = ?')
+            ->execute([$quantity, $price, $unitCostForeign, $price, $subtotal, $itemId]);
     }
 
     if (abs($oldShippingFee - $shippingFee) > 0.001) {
@@ -694,6 +729,9 @@ function supplier_order_apply_edit(PDO $pdo, int $orderId, int $supplierId, stri
     }
     if ($paymentStatus !== $oldPaymentStatus) {
         supplier_order_log_event($pdo, $orderId, 'Payment status changed ' . supplier_order_payment_status_label($oldPaymentStatus) . ' -> ' . supplier_order_payment_status_label($paymentStatus));
+    }
+    if ($currency !== $oldCurrency || ($exchangeRate !== $oldExchangeRate && ($exchangeRate === null || $oldExchangeRate === null || abs($exchangeRate - $oldExchangeRate) > 0.000001))) {
+        supplier_order_log_event($pdo, $orderId, 'Currency changed ' . $oldCurrency . ' (rate ' . ($oldExchangeRate ?? 1) . ') -> ' . $currency . ' (rate ' . ($exchangeRate ?? 1) . ')');
     }
 
     // Totals + supplier/notes always refreshed, even if nothing else changed this pass.
@@ -705,8 +743,14 @@ function supplier_order_apply_edit(PDO $pdo, int $orderId, int $supplierId, stri
     $totalStmt->execute([$orderId]);
     $estimatedCost = round((float) $totalStmt->fetchColumn(), 2);
 
-    $pdo->prepare('UPDATE supplier_orders SET supplier_id = ?, estimated_cost = ?, shipping_fee = ?, payment_status = ?, notes = ? WHERE id = ?')
-        ->execute([$supplierId, $estimatedCost, round($shippingFee, 2), $paymentStatus, $notes !== '' ? $notes : null, $orderId]);
+    // Phase 6B (Supplier Order currency) - same SUM-of-lines shape as estimated_cost above,
+    // just in the order's own currency instead of MYR.
+    $foreignTotalStmt = $pdo->prepare('SELECT COALESCE(SUM(COALESCE(unit_cost_foreign, supplier_price) * total_quantity), 0) FROM supplier_order_items WHERE supplier_order_id = ?');
+    $foreignTotalStmt->execute([$orderId]);
+    $foreignTotal = round((float) $foreignTotalStmt->fetchColumn(), 2);
+
+    $pdo->prepare('UPDATE supplier_orders SET supplier_id = ?, estimated_cost = ?, shipping_fee = ?, payment_status = ?, notes = ?, currency = ?, exchange_rate = ?, foreign_total = ? WHERE id = ?')
+        ->execute([$supplierId, $estimatedCost, round($shippingFee, 2), $paymentStatus, $notes !== '' ? $notes : null, $currency, $exchangeRate, $foreignTotal, $orderId]);
 
     activity_log($pdo, 'supplier_orders', 'edit', $orderId, 'Edited supplier order ' . $oldRow['purchase_number']);
 }

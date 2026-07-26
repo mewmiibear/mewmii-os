@@ -593,6 +593,16 @@ CREATE TABLE IF NOT EXISTS supplier_orders (
   estimated_cost DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   actual_cost DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   shipping_fee DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  -- Phase 6B (Supplier Order currency) - the supplier's own quoted currency and the rate used
+  -- to convert it into MYR, mirroring products.cost_currency/exchange_rate's existing
+  -- convention. estimated_cost/actual_cost/shipping_fee/supplier_order_items.supplier_price
+  -- stay MYR exactly as before (see supplier_order_items.unit_cost_myr below) - this is the
+  -- audit trail for how that MYR figure was derived, not a second source of truth for it.
+  -- exchange_rate NULL (default for a fresh 'MYR' order) means "no conversion needed", same as
+  -- products.exchange_rate - read as COALESCE(exchange_rate, 1) everywhere it's used.
+  currency VARCHAR(10) NOT NULL DEFAULT 'MYR',
+  exchange_rate DECIMAL(12,6) NULL,
+  foreign_total DECIMAL(12,2) NULL,
   payment_date DATE NULL,
   order_date DATE NULL,
   expected_delivery_date DATE NULL,
@@ -627,6 +637,15 @@ CREATE TABLE IF NOT EXISTS supplier_order_items (
   top_up_quantity INT UNSIGNED NOT NULL DEFAULT 0,
   total_quantity INT UNSIGNED NOT NULL DEFAULT 0,
   supplier_price DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  -- Phase 6B (Supplier Order currency) - unit_cost_foreign is this line's unit cost exactly as
+  -- entered, in the parent order's supplier_orders.currency; unit_cost_myr is that same cost
+  -- converted to MYR (unit_cost_foreign * COALESCE(supplier_orders.exchange_rate, 1)) and is
+  -- always equal to supplier_price - kept as its own column purely so a line's currency
+  -- conversion is visible without re-deriving it, never a second value supplier_price could
+  -- drift from. Both NULL for a plain MYR line (supplier_price alone remains authoritative
+  -- everywhere else - receiving, inventory valuation, cost-change logging - exactly as before).
+  unit_cost_foreign DECIMAL(12,2) NULL,
+  unit_cost_myr DECIMAL(12,2) NULL,
   subtotal DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   -- Costing prep (Sprint 13) - this line's share of its PO's shipping_fee; not yet
   -- computed/used anywhere. See products.exchange_rate's comment above for the intended

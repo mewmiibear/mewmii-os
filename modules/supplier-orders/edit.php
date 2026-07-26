@@ -39,7 +39,7 @@ $isCompleted = $order['status'] === 'completed';
 $showSentWarning = !$isCompleted && $order['status'] !== 'draft';
 
 $itemsStmt = $pdo->prepare('
-    SELECT soi.id, soi.product_id, soi.variation_id, soi.total_quantity, soi.supplier_price,
+    SELECT soi.id, soi.product_id, soi.variation_id, soi.total_quantity, soi.supplier_price, soi.unit_cost_foreign,
            COALESCE(pv.sku, p.sku) AS sku, p.name AS product_name, p.moq AS parent_moq
     FROM supplier_order_items soi
     INNER JOIN products p ON p.id = soi.product_id
@@ -60,17 +60,28 @@ $existingItems = array_map(static function (array $item) use ($pdo): array {
         // MOQ belongs only to the parent product - variations always inherit it.
         'moq' => $item['parent_moq'] !== null ? (int) $item['parent_moq'] : null,
         'quantity' => (string) (int) $item['total_quantity'],
-        'supplier_price' => (string) $item['supplier_price'],
+        // Phase 6B (Supplier Order currency) - the "Unit Cost" input represents the order's
+        // own currency, so it must be pre-filled from unit_cost_foreign (falling back to
+        // supplier_price for a plain MYR line/pre-6B row, where the two are identical anyway).
+        'supplier_price' => (string) ($item['unit_cost_foreign'] ?? $item['supplier_price']),
         'received_quantity' => supplier_order_item_received_quantity($pdo, (int) $item['id']),
     ];
 }, $existingDbItems);
 
+// Phase 6B (Supplier Order currency) - same short list create.php offers; 'OTHER' reveals a
+// free-text code (currency_other below) for anything not in this list.
+const SUPPLIER_ORDER_CURRENCY_OPTIONS = ['MYR', 'JPY', 'CNY', 'USD'];
+
+$orderCurrency = (string) ($order['currency'] ?? 'MYR');
 $form = [
     'supplier_id' => (string) $order['supplier_id'],
     'purchase_number' => $order['purchase_number'],
     'notes' => (string) ($order['notes'] ?? ''),
     'shipping_fee' => (string) $order['shipping_fee'],
     'payment_status' => (string) $order['payment_status'],
+    'currency' => in_array($orderCurrency, SUPPLIER_ORDER_CURRENCY_OPTIONS, true) ? $orderCurrency : 'OTHER',
+    'currency_other' => in_array($orderCurrency, SUPPLIER_ORDER_CURRENCY_OPTIONS, true) ? '' : $orderCurrency,
+    'exchange_rate' => $order['exchange_rate'] !== null ? (string) $order['exchange_rate'] : '',
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -116,6 +127,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } else {
         $form['supplier_id'] = trim((string) ($_POST['supplier_id'] ?? ''));
+        $form['currency'] = trim((string) ($_POST['currency'] ?? 'MYR'));
+        $form['currency_other'] = trim((string) ($_POST['currency_other'] ?? ''));
+        $form['exchange_rate'] = trim((string) ($_POST['exchange_rate'] ?? ''));
+
+        // Phase 6B (Supplier Order currency) - same 'OTHER' + free-text collapse as create.php.
+        $currency = $form['currency'] === 'OTHER' ? strtoupper($form['currency_other']) : strtoupper($form['currency']);
+        $exchangeRate = null;
+
+        if ($error === '') {
+            if ($form['currency'] === 'OTHER' && ($currency === '' || strlen($currency) > 10)) {
+                $error = 'Enter a valid currency code (up to 10 characters).';
+            } elseif ($form['currency'] !== 'OTHER' && !in_array($form['currency'], SUPPLIER_ORDER_CURRENCY_OPTIONS, true)) {
+                $error = 'Invalid currency.';
+            }
+        }
+        if ($error === '' && $currency !== 'MYR') {
+            if ($form['exchange_rate'] === '' || !is_numeric($form['exchange_rate']) || (float) $form['exchange_rate'] <= 0) {
+                $error = 'Enter a valid exchange rate (1 ' . $currency . ' = ? MYR).';
+            } else {
+                $exchangeRate = (float) $form['exchange_rate'];
+            }
+        }
 
         $postedUnitKeys = $_POST['unit_key'] ?? [];
         $postedQuantities = $_POST['quantity'] ?? [];
@@ -130,6 +163,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         for ($i = 0; $i < count($postedUnitKeys); $i++) {
             $rowUnitKey = trim((string) ($postedUnitKeys[$i] ?? ''));
             $rowQuantity = trim((string) ($postedQuantities[$i] ?? ''));
+            // Unit cost as entered, in the order's own currency - converted to MYR below via
+            // supplier_order_convert_to_myr(), same as modules/supplier-orders/create.php.
             $rowPrice = trim((string) ($postedPrices[$i] ?? ''));
 
             if ($rowUnitKey === '') {
@@ -154,11 +189,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $error = 'A selected product no longer exists.';
                 } else {
                     $unit = $unitsByKey[$rowUnitKey];
+                    $unitCostForeign = $rowPrice !== '' ? round((float) $rowPrice, 2) : 0.00;
                     $validItems[] = [
                         'product_id' => $unit['product_id'],
                         'variation_id' => $unit['variation_id'],
                         'quantity' => (int) $rowQuantity,
-                        'supplier_price' => $rowPrice !== '' ? round((float) $rowPrice, 2) : 0.00,
+                        'unit_cost_foreign' => $unitCostForeign,
+                        'supplier_price' => supplier_order_convert_to_myr($unitCostForeign, $exchangeRate),
                     ];
                 }
             }
@@ -185,7 +222,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->beginTransaction();
 
             try {
-                supplier_order_apply_edit($pdo, $orderId, $supplierId, $form['notes'], $validItems, $shippingFee, $form['payment_status']);
+                supplier_order_apply_edit($pdo, $orderId, $supplierId, $form['notes'], $validItems, $shippingFee, $form['payment_status'], $currency, $exchangeRate);
 
                 $pdo->commit();
                 inventory_flush_woocommerce_resync($pdo);
@@ -281,6 +318,22 @@ require_once __DIR__ . '/../../includes/header.php';
                     <input type="text" class="form-control" value="<?php echo app_escape($form['purchase_number']); ?>" readonly disabled>
                 </div>
 
+                <div class="col-md-3">
+                    <label class="form-label">Supplier Currency</label>
+                    <select class="form-select" name="currency" id="supplier-order-currency">
+                        <?php foreach (SUPPLIER_ORDER_CURRENCY_OPTIONS as $currencyOption): ?>
+                            <option value="<?php echo app_escape($currencyOption); ?>" <?php echo $form['currency'] === $currencyOption ? 'selected' : ''; ?>><?php echo app_escape($currencyOption); ?></option>
+                        <?php endforeach; ?>
+                        <option value="OTHER" <?php echo !in_array($form['currency'], SUPPLIER_ORDER_CURRENCY_OPTIONS, true) ? 'selected' : ''; ?>>Other</option>
+                    </select>
+                    <input type="text" class="form-control mt-2<?php echo in_array($form['currency'], SUPPLIER_ORDER_CURRENCY_OPTIONS, true) ? ' d-none' : ''; ?>" id="supplier-order-currency-other" name="currency_other" maxlength="10" placeholder="e.g. KRW" value="<?php echo app_escape($form['currency_other']); ?>">
+                </div>
+                <div class="col-md-3<?php echo $form['currency'] === 'MYR' ? ' d-none' : ''; ?>" id="supplier-order-exchange-rate-wrapper">
+                    <label class="form-label" id="supplier-order-exchange-rate-label">Exchange Rate</label>
+                    <input type="number" step="0.000001" min="0" class="form-control" id="supplier-order-exchange-rate" name="exchange_rate" value="<?php echo app_escape($form['exchange_rate']); ?>">
+                    <div class="form-text">e.g. 1 JPY = 0.03 MYR</div>
+                </div>
+
                 <div class="col-md-6">
                     <label class="form-label">Shipping Fee (RM)</label>
                     <input type="number" step="0.01" min="0" class="form-control" id="supplier-order-shipping-fee" name="shipping_fee" value="<?php echo app_escape($form['shipping_fee']); ?>">
@@ -316,15 +369,20 @@ require_once __DIR__ . '/../../includes/header.php';
                             <th>SKU / Variation</th>
                             <th>MOQ</th>
                             <th>Quantity</th>
-                            <th>Unit Cost (RM)</th>
-                            <th>Subtotal (RM)</th>
+                            <th id="supplier-order-unit-cost-header">Unit Cost (RM)</th>
+                            <th id="supplier-order-subtotal-header">Subtotal (RM)</th>
                             <th></th>
                         </tr>
                     </thead>
                     <tbody></tbody>
                     <tfoot>
+                        <tr class="d-none" id="supplier-order-foreign-subtotal-row">
+                            <td colspan="5" class="text-end text-muted">Product Subtotal (<span id="supplier-order-foreign-subtotal-currency"></span>)</td>
+                            <td class="text-muted" id="supplier-order-foreign-subtotal">0.00</td>
+                            <td></td>
+                        </tr>
                         <tr>
-                            <td colspan="5" class="text-end fw-semibold">Product Subtotal</td>
+                            <td colspan="5" class="text-end fw-semibold">Product Subtotal (RM)</td>
                             <td class="fw-semibold" id="supplier-order-product-subtotal">0.00</td>
                             <td></td>
                         </tr>
