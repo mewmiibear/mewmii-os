@@ -1,13 +1,12 @@
 <?php
 
 /**
- * Phase 7C - Product Cost Engine. The single reusable place that computes "true landed cost" -
- * product pages, Purchasing, and any future report call these functions instead of each
- * re-deriving their own version. Reads only already-stored values (products.product_cost/
- * cost_currency/exchange_rate/selling_price, supplier_order_items.shipping_allocated) - see
- * database/migrate_product_costing.php, which added those columns in Sprint 13 specifically
- * as prep for this formula and documents the same intent. No forecasting, no automation, no
- * writes - a pure read-only calculation layer.
+ * Phase 7C - Product Cost Engine (completed in Phase 7F). The single reusable place that
+ * computes "true landed cost" - product pages, Purchasing, Margin Report, and any future
+ * report call these functions instead of each re-deriving their own version. Reads only
+ * already-stored values (products.product_cost/cost_currency/exchange_rate/selling_price,
+ * supplier_order_items.shipping_allocated, supplier_order_item_costs.amount) - no forecasting,
+ * no automation, no writes, a pure read-only calculation layer.
  *
  * Landed Cost = Converted Supplier Cost + Shipping Allocation + Additional Costs
  *   - Converted Supplier Cost = product_cost, converted via cost_currency/exchange_rate when
@@ -16,13 +15,16 @@
  *     cost_currency SET but exchange_rate NULL means the rate genuinely isn't on file -
  *     conversion (and therefore everything downstream) is reported as not configured rather
  *     than silently assumed to be 1:1.
- *   - Shipping Allocation = the most recent supplier_order_items.shipping_allocated on file
- *     for this product (never a guessed default). That column exists but is not yet written
- *     to anywhere in the app, so this will report "not configured" until a future phase adds
- *     an entry point for it - exactly the honest behaviour this engine is required to have.
- *   - Additional Costs = no field exists anywhere in the schema for this yet (no product or
- *     supplier-order column represents it), so it is always reported as not configured. Adding
- *     one is a schema decision for a later phase, not guessed here.
+ *   - Shipping Allocation = the most recent supplier_order_items.shipping_allocated on file for
+ *     this product (never a guessed default) - see Phase 7D.
+ *   - Additional Costs (Phase 7F) = every supplier_order_item_costs row (Customs, Handling,
+ *     Packaging, Other, or any other cost_type an operator entered) attached to that SAME
+ *     supplier order line - Shipping Allocation and Additional Costs are always sourced from
+ *     one single reference line per product, never mixed from two different shipments, so a
+ *     landed cost is never assembled from unrelated events. See product_cost_calculate_batch()
+ *     for how that reference line is chosen, and database/schema.sql's
+ *     supplier_order_item_costs table comment for why this lives at the supplier-order-line
+ *     level rather than as fixed columns on `products`.
  *
  * If Currency Conversion itself isn't configured, Landed Cost/Gross Profit/Gross Margin are
  * all null ("Not configured") rather than computed from an unconverted foreign-currency number
@@ -51,21 +53,58 @@ function product_cost_calculate_batch(PDO $pdo, array $productIds): array
         $productsById[(int) $row['id']] = $row;
     }
 
-    // One batched query for every product's most recent shipping_allocated, not one query per
-    // product - ORDER BY so the first row PHP sees per product_id is already the most recent.
-    $shippingByProduct = [];
-    $shippingStmt = $pdo->prepare("
-        SELECT soi.product_id, soi.shipping_allocated
+    // One batched query for every product's reference supplier order line - the most recent
+    // line (by order_date) that carries EITHER a shipping allocation OR at least one
+    // additional-cost row. Both Shipping Allocation and Additional Costs below are always read
+    // from this SAME line per product, never independently "most recent" for each, so a landed
+    // cost is never assembled by mixing shipping from one shipment with customs from another.
+    $referenceByProduct = [];
+    $referenceStmt = $pdo->prepare("
+        SELECT soi.product_id, soi.id AS item_id, soi.shipping_allocated
         FROM supplier_order_items soi
         INNER JOIN supplier_orders so ON so.id = soi.supplier_order_id
-        WHERE soi.product_id IN ({$placeholders}) AND soi.shipping_allocated IS NOT NULL
+        LEFT JOIN (
+            SELECT supplier_order_item_id, SUM(amount) AS total_other_cost
+            FROM supplier_order_item_costs
+            GROUP BY supplier_order_item_id
+        ) agg ON agg.supplier_order_item_id = soi.id
+        WHERE soi.product_id IN ({$placeholders})
+          AND (soi.shipping_allocated IS NOT NULL OR agg.total_other_cost IS NOT NULL)
         ORDER BY so.order_date DESC, so.id DESC
     ");
-    $shippingStmt->execute($productIds);
-    foreach ($shippingStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+    $referenceStmt->execute($productIds);
+    foreach ($referenceStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $pid = (int) $row['product_id'];
-        if (!isset($shippingByProduct[$pid])) {
-            $shippingByProduct[$pid] = (float) $row['shipping_allocated'];
+        if (!isset($referenceByProduct[$pid])) {
+            $referenceByProduct[$pid] = [
+                'item_id' => (int) $row['item_id'],
+                'shipping_allocated' => $row['shipping_allocated'] !== null ? (float) $row['shipping_allocated'] : null,
+            ];
+        }
+    }
+
+    // Additional-cost line-item detail, batched for exactly the reference item ids just
+    // picked above (one small IN() query, not one per product and not every order line ever
+    // placed) - this is both the source of `other_costs` (summed below) and the detailed
+    // breakdown shown on the Cost Breakdown card/Margin Report.
+    $referenceItemIds = array_values(array_unique(array_column($referenceByProduct, 'item_id')));
+    $otherCostsByItem = [];
+    if ($referenceItemIds !== []) {
+        $itemPlaceholders = implode(',', array_fill(0, count($referenceItemIds), '?'));
+        $otherCostsStmt = $pdo->prepare("
+            SELECT supplier_order_item_id, cost_type, amount, notes
+            FROM supplier_order_item_costs
+            WHERE supplier_order_item_id IN ({$itemPlaceholders})
+            ORDER BY id ASC
+        ");
+        $otherCostsStmt->execute($referenceItemIds);
+        foreach ($otherCostsStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $itemId = (int) $row['supplier_order_item_id'];
+            $otherCostsByItem[$itemId][] = [
+                'cost_type' => $row['cost_type'],
+                'amount' => (float) $row['amount'],
+                'notes' => $row['notes'],
+            ];
         }
     }
 
@@ -74,7 +113,11 @@ function product_cost_calculate_batch(PDO $pdo, array $productIds): array
         if (!isset($productsById[$productId])) {
             continue;
         }
-        $results[$productId] = product_cost_build_breakdown($productsById[$productId], $shippingByProduct[$productId] ?? null);
+        $reference = $referenceByProduct[$productId] ?? null;
+        $shippingAllocated = $reference['shipping_allocated'] ?? null;
+        $otherCostsBreakdown = $reference !== null ? ($otherCostsByItem[$reference['item_id']] ?? []) : [];
+
+        $results[$productId] = product_cost_build_breakdown($productsById[$productId], $shippingAllocated, $otherCostsBreakdown);
     }
 
     return $results;
@@ -87,7 +130,7 @@ function product_cost_calculate(PDO $pdo, int $productId): ?array
     return $batch[$productId] ?? null;
 }
 
-function product_cost_build_breakdown(array $product, ?float $shippingAllocated): array
+function product_cost_build_breakdown(array $product, ?float $shippingAllocated, array $otherCostsBreakdown = []): array
 {
     $supplierCost = (float) $product['product_cost'];
     $costCurrency = $product['cost_currency'] ?? null;
@@ -109,10 +152,12 @@ function product_cost_build_breakdown(array $product, ?float $shippingAllocated)
     $convertedCost = $currencyConfigured ? ($supplierCost * $effectiveRate) : null;
 
     $shippingConfigured = $shippingAllocated !== null;
-    // No column anywhere in the schema represents "additional costs" yet - always reported as
-    // not configured rather than inventing a value or a source for one.
-    $otherCostsConfigured = false;
-    $otherCosts = 0.0;
+    // Phase 7F - real additional-cost rows (Customs/Handling/Packaging/Other/etc.) from the
+    // same reference supplier order line as Shipping Allocation above. An empty breakdown
+    // means genuinely no additional-cost rows exist for this product yet - reported as not
+    // configured, never assumed to be 0 the same way Shipping Allocation isn't.
+    $otherCostsConfigured = $otherCostsBreakdown !== [];
+    $otherCosts = array_sum(array_column($otherCostsBreakdown, 'amount'));
 
     if ($convertedCost !== null) {
         $landedCost = $convertedCost + ($shippingAllocated ?? 0.0) + $otherCosts;
@@ -141,6 +186,7 @@ function product_cost_build_breakdown(array $product, ?float $shippingAllocated)
         'shipping_configured' => $shippingConfigured,
         'other_costs' => $otherCosts,
         'other_costs_configured' => $otherCostsConfigured,
+        'other_costs_breakdown' => $otherCostsBreakdown,
         'landed_cost' => $landedCost,
         'is_estimated' => $isEstimated,
         'selling_price' => $sellingPrice,

@@ -218,7 +218,16 @@ require_once __DIR__ . '/../../includes/header.php';
         </div>
         <div class="col-md-4">
             <div class="text-muted small">Other Costs</div>
-            <div><?php echo $costBreakdown['other_costs_configured'] ? ('RM ' . app_escape(number_format($costBreakdown['other_costs'], 2))) : $notConfiguredBadge; ?></div>
+            <div>
+                <?php echo $costBreakdown['other_costs_configured'] ? ('RM ' . app_escape(number_format($costBreakdown['other_costs'], 2))) : $notConfiguredBadge; ?>
+                <?php if ($costBreakdown['other_costs_breakdown'] !== []): ?>
+                    <div class="mt-1">
+                        <?php foreach ($costBreakdown['other_costs_breakdown'] as $otherCostLine): ?>
+                            <span class="badge bg-light text-dark border me-1 mb-1"><?php echo app_escape($otherCostLine['cost_type']); ?>: RM <?php echo app_escape(number_format($otherCostLine['amount'], 2)); ?></span>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+            </div>
         </div>
         <div class="col-md-4">
             <div class="text-muted small">Total Landed Cost</div>

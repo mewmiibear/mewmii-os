@@ -688,6 +688,26 @@ CREATE TABLE IF NOT EXISTS supplier_order_items (
   CONSTRAINT fk_supplier_order_items_variation FOREIGN KEY (variation_id) REFERENCES product_variations(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Phase 7F (Additional Costs Framework) - arbitrary named costs (Customs, Handling,
+-- Packaging, Other, or anything else an operator types) allocated to a specific supplier
+-- order line, the same grain shipping_allocated already uses above - a customs/handling fee
+-- is tied to a specific shipment/import event, not a fixed property of the product itself,
+-- so it lives here rather than as new columns on `products`. cost_type is a free VARCHAR, not
+-- an ENUM/lookup table, so a new cost type never needs a schema change - "do not hardcode
+-- only one type" is satisfied by the row shape itself (many rows per item, one per cost),
+-- not by a fixed list of columns. One item can have several rows (Customs AND Handling on
+-- the same line), unlike shipping_allocated which is a single value per item.
+CREATE TABLE IF NOT EXISTS supplier_order_item_costs (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  supplier_order_item_id INT UNSIGNED NOT NULL,
+  cost_type VARCHAR(50) NOT NULL,
+  amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  notes VARCHAR(255) NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_supplier_order_item_costs_item FOREIGN KEY (supplier_order_item_id) REFERENCES supplier_order_items(id) ON DELETE CASCADE,
+  INDEX idx_supplier_order_item_costs_item (supplier_order_item_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Payment history against a supplier order - purely additive (add/delete rows), never
 -- overwrites supplier_orders' own total. Paid Amount is always SUM(amount) over this table
 -- computed live, never a cached column, so it can never drift from the actual entries.

@@ -100,6 +100,11 @@ foreach ($rows as $row) {
     $row['selling_price'] = $cost['selling_price'] ?? 0.0;
     $row['gross_profit'] = $cost['gross_profit'] ?? null;
     $row['gross_margin_percent'] = $cost['gross_margin_percent'] ?? null;
+    // Phase 7F - surfaced on the Landed Cost cell below (a tooltip/badge summary), never
+    // recomputed here - straight from the same batch call as everything else on this row.
+    $row['other_costs_configured'] = $cost['other_costs_configured'] ?? false;
+    $row['other_costs'] = $cost['other_costs'] ?? 0.0;
+    $row['other_costs_breakdown'] = $cost['other_costs_breakdown'] ?? [];
     $allRows[] = $row;
 }
 unset($row);
@@ -348,6 +353,17 @@ require_once __DIR__ . '/../../includes/header.php';
                             RM <?php echo app_escape(number_format($product['landed_cost'], 2)); ?>
                             <?php if ($product['is_estimated']): ?>
                                 <span class="badge bg-warning text-dark ms-1">Estimated</span>
+                            <?php endif; ?>
+                            <?php if ($product['other_costs_configured']): ?>
+                                <?php
+                                $otherCostsTitle = implode(', ', array_map(
+                                    static fn (array $line): string => $line['cost_type'] . ': RM ' . number_format($line['amount'], 2),
+                                    $product['other_costs_breakdown']
+                                ));
+                                ?>
+                                <div class="text-muted small" title="<?php echo app_escape($otherCostsTitle); ?>">
+                                    +RM <?php echo app_escape(number_format($product['other_costs'], 2)); ?> additional costs
+                                </div>
                             <?php endif; ?>
                         <?php else: ?>
                             <span class="badge bg-secondary">Not configured</span>

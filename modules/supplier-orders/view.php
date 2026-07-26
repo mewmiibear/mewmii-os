@@ -205,6 +205,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->rollBack();
                 $error = 'Failed to allocate shipping cost.';
             }
+        } elseif ($action === 'add_item_cost') {
+            $itemId = (int) ($_POST['item_id'] ?? 0);
+            $costTypeInput = trim((string) ($_POST['cost_type'] ?? ''));
+            $costType = $costTypeInput === '__custom__' ? trim((string) ($_POST['cost_type_other'] ?? '')) : $costTypeInput;
+            $amount = (float) ($_POST['amount'] ?? 0);
+            $notes = trim((string) ($_POST['notes'] ?? ''));
+
+            $pdo->beginTransaction();
+
+            try {
+                supplier_order_item_add_cost($pdo, $itemId, $costType, $amount, $notes !== '' ? $notes : null);
+                supplier_order_log_event($pdo, $orderId, 'Additional cost added (' . $costType . '): RM ' . number_format($amount, 2));
+                $pdo->commit();
+
+                app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1&cost_added=1');
+            } catch (RuntimeException $exception) {
+                $pdo->rollBack();
+                $error = $exception->getMessage();
+            } catch (Exception $exception) {
+                $pdo->rollBack();
+                $error = 'Failed to add additional cost.';
+            }
+        } elseif ($action === 'delete_item_cost') {
+            $costId = (int) ($_POST['cost_id'] ?? 0);
+
+            if ($costId < 1) {
+                $error = 'Invalid cost record.';
+            } else {
+                $pdo->beginTransaction();
+
+                try {
+                    supplier_order_item_delete_cost($pdo, $costId);
+                    supplier_order_log_event($pdo, $orderId, 'Additional cost removed from an order line.');
+                    $pdo->commit();
+
+                    app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1');
+                } catch (Exception $exception) {
+                    $pdo->rollBack();
+                    $error = 'Failed to delete additional cost.';
+                }
+            }
         } elseif ($action === 'cancel') {
             $pdo->beginTransaction();
 
@@ -279,6 +320,16 @@ foreach ($items as $item) {
 }
 $shippingAllocationMismatch = $anyShippingAllocated
     && abs($totalShippingAllocated - (float) $order['shipping_fee']) > 0.01;
+
+// Phase 7F (Additional Costs Framework) - one batched query for every item's additional cost
+// rows, not one query per line (supplier_order_items_list_costs_batch()).
+$itemCostsByItem = supplier_order_items_list_costs_batch($pdo, array_column($items, 'id'));
+$totalOtherCostsAllocated = 0.0;
+foreach ($itemCostsByItem as $itemCostRows) {
+    foreach ($itemCostRows as $costRow) {
+        $totalOtherCostsAllocated += (float) $costRow['amount'];
+    }
+}
 
 // Receiving glue prompt (display-only): right after a receive/mark-arrived action, check the
 // SAME existing demand functions the Reservation/Allocation Centers already use
@@ -428,6 +479,9 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php endif; ?>
 <?php if (isset($_GET['shipping_allocated'])): ?>
     <div class="alert alert-success">Shipping cost allocated.</div>
+<?php endif; ?>
+<?php if (isset($_GET['cost_added'])): ?>
+    <div class="alert alert-success">Additional cost added.</div>
 <?php endif; ?>
 <?php if (isset($_GET['delete_error'])): ?>
     <div class="alert alert-danger"><?php echo app_escape($_GET['delete_error'] === '1' ? 'Failed to delete supplier order.' : $_GET['delete_error']); ?></div>
@@ -662,7 +716,7 @@ require_once __DIR__ . '/../../includes/header.php';
 
         <?php if ($items !== []): ?>
         <div class="card p-4 mt-4">
-            <h5 class="mb-3"><i class="bi bi-box-seam"></i> Shipping Allocation</h5>
+            <h5 class="mb-3"><i class="bi bi-box-seam"></i> Shipping &amp; Additional Costs</h5>
 
             <?php if ($shippingAllocationMismatch): ?>
                 <div class="alert alert-warning py-2">
@@ -670,13 +724,17 @@ require_once __DIR__ . '/../../includes/header.php';
                 </div>
             <?php endif; ?>
 
-            <div class="d-flex justify-content-between small text-muted mb-3">
-                <span>Total Allocated</span>
+            <div class="d-flex justify-content-between small text-muted mb-1">
+                <span>Total Shipping Allocated</span>
                 <span>
                     RM <?php echo app_escape(number_format($totalShippingAllocated, 2)); ?>
                     of RM <?php echo app_escape(number_format((float) $order['shipping_fee'], 2)); ?> shipping fee
                     <?php if (!$anyShippingAllocated): ?><span class="text-muted">(not yet allocated)</span><?php endif; ?>
                 </span>
+            </div>
+            <div class="d-flex justify-content-between small text-muted mb-3">
+                <span>Total Additional Costs</span>
+                <span>RM <?php echo app_escape(number_format($totalOtherCostsAllocated, 2)); ?></span>
             </div>
 
             <?php if ($canManage): ?>
@@ -709,8 +767,9 @@ require_once __DIR__ . '/../../includes/header.php';
                                     <th>Product</th>
                                     <th class="text-end">Qty</th>
                                     <th class="text-end">Cost Value</th>
-                                    <th class="text-end">Current Allocation</th>
+                                    <th class="text-end">Shipping Allocation</th>
                                     <th class="text-end d-none" id="manual-alloc-header">Manual Amount (RM)</th>
+                                    <th>Additional Costs</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -724,12 +783,66 @@ require_once __DIR__ . '/../../includes/header.php';
                                         <td class="text-end d-none manual-alloc-cell">
                                             <input type="number" step="0.01" min="0" class="form-control form-control-sm manual-alloc-input" name="shipping_allocated[<?php echo (int) $item['id']; ?>]" value="<?php echo $item['shipping_allocated'] !== null ? app_escape(number_format((float) $item['shipping_allocated'], 2, '.', '')) : '0.00'; ?>">
                                         </td>
+                                        <td>
+                                            <?php foreach ($itemCostsByItem[(int) $item['id']] ?? [] as $costRow): ?>
+                                                <span class="badge bg-light text-dark border me-1 mb-1 d-inline-flex align-items-center gap-1">
+                                                    <?php echo app_escape($costRow['cost_type']); ?>: RM <?php echo app_escape(number_format((float) $costRow['amount'], 2)); ?>
+                                                    <?php if ($canManage): ?>
+                                                        <form method="post" class="d-inline" onsubmit="return confirm('Remove this additional cost?');">
+                                                            <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                                                            <input type="hidden" name="action" value="delete_item_cost">
+                                                            <input type="hidden" name="cost_id" value="<?php echo (int) $costRow['id']; ?>">
+                                                            <button type="submit" class="btn-close" style="font-size: 0.55rem;" aria-label="Remove"></button>
+                                                        </form>
+                                                    <?php endif; ?>
+                                                </span>
+                                            <?php endforeach; ?>
+                                            <?php if (($itemCostsByItem[(int) $item['id']] ?? []) === []): ?>
+                                                <span class="text-muted small">&mdash;</span>
+                                            <?php endif; ?>
+                                        </td>
                                     </tr>
                                 <?php endforeach; ?>
                             </tbody>
                         </table>
                     </div>
                     <div class="text-end small text-muted mt-2 d-none" id="manual-running-total">Manual total: RM <span id="manual-running-total-value">0.00</span></div>
+                </form>
+
+                <hr class="my-3">
+                <div class="fw-semibold mb-2">Add Additional Cost</div>
+                <form method="post" class="row g-2 align-items-end">
+                    <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                    <input type="hidden" name="action" value="add_item_cost">
+                    <div class="col-md-3">
+                        <label class="form-label small mb-1">Order Line</label>
+                        <select name="item_id" class="form-select form-select-sm" required>
+                            <?php foreach ($items as $item): ?>
+                                <option value="<?php echo (int) $item['id']; ?>"><?php echo app_escape($item['sku'] . ' - ' . $item['product_name']); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small mb-1">Cost Type</label>
+                        <select name="cost_type" id="item-cost-type-select" class="form-select form-select-sm">
+                            <?php foreach (SUPPLIER_ORDER_ITEM_COST_TYPE_SUGGESTIONS as $costTypeSuggestion): ?>
+                                <option value="<?php echo app_escape($costTypeSuggestion); ?>"><?php echo app_escape($costTypeSuggestion); ?></option>
+                            <?php endforeach; ?>
+                            <option value="__custom__">Custom type&hellip;</option>
+                        </select>
+                        <input type="text" class="form-control form-control-sm mt-2 d-none" id="item-cost-type-other" name="cost_type_other" maxlength="50" placeholder="e.g. Insurance">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small mb-1">Amount (RM)</label>
+                        <input type="number" step="0.01" min="0" class="form-control form-control-sm" name="amount" required>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small mb-1">Notes</label>
+                        <input type="text" class="form-control form-control-sm" name="notes">
+                    </div>
+                    <div class="col-md-2">
+                        <button type="submit" class="btn btn-sm btn-primary w-100">Add Cost</button>
+                    </div>
                 </form>
             <?php endif; ?>
         </div>
@@ -922,6 +1035,18 @@ require_once __DIR__ . '/../../includes/header.php';
                 event.preventDefault();
             }
         });
+    }
+
+    // Phase 7F (Additional Costs Framework) - same toggle-by-classList shape as the Cost
+    // Currency "Other" field on modules/products/_form.php, self-contained here.
+    var costTypeSelect = document.getElementById('item-cost-type-select');
+    var costTypeOther = document.getElementById('item-cost-type-other');
+    if (costTypeSelect && costTypeOther) {
+        var applyCostType = function () {
+            costTypeOther.classList.toggle('d-none', costTypeSelect.value !== '__custom__');
+        };
+        costTypeSelect.addEventListener('change', applyCostType);
+        applyCostType();
     }
 })();
 </script>

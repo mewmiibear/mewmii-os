@@ -1031,3 +1031,84 @@ function supplier_order_allocate_shipping(PDO $pdo, int $orderId, string $method
         $updateStmt->execute([$amount, $itemId, $orderId]);
     }
 }
+
+// Phase 7F (Additional Costs Framework) - a suggested starting list only, offered on the form
+// alongside a free-text "Other" option (same dropdown-plus-"Other" convention as
+// PRODUCT_COST_CURRENCY_OPTIONS/SUPPLIER_ORDER_CURRENCY_OPTIONS) - cost_type itself stays a
+// plain VARCHAR, so typing any other value here is just as valid and needs no schema change.
+const SUPPLIER_ORDER_ITEM_COST_TYPE_SUGGESTIONS = ['Customs', 'Handling', 'Packaging', 'Other'];
+
+/**
+ * One row per named additional cost on a specific supplier order line - see
+ * database/schema.sql's supplier_order_item_costs comment for why this lives here rather than
+ * on `products`. Reused as-is by includes/product_cost.php's batch calculation (never a second
+ * "read the additional costs" query shape).
+ */
+function supplier_order_item_list_costs(PDO $pdo, int $itemId): array
+{
+    $stmt = $pdo->prepare('
+        SELECT id, cost_type, amount, notes, created_at
+        FROM supplier_order_item_costs
+        WHERE supplier_order_item_id = ?
+        ORDER BY id ASC
+    ');
+    $stmt->execute([$itemId]);
+
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Batched version of supplier_order_item_list_costs() for a whole order's items at once (the
+ * Shipping Allocation/Additional Costs section on modules/supplier-orders/view.php needs every
+ * line's costs, not just one) - one query regardless of how many line items the order has.
+ */
+function supplier_order_items_list_costs_batch(PDO $pdo, array $itemIds): array
+{
+    $itemIds = array_values(array_unique(array_map('intval', $itemIds)));
+    if ($itemIds === []) {
+        return [];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($itemIds), '?'));
+    $stmt = $pdo->prepare("
+        SELECT id, supplier_order_item_id, cost_type, amount, notes, created_at
+        FROM supplier_order_item_costs
+        WHERE supplier_order_item_id IN ({$placeholders})
+        ORDER BY id ASC
+    ");
+    $stmt->execute($itemIds);
+
+    $byItem = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $byItem[(int) $row['supplier_order_item_id']][] = $row;
+    }
+
+    return $byItem;
+}
+
+function supplier_order_item_add_cost(PDO $pdo, int $itemId, string $costType, float $amount, ?string $notes): void
+{
+    $costType = trim($costType);
+    if ($costType === '' || strlen($costType) > 50) {
+        throw new RuntimeException('Enter a cost type (up to 50 characters).');
+    }
+    if ($amount < 0) {
+        throw new RuntimeException('Cost amount cannot be negative.');
+    }
+
+    $itemCheck = $pdo->prepare('SELECT COUNT(*) FROM supplier_order_items WHERE id = ?');
+    $itemCheck->execute([$itemId]);
+    if ((int) $itemCheck->fetchColumn() === 0) {
+        throw new RuntimeException('Invalid order item.');
+    }
+
+    $pdo->prepare('
+        INSERT INTO supplier_order_item_costs (supplier_order_item_id, cost_type, amount, notes)
+        VALUES (?, ?, ?, ?)
+    ')->execute([$itemId, $costType, round($amount, 2), $notes !== null && $notes !== '' ? $notes : null]);
+}
+
+function supplier_order_item_delete_cost(PDO $pdo, int $costId): void
+{
+    $pdo->prepare('DELETE FROM supplier_order_item_costs WHERE id = ?')->execute([$costId]);
+}
