@@ -3,7 +3,7 @@
 require_once __DIR__ . '/currency_rates.php';
 
 /**
- * Phase 9D/9F/9F.1 - Pricing Engine. A separate, read-only planning layer alongside (never
+ * Phase 9D/9F/9F.1/9F.2 - Pricing Engine. A separate, read-only planning layer alongside (never
  * inside) includes/product_cost.php's actual Landed Cost engine - see that file's own
  * docblock for "Converted Supplier Cost + Shipping Allocation + Additional Costs" from REAL
  * received supplier orders. This file answers a different question: BEFORE any supplier
@@ -29,9 +29,13 @@ require_once __DIR__ . '/currency_rates.php';
  *
  * Formulas:
  *   Original/Supplier/Market Price MYR = amount x currency_rates.exchange_rate for that
- *     currency (currency NULL means already MYR, rate 1.0 - a complete state, not missing
- *     data; currency set but no currency_rates row for it means genuinely not configured,
- *     never assumed 1:1 - same convention product_cost.php already uses for Supplier Price).
+ *     currency AND that specific rate_type ('original'/'supplier'/'market' respectively -
+ *     Phase 9F.2: the same currency code needs an independent rate per category, e.g. JPY's
+ *     supplier rate, original rate, and market rate are three different numbers). currency
+ *     NULL means already MYR, rate 1.0 - a complete state, not missing data; currency set but
+ *     no currency_rates row for that (rate_type, currency) pair means genuinely not
+ *     configured, never assumed 1:1 - same convention product_cost.php already uses for
+ *     Supplier Price.
  *   Supplier Discount % = (Original MYR - Supplier MYR) / Original MYR x 100
  *   Estimated Shipping Cost = weight_grams x shipping_rate_countries.rate_per_gram
  *   Estimated Cost = Supplier Price MYR + Estimated Shipping Cost (partial/"estimated" if
@@ -176,19 +180,32 @@ function pricing_calculate_batch(PDO $pdo, array $productIds): array
     $stmt->execute($productIds);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    $currencyCodes = [];
+    // Phase 9F.2 - Supplier/Original/Market each need their OWN rate for the same currency
+    // code, so this is three scoped batched lookups (one per rate_type), never one per
+    // product - still O(1) queries regardless of how many products are in this batch.
+    $supplierCodes = [];
+    $originalCodes = [];
+    $marketCodes = [];
     foreach ($rows as $row) {
-        foreach ([$row['cost_currency'], $row['original_currency'], $row['market_currency']] as $code) {
-            if ($code !== null) {
-                $currencyCodes[] = $code;
-            }
+        if ($row['cost_currency'] !== null) {
+            $supplierCodes[] = $row['cost_currency'];
+        }
+        if ($row['original_currency'] !== null) {
+            $originalCodes[] = $row['original_currency'];
+        }
+        if ($row['market_currency'] !== null) {
+            $marketCodes[] = $row['market_currency'];
         }
     }
-    $rateMap = currency_rates_lookup_batch($pdo, $currencyCodes);
+    $rateMaps = [
+        'supplier' => currency_rates_lookup_batch($pdo, 'supplier', $supplierCodes),
+        'original' => currency_rates_lookup_batch($pdo, 'original', $originalCodes),
+        'market' => currency_rates_lookup_batch($pdo, 'market', $marketCodes),
+    ];
 
     $results = [];
     foreach ($rows as $row) {
-        $results[(int) $row['id']] = pricing_build_breakdown($row, $rateMap);
+        $results[(int) $row['id']] = pricing_build_breakdown($row, $rateMaps);
     }
 
     return $results;
@@ -201,22 +218,26 @@ function pricing_calculate(PDO $pdo, int $productId): ?array
     return $batch[$productId] ?? null;
 }
 
-function pricing_build_breakdown(array $row, array $rateMap): array
+/**
+ * $rateMaps = ['supplier' => [code => rate], 'original' => [...], 'market' => [...]] - one
+ * map per rate_type from pricing_calculate_batch()'s three scoped lookups (Phase 9F.2).
+ */
+function pricing_build_breakdown(array $row, array $rateMaps): array
 {
     $original = pricing_calculate_original_price(
         $row['original_price'] !== null ? (float) $row['original_price'] : null,
         $row['original_currency'],
-        $row['original_currency'] !== null ? ($rateMap[$row['original_currency']] ?? null) : null
+        $row['original_currency'] !== null ? ($rateMaps['original'][$row['original_currency']] ?? null) : null
     );
     $supplier = pricing_calculate_supplier_price(
         (float) $row['product_cost'],
         $row['cost_currency'],
-        $row['cost_currency'] !== null ? ($rateMap[$row['cost_currency']] ?? null) : null
+        $row['cost_currency'] !== null ? ($rateMaps['supplier'][$row['cost_currency']] ?? null) : null
     );
     $market = pricing_calculate_market_price(
         $row['market_price'] !== null ? (float) $row['market_price'] : null,
         $row['market_currency'],
-        $row['market_currency'] !== null ? ($rateMap[$row['market_currency']] ?? null) : null
+        $row['market_currency'] !== null ? ($rateMaps['market'][$row['market_currency']] ?? null) : null
     );
 
     $weightGrams = $row['weight_grams'] !== null ? (float) $row['weight_grams'] : null;

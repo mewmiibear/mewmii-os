@@ -159,10 +159,12 @@ CREATE TABLE IF NOT EXISTS shipping_rate_countries (
 
 CREATE TABLE IF NOT EXISTS currency_rates (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  currency_code VARCHAR(10) NOT NULL UNIQUE,
+  rate_type VARCHAR(20) NOT NULL DEFAULT 'supplier',
+  currency_code VARCHAR(10) NOT NULL,
   exchange_rate DECIMAL(12,6) NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_currency_rates_type_code (rate_type, currency_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Catalog taxonomies. Defined before `products` because products.brand_id references brands.

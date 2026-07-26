@@ -135,17 +135,22 @@ CREATE TABLE IF NOT EXISTS shipping_rate_countries (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Phase 9F.1 (Global Currency Exchange Rate Settings) - the single centrally-managed "1 unit
--- = ? MYR" rate per currency, managed from modules/settings/currency_rates.php. Replaces
--- manual per-product exchange rate entry - see includes/currency_rates.php for how this feeds
+-- Phase 9F.1/9F.2 (Multi-Purpose Currency Rate Settings) - the centrally-managed "1 unit = ?
+-- MYR" rate per currency, managed from modules/settings/currency_rates.php. Replaces manual
+-- per-product exchange rate entry - see includes/currency_rates.php for how this feeds
 -- includes/pricing_engine.php and keeps products.exchange_rate (still read as-is by the actual
--- Landed Cost engine, includes/product_cost.php) in sync automatically.
+-- Landed Cost engine, includes/product_cost.php) in sync automatically. rate_type
+-- ('supplier'/'original'/'market') is part of the key because the SAME currency code needs a
+-- different rate per calculation purpose (e.g. JPY's supplier rate, original rate, and market
+-- rate are three independent numbers, not one) - see Phase 9F.2.
 CREATE TABLE IF NOT EXISTS currency_rates (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  currency_code VARCHAR(10) NOT NULL UNIQUE,
+  rate_type VARCHAR(20) NOT NULL DEFAULT 'supplier',
+  currency_code VARCHAR(10) NOT NULL,
   exchange_rate DECIMAL(12,6) NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_currency_rates_type_code (rate_type, currency_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Catalog taxonomies. Defined before `products` because products.brand_id references brands.
