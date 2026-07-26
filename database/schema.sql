@@ -135,6 +135,19 @@ CREATE TABLE IF NOT EXISTS shipping_rate_countries (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Phase 9F.1 (Global Currency Exchange Rate Settings) - the single centrally-managed "1 unit
+-- = ? MYR" rate per currency, managed from modules/settings/currency_rates.php. Replaces
+-- manual per-product exchange rate entry - see includes/currency_rates.php for how this feeds
+-- includes/pricing_engine.php and keeps products.exchange_rate (still read as-is by the actual
+-- Landed Cost engine, includes/product_cost.php) in sync automatically.
+CREATE TABLE IF NOT EXISTS currency_rates (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  currency_code VARCHAR(10) NOT NULL UNIQUE,
+  exchange_rate DECIMAL(12,6) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Catalog taxonomies. Defined before `products` because products.brand_id references brands.
 CREATE TABLE IF NOT EXISTS brands (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

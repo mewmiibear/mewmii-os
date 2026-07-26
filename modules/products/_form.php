@@ -339,22 +339,37 @@ $productFormCssVersion = is_file($productFormCssPath) ? filemtime($productFormCs
                         <option value="OTHER" <?php echo $form['cost_currency'] === 'OTHER' ? 'selected' : ''; ?>>Other</option>
                     </select>
                     <input type="text" class="form-control mt-2<?php echo $form['cost_currency'] !== 'OTHER' ? ' d-none' : ''; ?>" id="cost-currency-other" name="cost_currency_other" maxlength="10" placeholder="e.g. KRW" value="<?php echo app_escape($form['cost_currency_other']); ?>">
-                    <div class="form-text">Currency Cost Price was quoted in. Leave as MYR if it's already in ringgit.</div>
+                    <div class="form-text">Currency Cost Price was quoted in. Leave as MYR if it's already in ringgit. Exchange rate is looked up automatically from Settings &gt; Currency Exchange Rates.</div>
                 </div>
                 <div class="col-md-4">
                     <label class="form-label">Original Price</label>
                     <input type="number" step="0.01" min="0" class="form-control" name="original_price" value="<?php echo app_escape($form['original_price']); ?>" placeholder="0.00">
-                    <div class="form-text">Official brand/retail reference price - exchange rate is set on the Price Calculation Setting tab after saving.</div>
+                    <div class="form-text">Official brand/retail reference price. Exchange rate is looked up automatically from Settings &gt; Currency Exchange Rates - never entered here.</div>
                 </div>
                 <div class="col-md-4">
                     <label class="form-label">Original Currency</label>
                     <select class="form-select" name="original_currency" id="original-currency-select">
-                        <?php foreach (PRICING_REFERENCE_CURRENCY_OPTIONS as $currencyOption): ?>
+                        <?php foreach (CURRENCY_RATE_OPTIONS as $currencyOption): ?>
                             <option value="<?php echo app_escape($currencyOption); ?>" <?php echo $form['original_currency'] === $currencyOption ? 'selected' : ''; ?>><?php echo app_escape($currencyOption); ?></option>
                         <?php endforeach; ?>
                         <option value="OTHER" <?php echo $form['original_currency'] === 'OTHER' ? 'selected' : ''; ?>>Other</option>
                     </select>
                     <input type="text" class="form-control mt-2<?php echo $form['original_currency'] !== 'OTHER' ? ' d-none' : ''; ?>" id="original-currency-other" name="original_currency_other" maxlength="10" placeholder="e.g. KRW" value="<?php echo app_escape($form['original_currency_other']); ?>">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Market Price</label>
+                    <input type="number" step="0.01" min="0" class="form-control" name="market_price" value="<?php echo app_escape($form['market_price']); ?>" placeholder="0.00">
+                    <div class="form-text">Other sellers' price reference - optional.</div>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Market Currency</label>
+                    <select class="form-select" name="market_currency" id="market-currency-select">
+                        <?php foreach (CURRENCY_RATE_OPTIONS as $currencyOption): ?>
+                            <option value="<?php echo app_escape($currencyOption); ?>" <?php echo $form['market_currency'] === $currencyOption ? 'selected' : ''; ?>><?php echo app_escape($currencyOption); ?></option>
+                        <?php endforeach; ?>
+                        <option value="OTHER" <?php echo $form['market_currency'] === 'OTHER' ? 'selected' : ''; ?>>Other</option>
+                    </select>
+                    <input type="text" class="form-control mt-2<?php echo $form['market_currency'] !== 'OTHER' ? ' d-none' : ''; ?>" id="market-currency-other" name="market_currency_other" maxlength="10" placeholder="e.g. KRW" value="<?php echo app_escape($form['market_currency_other']); ?>">
                 </div>
 
                 <div class="col-md-4 js-sale-fields">
@@ -786,5 +801,6 @@ $entryFormJsVersion = is_file($entryFormJsPath) ? filemtime($entryFormJsPath) : 
 
     setupCurrencyToggle('cost-currency-select', 'cost-currency-other', 'js-cost-currency-foreign', 'cost-currency-rate-label');
     setupCurrencyToggle('original-currency-select', 'original-currency-other', 'js-original-currency-foreign', 'original-currency-rate-label');
+    setupCurrencyToggle('market-currency-select', 'market-currency-other', 'js-market-currency-foreign', 'market-currency-rate-label');
 })();
 </script>

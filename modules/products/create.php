@@ -67,12 +67,15 @@ $form = [
     'estimated_release_month' => '',
     'moq' => '1',
     'preorder_closing_date' => '',
-    // Phase 9D/9F (Pricing Engine) - only the raw Original Price amount/currency are
-    // collected at creation; the exchange rate (and every other pricing-engine field) is
-    // set afterward on the Price Calculation Setting tab (modules/products/tabs/pricing.php).
+    // Phase 9D/9F/9F.1 (Pricing Engine) - only raw amounts/currencies are collected here.
+    // Exchange rates are never entered anywhere - includes/currency_rates.php looks them up
+    // automatically from the centrally-managed rate table (modules/settings/currency_rates.php).
     'original_price' => '',
     'original_currency' => 'MYR',
     'original_currency_other' => '',
+    'market_price' => '',
+    'market_currency' => 'MYR',
+    'market_currency_other' => '',
 ];
 $selectedTagIds = [];
 
@@ -123,10 +126,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form['preorder_closing_date'] = trim((string) ($_POST['preorder_closing_date'] ?? ''));
     $selectedTagIds = array_map('intval', $_POST['tag_ids'] ?? []);
 
-    // Phase 9D/9F (Pricing Engine)
+    // Phase 9D/9F/9F.1 (Pricing Engine)
     $form['original_price'] = trim((string) ($_POST['original_price'] ?? ''));
     $form['original_currency'] = trim((string) ($_POST['original_currency'] ?? 'MYR'));
     $form['original_currency_other'] = trim((string) ($_POST['original_currency_other'] ?? ''));
+    $form['market_price'] = trim((string) ($_POST['market_price'] ?? ''));
+    $form['market_currency'] = trim((string) ($_POST['market_currency'] ?? 'MYR'));
+    $form['market_currency_other'] = trim((string) ($_POST['market_currency_other'] ?? ''));
 
     if ($error === '') {
         if ($form['sku'] === '' || strlen($form['sku']) > 100) {
@@ -159,7 +165,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // rate, any other currency must have one, and a missing rate is never silently defaulted
     // to 1:1 (this is exactly the "not configured" state includes/product_cost.php reports).
     $costCurrency = $form['cost_currency'] === 'OTHER' ? strtoupper($form['cost_currency_other']) : strtoupper($form['cost_currency']);
-    $exchangeRateValue = null;
     if ($error === '') {
         if ($form['cost_currency'] === 'OTHER' && ($costCurrency === '' || strlen($costCurrency) > 10)) {
             $error = 'Enter a valid cost currency code (up to 10 characters).';
@@ -167,29 +172,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Invalid cost currency.';
         }
     }
-    // Phase 9F - the Exchange Rate input was removed from this form (set later on the Price
-    // Calculation Setting tab instead), so a foreign cost currency with no rate yet is now a
-    // valid, expected state at creation time (not an error) - product_cost.php's engine
-    // already reports this as "missing_exchange_rate" rather than assuming 1:1.
-    if ($error === '' && $costCurrency !== 'MYR' && $form['exchange_rate'] !== '') {
-        if (!is_numeric($form['exchange_rate']) || (float) $form['exchange_rate'] <= 0) {
-            $error = 'Enter a valid exchange rate (1 ' . $costCurrency . ' = ? MYR), or leave it blank to set later on the Price Calculation Setting tab.';
-        } else {
-            $exchangeRateValue = (float) $form['exchange_rate'];
-        }
-    }
 
-    // Phase 9D/9F (Pricing Engine) - Original Price is optional at creation (a product may not
-    // have a known brand retail price yet); only the amount/currency are collected here, the
-    // exchange rate is set afterward on the Price Calculation Setting tab.
+    // Phase 9D/9F/9F.1 (Pricing Engine) - Original Price and Market Price are both optional
+    // at creation; only amounts/currencies are collected here, never a rate (see
+    // includes/currency_rates.php - rates are centrally managed, never entered on a product).
     $originalCurrency = $form['original_currency'] === 'OTHER' ? strtoupper($form['original_currency_other']) : strtoupper($form['original_currency']);
     if ($error === '' && $form['original_price'] !== '') {
         if (!is_numeric($form['original_price']) || (float) $form['original_price'] < 0) {
             $error = 'Original Price must be a valid non-negative number.';
         } elseif ($form['original_currency'] === 'OTHER' && ($originalCurrency === '' || strlen($originalCurrency) > 10)) {
             $error = 'Enter a valid Original Currency code (up to 10 characters).';
-        } elseif ($form['original_currency'] !== 'OTHER' && !in_array($form['original_currency'], PRICING_REFERENCE_CURRENCY_OPTIONS, true)) {
+        } elseif ($form['original_currency'] !== 'OTHER' && !in_array($form['original_currency'], CURRENCY_RATE_OPTIONS, true)) {
             $error = 'Invalid Original Currency.';
+        }
+    }
+
+    $marketCurrency = $form['market_currency'] === 'OTHER' ? strtoupper($form['market_currency_other']) : strtoupper($form['market_currency']);
+    if ($error === '' && $form['market_price'] !== '') {
+        if (!is_numeric($form['market_price']) || (float) $form['market_price'] < 0) {
+            $error = 'Market Price must be a valid non-negative number.';
+        } elseif ($form['market_currency'] === 'OTHER' && ($marketCurrency === '' || strlen($marketCurrency) > 10)) {
+            $error = 'Enter a valid Market Currency code (up to 10 characters).';
+        } elseif ($form['market_currency'] !== 'OTHER' && !in_array($form['market_currency'], CURRENCY_RATE_OPTIONS, true)) {
+            $error = 'Invalid Market Currency.';
         }
     }
 
@@ -272,11 +277,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 INSERT INTO products (
                     sku, name, short_description, description, product_type, catalog_type, brand_id, barcode,
                     supplier_sku, internal_code,
-                    supplier_id, product_cost, cost_currency, exchange_rate, selling_price, sale_enabled, sale_price,
+                    supplier_id, product_cost, cost_currency, selling_price, sale_enabled, sale_price,
                     min_stock_threshold, target_stock_level, sale_start_date, estimated_arrival_date, estimated_release_month,
                     preorder_closing_date, expiry_date, moq, status, availability_override,
-                    original_price, original_currency
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    original_price, original_currency, market_price, market_currency
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ');
             $stmt->execute([
                 $form['sku'],
@@ -292,7 +297,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $supplierId,
                 round((float) $form['product_cost'], 2),
                 $costCurrency !== 'MYR' ? $costCurrency : null,
-                $costCurrency !== 'MYR' ? $exchangeRateValue : null,
                 round((float) $form['selling_price'], 2),
                 $form['sale_enabled'] ? 1 : 0,
                 ($form['sale_enabled'] && $form['sale_price'] !== '') ? round((float) $form['sale_price'], 2) : null,
@@ -308,8 +312,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $form['availability_override'],
                 $form['original_price'] !== '' ? round((float) $form['original_price'], 2) : null,
                 $form['original_price'] !== '' && $originalCurrency !== 'MYR' ? $originalCurrency : null,
+                $form['market_price'] !== '' ? round((float) $form['market_price'], 2) : null,
+                $form['market_price'] !== '' && $marketCurrency !== 'MYR' ? $marketCurrency : null,
             ]);
             $productId = (int) $pdo->lastInsertId();
+
+            // Phase 9F.1 - exchange_rate is never entered manually; it's auto-derived from
+            // the centrally-managed currency_rates table right after every save, so
+            // includes/product_cost.php's actual Landed Cost engine (untouched) always reads
+            // an up-to-date rate.
+            currency_rates_sync_product_exchange_rate($pdo, $productId, $costCurrency !== 'MYR' ? $costCurrency : null);
 
             catalog_sync_product_category($pdo, $productId, $categoryId);
             catalog_sync_product_collection($pdo, $productId, $collectionId);
