@@ -1,0 +1,23 @@
+# Phase 10A (Security & Permission Audit) - denies direct web access to sensitive files that
+# must live in the deployed web root for this app's shared-hosting deployment model (see
+# DEPLOYMENT.md's "Paths that must survive every deployment" table) but were never meant to be
+# requested over HTTP:
+#   - .env / .env.example - plain text, not PHP - a direct request would be served as raw
+#     content (database credentials, WooCommerce consumer key/secret/webhook secret) by any
+#     web server that doesn't already block dotfiles by default. This is the one genuinely
+#     high-risk gap this file exists to close.
+#   - config.php - normally returns an array and echoes nothing, so a direct request is
+#     harmless under a correctly configured PHP handler, but is blocked too as defense-in-depth
+#     against a misconfigured/disabled PHP handler serving it as plain text instead.
+#   - .gitignore - no secret, but no reason to serve it either.
+# Nothing else in this directory is affected - index.php, modules/, assets/, includes/, and
+# uploads/ (protected separately by uploads/.htaccess) continue to work exactly as before.
+<FilesMatch "^(\.env(\.example)?|config\.php|\.gitignore)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
