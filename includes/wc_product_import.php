@@ -77,7 +77,16 @@ const WC_PRODUCT_IMPORT_MAX_PAGES = 25;
 // limit, independent of MySQL) regardless of how many products WooCommerce reports. Same
 // "don't advance the cursor if we stopped early" treatment as the page ceiling - see
 // wc_product_import_run_body().
-const WC_PRODUCT_IMPORT_BATCH_SIZE = 50;
+//
+// Bugfix: this used to be 50, but hitting it does NOT advance the delta cursor (by design,
+// so the next run re-covers the same window rather than skip whatever was left) - and the
+// cursor is date-based (modified_after), not an offset. That meant every re-run re-fetched
+// and re-walked the exact same products from the start of the list, so a catalog bigger than
+// the cap (e.g. 143 products) could NEVER progress past the first 50 no matter how many times
+// "Import Products Now" was clicked. Raised well above any catalog size this store has had so
+// a full run actually completes and the cursor advances; still a real, logged ceiling (not
+// removed) for hosts that need one.
+const WC_PRODUCT_IMPORT_BATCH_SIZE = 500;
 
 // MySQL advisory lock name - distinct from WC_ORDER_IMPORT_LOCK_NAME (includes/wc_order_import.php)
 // so an order sync and a product sync can run concurrently without contending for the same lock;

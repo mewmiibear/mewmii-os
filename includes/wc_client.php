@@ -216,7 +216,7 @@ function wc_client_classify_sync_error(Throwable $e): string
     if (stripos($message, 'curl extension') !== false) {
         return 'Server configuration error';
     }
-    if (stripos($message, 'sku') !== false && (stripos($message, 'duplicat') !== false || stripos($message, 'already') !== false || stripos($message, 'invalid') !== false)) {
+    if (wc_client_is_sku_conflict_message($message)) {
         return 'SKU conflict';
     }
     if (stripos($message, 'is missing') !== false) {
@@ -236,9 +236,33 @@ function wc_client_classify_sync_error(Throwable $e): string
     return 'Unknown error';
 }
 
+/**
+ * Bugfix (SKU sync errors) - same substring test wc_client_classify_sync_error() uses to
+ * bucket a caught exception as 'SKU conflict', extracted so wc_client_sync_product_from_
+ * mewmii()/wc_client_sync_variable_product_from_mewmii() can react to this ONE specific
+ * failure (see their own callers below) without duplicating or drifting from that rule.
+ */
+function wc_client_is_sku_conflict_message(string $message): bool
+{
+    return stripos($message, 'sku') !== false
+        && (stripos($message, 'duplicat') !== false || stripos($message, 'already') !== false || stripos($message, 'invalid') !== false);
+}
+
+/**
+ * Bugfix (SKU sync errors) - status=any broadens this search beyond the REST API's default
+ * (published-ish) status filter to draft/pending/private products too (WordPress's own
+ * "any" still excludes trash - this is a real, known limitation, not a guaranteed catch-all).
+ * Without this, a non-published product already holding a SKU was invisible to this search,
+ * so wc_client_resolve_existing_product() found nothing, fell through to a CREATE, and
+ * WooCommerce rejected that with "Invalid or duplicated SKU" for a conflict this function
+ * could have resolved (by updating the matched product) instead of failing outright. A SKU
+ * still held by a genuinely trashed product, or by a variation elsewhere, is caught
+ * separately - see wc_client_is_sku_conflict_message()'s callers below, which turn that
+ * remaining case into a clear, SKU-named error instead of a bare WooCommerce 400.
+ */
 function wc_client_find_product_by_sku(string $sku): ?array
 {
-    $products = wc_client_get('products', ['sku' => $sku, 'per_page' => 10]);
+    $products = wc_client_get('products', ['sku' => $sku, 'per_page' => 10, 'status' => 'any']);
 
     foreach ($products as $product) {
         if (!is_array($product)) {
@@ -666,9 +690,29 @@ function wc_client_sync_product_from_mewmii(PDO $pdo, array $product): array
     $payload['sku'] = $sku;
 
     $existingProduct = wc_client_resolve_existing_product($product, $sku);
-    $response = $existingProduct !== null
-        ? wc_client_put('products/' . (int) ($existingProduct['id'] ?? 0), $payload)
-        : wc_client_post('products', $payload);
+    if ($existingProduct !== null) {
+        $response = wc_client_put('products/' . (int) ($existingProduct['id'] ?? 0), $payload);
+    } else {
+        try {
+            $response = wc_client_post('products', $payload);
+        } catch (RuntimeException $e) {
+            // Bugfix (SKU sync errors) - the search above (including trashed products, see
+            // wc_client_find_product_by_sku()) found nothing to update, yet WooCommerce still
+            // rejected the create as a SKU conflict - most likely the SKU is in use by a
+            // VARIATION elsewhere (WooCommerce enforces SKU uniqueness across variations too,
+            // and this search never looks there) or some other product this app has no id/SKU
+            // record of. Re-thrown with the SKU named so the exact reason is visible in Sync
+            // Logs instead of a bare "Invalid or duplicated SKU" with no product context -
+            // this is still just one product's exception, the caller's own per-product
+            // try/catch (sync.php/bulk_action.php/sync_one.php) is what keeps the rest of a
+            // batch running regardless.
+            if (wc_client_is_sku_conflict_message($e->getMessage())) {
+                throw new RuntimeException("SKU '{$sku}' already exists in WooCommerce but could not be automatically matched to update (it may belong to a variation, or a product this app hasn't linked) - resolve the conflict in WooCommerce, then retry.", 0, $e);
+            }
+
+            throw $e;
+        }
+    }
 
     $remoteProductId = (int) ($response['id'] ?? 0);
     if ($remoteProductId < 1) {
@@ -733,9 +777,20 @@ function wc_client_sync_variable_product_from_mewmii(PDO $pdo, array $product): 
     }
 
     $existingProduct = wc_client_resolve_existing_product($product, $sku);
-    $response = $existingProduct !== null
-        ? wc_client_put('products/' . (int) ($existingProduct['id'] ?? 0), $payload)
-        : wc_client_post('products', $payload);
+    if ($existingProduct !== null) {
+        $response = wc_client_put('products/' . (int) ($existingProduct['id'] ?? 0), $payload);
+    } else {
+        try {
+            $response = wc_client_post('products', $payload);
+        } catch (RuntimeException $e) {
+            // Bugfix (SKU sync errors) - same reasoning as wc_client_sync_product_from_mewmii().
+            if (wc_client_is_sku_conflict_message($e->getMessage())) {
+                throw new RuntimeException("SKU '{$sku}' already exists in WooCommerce but could not be automatically matched to update (it may belong to a variation, or a product this app hasn't linked) - resolve the conflict in WooCommerce, then retry.", 0, $e);
+            }
+
+            throw $e;
+        }
+    }
 
     $remoteProductId = (int) ($response['id'] ?? 0);
     if ($remoteProductId < 1) {
