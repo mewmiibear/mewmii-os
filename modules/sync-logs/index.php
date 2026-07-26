@@ -5,12 +5,24 @@ app_require_permission('settings.manage');
 $appTitle = 'Sync Logs';
 $pdo = app_db();
 
-$stmt = $pdo->query('
+// Phase 6D (Production Hardening audit) - real pagination, replacing the previous hardcoded
+// LIMIT 50 with no way to reach anything beyond it. Same COUNT + LIMIT/OFFSET convention as
+// modules/products/index.php and modules/orders/index.php.
+$perPage = 50;
+$page = isset($_GET['page']) && ctype_digit((string) $_GET['page']) && (int) $_GET['page'] > 0 ? (int) $_GET['page'] : 1;
+
+$totalCount = (int) $pdo->query('SELECT COUNT(*) FROM sync_logs')->fetchColumn();
+$totalPages = max(1, (int) ceil($totalCount / $perPage));
+$page = min($page, $totalPages);
+$offset = ($page - 1) * $perPage;
+
+$stmt = $pdo->prepare("
     SELECT id, sync_type, reference_id, status, error_message, created_at
     FROM sync_logs
     ORDER BY id DESC
-    LIMIT 50
-');
+    LIMIT {$perPage} OFFSET {$offset}
+");
+$stmt->execute();
 $syncLogs = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Bugfix pass: reference_id is a bare product id for these two sync_types (see
@@ -91,6 +103,30 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php endif; ?>
         </tbody>
     </table>
+    </div>
+
+    <?php
+    $pageUrl = static function (int $targetPage): string {
+        return '/modules/sync-logs/index.php?' . http_build_query(array_merge($_GET, ['page' => $targetPage]));
+    };
+    $rangeStart = $totalCount === 0 ? 0 : (($page - 1) * $perPage) + 1;
+    $rangeEnd = min($totalCount, $page * $perPage);
+    ?>
+    <div class="d-flex justify-content-between align-items-center mt-3">
+        <p class="text-muted small mb-0">
+            <?php if ($totalCount > 0): ?>
+                Showing <?php echo (int) $rangeStart; ?>&ndash;<?php echo (int) $rangeEnd; ?> of <?php echo (int) $totalCount; ?> log entr<?php echo $totalCount === 1 ? 'y' : 'ies'; ?>
+            <?php else: ?>
+                0 log entries
+            <?php endif; ?>
+        </p>
+        <?php if ($totalPages > 1): ?>
+            <div class="d-flex gap-2 align-items-center">
+                <a class="btn btn-sm btn-outline-secondary <?php echo $page <= 1 ? 'disabled' : ''; ?>" href="<?php echo app_escape($pageUrl(max(1, $page - 1))); ?>">&laquo; Prev</a>
+                <span class="text-muted small">Page <?php echo (int) $page; ?> of <?php echo (int) $totalPages; ?></span>
+                <a class="btn btn-sm btn-outline-secondary <?php echo $page >= $totalPages ? 'disabled' : ''; ?>" href="<?php echo app_escape($pageUrl(min($totalPages, $page + 1))); ?>">Next &raquo;</a>
+            </div>
+        <?php endif; ?>
     </div>
 </div>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

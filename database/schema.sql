@@ -502,7 +502,11 @@ CREATE TABLE IF NOT EXISTS sync_logs (
   reference_id INT UNSIGNED NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'success',
   error_message TEXT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  -- Phase 6D (Production Hardening audit) - matches wc_client_get_last_sync_log()'s own
+  -- WHERE sync_type = ? AND reference_id = ? ... ORDER BY id DESC, and the Sync Logs list's
+  -- ORDER BY created_at - previously a full table scan on both.
+  INDEX idx_sync_logs_type_reference_created (sync_type, reference_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS saved_views (

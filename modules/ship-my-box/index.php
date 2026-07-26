@@ -17,15 +17,7 @@ $filterStatus = isset($_GET['status']) && in_array($_GET['status'], $statusOptio
 // ship_request_next_action() still returns a real next step for.
 $filterNeedsAction = ($_GET['filter'] ?? '') === 'needs_action';
 
-$sql = '
-    SELECT
-        sr.id,
-        sr.request_number,
-        sr.status,
-        sr.created_at,
-        c.name AS customer_name,
-        (SELECT COUNT(*) FROM ship_request_items sri WHERE sri.ship_request_id = sr.id) AS item_count,
-        (SELECT COALESCE(SUM(sri.quantity), 0) FROM ship_request_items sri WHERE sri.ship_request_id = sr.id) AS total_quantity
+$fromSql = '
     FROM ship_requests sr
     INNER JOIN customers c ON c.id = sr.customer_id
 ';
@@ -43,10 +35,32 @@ if ($searchTerm !== '') {
     $params[] = $likeTerm;
     $params[] = $likeTerm;
 }
-if ($conditions !== []) {
-    $sql .= ' WHERE ' . implode(' AND ', $conditions);
-}
-$sql .= ' ORDER BY sr.id DESC LIMIT 20';
+$whereSql = $conditions !== [] ? (' WHERE ' . implode(' AND ', $conditions)) : '';
+
+// Phase 6D (Production Hardening audit) - real pagination, replacing the previous hardcoded
+// LIMIT 20 with no way to reach anything beyond it. Same COUNT + LIMIT/OFFSET convention as
+// modules/products/index.php and modules/orders/index.php; $whereSql/$params are shared
+// between the count and the page query so they can never drift out of sync.
+$perPage = 20;
+$page = isset($_GET['page']) && ctype_digit((string) $_GET['page']) && (int) $_GET['page'] > 0 ? (int) $_GET['page'] : 1;
+
+$countStmt = $pdo->prepare('SELECT COUNT(*) ' . $fromSql . $whereSql);
+$countStmt->execute($params);
+$totalCount = (int) $countStmt->fetchColumn();
+$totalPages = max(1, (int) ceil($totalCount / $perPage));
+$page = min($page, $totalPages);
+$offset = ($page - 1) * $perPage;
+
+$sql = '
+    SELECT
+        sr.id,
+        sr.request_number,
+        sr.status,
+        sr.created_at,
+        c.name AS customer_name,
+        (SELECT COUNT(*) FROM ship_request_items sri WHERE sri.ship_request_id = sr.id) AS item_count,
+        (SELECT COALESCE(SUM(sri.quantity), 0) FROM ship_request_items sri WHERE sri.ship_request_id = sr.id) AS total_quantity
+    ' . $fromSql . $whereSql . " ORDER BY sr.id DESC LIMIT {$perPage} OFFSET {$offset}";
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $shipRequests = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -147,6 +161,30 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php endif; ?>
         </tbody>
     </table>
+    </div>
+
+    <?php
+    $pageUrl = static function (int $targetPage): string {
+        return '/modules/ship-my-box/index.php?' . http_build_query(array_merge($_GET, ['page' => $targetPage]));
+    };
+    $rangeStart = $totalCount === 0 ? 0 : (($page - 1) * $perPage) + 1;
+    $rangeEnd = min($totalCount, $page * $perPage);
+    ?>
+    <div class="d-flex justify-content-between align-items-center mt-3">
+        <p class="text-muted small mb-0">
+            <?php if ($totalCount > 0): ?>
+                Showing <?php echo (int) $rangeStart; ?>&ndash;<?php echo (int) $rangeEnd; ?> of <?php echo (int) $totalCount; ?> request<?php echo $totalCount === 1 ? '' : 's'; ?>
+            <?php else: ?>
+                0 requests
+            <?php endif; ?>
+        </p>
+        <?php if ($totalPages > 1): ?>
+            <div class="d-flex gap-2 align-items-center">
+                <a class="btn btn-sm btn-outline-secondary <?php echo $page <= 1 ? 'disabled' : ''; ?>" href="<?php echo app_escape($pageUrl(max(1, $page - 1))); ?>">&laquo; Prev</a>
+                <span class="text-muted small">Page <?php echo (int) $page; ?> of <?php echo (int) $totalPages; ?></span>
+                <a class="btn btn-sm btn-outline-secondary <?php echo $page >= $totalPages ? 'disabled' : ''; ?>" href="<?php echo app_escape($pageUrl(min($totalPages, $page + 1))); ?>">Next &raquo;</a>
+            </div>
+        <?php endif; ?>
     </div>
 </div>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

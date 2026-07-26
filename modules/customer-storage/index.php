@@ -52,7 +52,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$storageStmt = $pdo->query("
+// Phase 6D (Production Hardening audit) - real pagination, replacing the previous fully
+// unbounded query. Same COUNT + LIMIT/OFFSET convention as modules/products/index.php and
+// modules/orders/index.php; the count is over DISTINCT customers (what's actually paginated
+// below), not raw customer_storage rows.
+$perPage = 50;
+$page = isset($_GET['page']) && ctype_digit((string) $_GET['page']) && (int) $_GET['page'] > 0 ? (int) $_GET['page'] : 1;
+
+$totalCount = (int) $pdo->query("
+    SELECT COUNT(DISTINCT c.id)
+    FROM customers c
+    INNER JOIN customer_storage cs ON cs.customer_id = c.id AND cs.status = 'stored' AND cs.quantity > 0
+")->fetchColumn();
+$totalPages = max(1, (int) ceil($totalCount / $perPage));
+$page = min($page, $totalPages);
+$offset = ($page - 1) * $perPage;
+
+$storageStmt = $pdo->prepare("
     SELECT
         c.id AS customer_id,
         c.name AS customer_name,
@@ -63,7 +79,9 @@ $storageStmt = $pdo->query("
     INNER JOIN customer_storage cs ON cs.customer_id = c.id AND cs.status = 'stored' AND cs.quantity > 0
     GROUP BY c.id, c.name, c.email
     ORDER BY c.name ASC
+    LIMIT {$perPage} OFFSET {$offset}
 ");
+$storageStmt->execute();
 $customerStorage = $storageStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $customersStmt = $pdo->query('SELECT id, name, email FROM customers ORDER BY name ASC LIMIT 200');
@@ -176,6 +194,30 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php endif; ?>
         </tbody>
     </table>
+    </div>
+
+    <?php
+    $pageUrl = static function (int $targetPage): string {
+        return '/modules/customer-storage/index.php?' . http_build_query(array_merge($_GET, ['page' => $targetPage]));
+    };
+    $rangeStart = $totalCount === 0 ? 0 : (($page - 1) * $perPage) + 1;
+    $rangeEnd = min($totalCount, $page * $perPage);
+    ?>
+    <div class="d-flex justify-content-between align-items-center mt-3">
+        <p class="text-muted small mb-0">
+            <?php if ($totalCount > 0): ?>
+                Showing <?php echo (int) $rangeStart; ?>&ndash;<?php echo (int) $rangeEnd; ?> of <?php echo (int) $totalCount; ?> customer<?php echo $totalCount === 1 ? '' : 's'; ?>
+            <?php else: ?>
+                0 customers
+            <?php endif; ?>
+        </p>
+        <?php if ($totalPages > 1): ?>
+            <div class="d-flex gap-2 align-items-center">
+                <a class="btn btn-sm btn-outline-secondary <?php echo $page <= 1 ? 'disabled' : ''; ?>" href="<?php echo app_escape($pageUrl(max(1, $page - 1))); ?>">&laquo; Prev</a>
+                <span class="text-muted small">Page <?php echo (int) $page; ?> of <?php echo (int) $totalPages; ?></span>
+                <a class="btn btn-sm btn-outline-secondary <?php echo $page >= $totalPages ? 'disabled' : ''; ?>" href="<?php echo app_escape($pageUrl(min($totalPages, $page + 1))); ?>">Next &raquo;</a>
+            </div>
+        <?php endif; ?>
     </div>
 </div>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

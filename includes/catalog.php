@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/activity_log.php';
+require_once __DIR__ . '/image_upload.php';
 
 /**
  * Brand/Category/Collection/Tag/Attribute/Template helpers for the catalog overhaul.
@@ -498,7 +499,15 @@ function catalog_brand_delete_if_unused(PDO $pdo, int $brandId): void
         throw new RuntimeException('This brand is assigned to ' . $productCount . ' product(s). Please move the products to another brand before deleting.');
     }
 
+    // Phase 6D (Production Hardening audit) - logo_path pointed at a real uploaded file
+    // (see modules/catalog/tabs/brands.php); deleting the row without this left it orphaned
+    // on disk. Read before the DELETE (the column is gone after), removed after it succeeds.
+    $logoPath = $pdo->prepare('SELECT logo_path FROM brands WHERE id = ?');
+    $logoPath->execute([$brandId]);
+    $logoPathValue = $logoPath->fetchColumn();
+
     $pdo->prepare('DELETE FROM brands WHERE id = ?')->execute([$brandId]);
+    image_upload_delete($logoPathValue !== false ? (string) $logoPathValue : null);
     activity_log($pdo, 'brands', 'delete', $brandId, 'Deleted brand #' . $brandId);
 }
 
@@ -509,7 +518,13 @@ function catalog_collection_delete_if_unused(PDO $pdo, int $collectionId): void
         throw new RuntimeException('This collection is assigned to ' . $productCount . ' product(s). Please move the products to another collection before deleting.');
     }
 
+    // Phase 6D (Production Hardening audit) - same reasoning as catalog_brand_delete_if_unused() above.
+    $imagePath = $pdo->prepare('SELECT image_path FROM collections WHERE id = ?');
+    $imagePath->execute([$collectionId]);
+    $imagePathValue = $imagePath->fetchColumn();
+
     $pdo->prepare('DELETE FROM collections WHERE id = ?')->execute([$collectionId]);
+    image_upload_delete($imagePathValue !== false ? (string) $imagePathValue : null);
     activity_log($pdo, 'collections', 'delete', $collectionId, 'Deleted collection #' . $collectionId);
 }
 
@@ -974,8 +989,13 @@ function catalog_product_history_tables(): array
  * checked against every table in catalog_product_history_tables(). Otherwise throws with
  * the admin-facing message so the caller can show it instead of a raw SQL/FK error. If
  * clear, deleting the product cascades (ON DELETE CASCADE) to its variations, images,
- * attribute assignments, tag/category/collection links, and mewmii_inventory row -
- * nothing product-specific is left behind.
+ * attribute assignments, tag/category/collection links, and mewmii_inventory row - nothing
+ * product-specific is left behind in the database. The image FILES those rows pointed to
+ * (main/gallery/every variation's own images - product_images.product_id is set on every
+ * row regardless of image_type, see includes/product_images.php's INSERTs) are removed too,
+ * via the same image_upload_delete() helper product_images.php already uses for a single
+ * image replace/remove - only reached after the DELETE actually succeeds, so a blocked
+ * delete (history exists) never touches a file that's still in use.
  */
 function product_delete_if_unused(PDO $pdo, int $productId): void
 {
@@ -991,7 +1011,15 @@ function product_delete_if_unused(PDO $pdo, int $productId): void
     $skuStmt->execute([$productId]);
     $productRow = $skuStmt->fetch(PDO::FETCH_ASSOC);
 
+    $imagePathsStmt = $pdo->prepare('SELECT image_path FROM product_images WHERE product_id = ?');
+    $imagePathsStmt->execute([$productId]);
+    $imagePaths = $imagePathsStmt->fetchAll(PDO::FETCH_COLUMN);
+
     $pdo->prepare('DELETE FROM products WHERE id = ?')->execute([$productId]);
+
+    foreach ($imagePaths as $imagePath) {
+        image_upload_delete((string) $imagePath);
+    }
 
     if ($productRow) {
         activity_log($pdo, 'products', 'delete', $productId, 'Deleted product ' . $productRow['sku'] . ' (' . $productRow['name'] . ')');
