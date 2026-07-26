@@ -3,7 +3,6 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/catalog.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
 require_once __DIR__ . '/../../includes/product_cost.php';
-require_once __DIR__ . '/../../includes/pricing_engine.php';
 app_require_permission('products.view');
 
 $appTitle = 'Product';
@@ -97,11 +96,6 @@ $costConfigBadgeClass = [
 $costHistory = product_cost_history_list_for_product($pdo, $productId);
 $canViewSupplierOrdersForHistory = app_has_permission('supplier-orders.view');
 
-// Phase 9D - Pricing Intelligence: reuses includes/pricing_engine.php's planning-only
-// breakdown - entirely separate from $costBreakdown above (the actual Landed Cost engine).
-$pricingBreakdown = pricing_calculate($pdo, $productId);
-$pricingNotConfiguredBadge = '<span class="badge bg-secondary">Not configured</span>';
-
 require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -119,6 +113,7 @@ require_once __DIR__ . '/../../includes/header.php';
         <?php if ($canManage): ?>
             <a class="btn btn-primary btn-sm" href="/modules/products/edit.php?id=<?php echo (int) $productId; ?>">Edit Product</a>
             <a class="btn btn-outline-primary btn-sm" href="/modules/products/control-center.php?id=<?php echo (int) $productId; ?>">Open Product Control Center</a>
+            <a class="btn btn-outline-primary btn-sm" href="/modules/products/tabs/pricing.php?id=<?php echo (int) $productId; ?>">Price Calculation Setting</a>
         <?php endif; ?>
         <a class="btn btn-outline-secondary btn-sm" href="/modules/products/index.php">Back to Products</a>
     </div>
@@ -271,98 +266,6 @@ require_once __DIR__ . '/../../includes/header.php';
     <?php elseif ($costBreakdown['is_estimated']): ?>
         <p class="text-muted small mt-3 mb-0">This is an estimate - shipping and/or other costs are not yet configured for this product, so Landed Cost/Gross Profit/Margin reflect only Supplier Cost and Currency Conversion.</p>
     <?php endif; ?>
-</div>
-<?php endif; ?>
-
-<?php if ($pricingBreakdown !== null): ?>
-<div class="card p-4 mb-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h5 class="mb-0">Pricing Intelligence</h5>
-        <span class="badge bg-info text-dark">Estimated Cost - planning only, not actual Landed Cost</span>
-    </div>
-    <p class="text-muted small">Reference prices and an automatic Recommended Selling Price. "Estimated Cost" below is a pre-purchase planning figure (Supplier Price + estimated shipping) - it never reads from a real supplier order and is entirely separate from the "Total Landed Cost" card above.</p>
-    <div class="row g-3">
-        <div class="col-md-4">
-            <div class="text-muted small">Original Price (MYR)</div>
-            <div>
-                <?php if ($pricingBreakdown['original_price'] === null): ?>
-                    <span class="text-muted">Not set</span>
-                <?php elseif ($pricingBreakdown['original_price_configured'] && $pricingBreakdown['original_price_myr'] !== null): ?>
-                    RM <?php echo app_escape(number_format($pricingBreakdown['original_price_myr'], 2)); ?>
-                <?php else: ?>
-                    <?php echo $pricingNotConfiguredBadge; ?>
-                <?php endif; ?>
-            </div>
-        </div>
-        <div class="col-md-4">
-            <div class="text-muted small">Supplier Price (MYR)</div>
-            <div>
-                <?php if ($pricingBreakdown['supplier_price_configured'] && $pricingBreakdown['supplier_price_myr'] !== null): ?>
-                    RM <?php echo app_escape(number_format($pricingBreakdown['supplier_price_myr'], 2)); ?>
-                <?php else: ?>
-                    <?php echo $pricingNotConfiguredBadge; ?>
-                <?php endif; ?>
-            </div>
-        </div>
-        <div class="col-md-4">
-            <div class="text-muted small">Supplier Discount vs Original</div>
-            <div><?php echo $pricingBreakdown['supplier_discount_percent'] !== null ? (app_escape(number_format($pricingBreakdown['supplier_discount_percent'], 1)) . '%') : '—'; ?></div>
-        </div>
-        <div class="col-md-4">
-            <div class="text-muted small">Market Price (MYR)</div>
-            <div>
-                <?php if ($pricingBreakdown['market_price'] === null): ?>
-                    <span class="text-muted">Not set</span>
-                <?php elseif ($pricingBreakdown['market_price_configured'] && $pricingBreakdown['market_price_myr'] !== null): ?>
-                    RM <?php echo app_escape(number_format($pricingBreakdown['market_price_myr'], 2)); ?>
-                <?php else: ?>
-                    <?php echo $pricingNotConfiguredBadge; ?>
-                <?php endif; ?>
-            </div>
-        </div>
-        <div class="col-md-4">
-            <div class="text-muted small">Estimated Shipping Cost</div>
-            <div>
-                <?php if ($pricingBreakdown['shipping_cost'] !== null): ?>
-                    RM <?php echo app_escape(number_format($pricingBreakdown['shipping_cost'], 2)); ?>
-                    <span class="text-muted small">(<?php echo app_escape($pricingBreakdown['weight_grams']); ?>g &times; RM<?php echo app_escape(number_format($pricingBreakdown['shipping_rate_per_gram'], 4)); ?>/g from <?php echo app_escape($pricingBreakdown['shipping_origin_country_name']); ?>)</span>
-                <?php else: ?>
-                    <span class="text-muted">Not configured (set Weight and Shipping Origin on Edit Product)</span>
-                <?php endif; ?>
-            </div>
-        </div>
-        <div class="col-md-4">
-            <div class="text-muted small">Estimated Cost</div>
-            <div>
-                <?php if ($pricingBreakdown['estimated_cost'] !== null): ?>
-                    <strong>RM <?php echo app_escape(number_format($pricingBreakdown['estimated_cost'], 2)); ?></strong>
-                    <?php if ($pricingBreakdown['estimated_cost_is_partial']): ?>
-                        <span class="badge bg-warning text-dark ms-1">Estimated</span>
-                    <?php endif; ?>
-                <?php else: ?>
-                    <?php echo $pricingNotConfiguredBadge; ?>
-                <?php endif; ?>
-            </div>
-        </div>
-        <div class="col-md-4">
-            <div class="text-muted small">Selling Multiplier</div>
-            <div><?php echo $pricingBreakdown['selling_multiplier'] !== null ? ('&times;' . app_escape(number_format($pricingBreakdown['selling_multiplier'], 2))) : '—'; ?></div>
-        </div>
-        <div class="col-md-4">
-            <div class="text-muted small">Recommended Selling Price</div>
-            <div>
-                <?php if ($pricingBreakdown['recommended_selling_price'] !== null): ?>
-                    RM <?php echo app_escape(number_format($pricingBreakdown['recommended_selling_price'], 2)); ?>
-                <?php else: ?>
-                    <?php echo $pricingNotConfiguredBadge; ?>
-                <?php endif; ?>
-            </div>
-        </div>
-        <div class="col-md-4">
-            <div class="text-muted small">Current Selling Price</div>
-            <div>RM <?php echo app_escape(number_format($pricingBreakdown['selling_price'], 2)); ?></div>
-        </div>
-    </div>
 </div>
 <?php endif; ?>
 

@@ -48,16 +48,11 @@ $product['preorder_reopened_at'] = $product['preorder_reopened_at'] ?? null;
 $product['availability_override'] = $product['availability_override'] ?? 'auto';
 $product['cost_currency'] = $product['cost_currency'] ?? null;
 $product['exchange_rate'] = $product['exchange_rate'] ?? null;
-// Phase 9D (Pricing Engine) - older rows predate these columns, same ?? requirement as above.
+// Phase 9D/9F (Pricing Engine) - older rows predate this column, same ?? requirement as
+// above. Every other pricing-engine column (exchange rates, market price, weight, shipping
+// origin) is read/edited exclusively by modules/products/tabs/pricing.php, not this form.
 $product['original_price'] = $product['original_price'] ?? null;
 $product['original_currency'] = $product['original_currency'] ?? null;
-$product['original_exchange_rate'] = $product['original_exchange_rate'] ?? null;
-$product['market_price'] = $product['market_price'] ?? null;
-$product['market_currency'] = $product['market_currency'] ?? null;
-$product['market_exchange_rate'] = $product['market_exchange_rate'] ?? null;
-$product['selling_multiplier'] = $product['selling_multiplier'] ?? null;
-$product['weight_grams'] = $product['weight_grams'] ?? null;
-$product['shipping_origin_country_id'] = $product['shipping_origin_country_id'] ?? null;
 
 $catalogTypes = ['simple', 'variable'];
 $productTypes = ['ready_stock', 'preorder', 'early_bird'];
@@ -114,8 +109,10 @@ $form = [
     'estimated_release_month' => (string) ($product['estimated_release_month'] ?? ''),
     'moq' => (string) $product['moq'],
     'preorder_closing_date' => (string) ($product['preorder_closing_date'] ?? ''),
-    // Phase 9D (Pricing Engine) - same "known value or OTHER + free text" pattern as
-    // cost_currency above.
+    // Phase 9D/9F (Pricing Engine) - only the raw amount/currency are editable on this form;
+    // the exchange rate (and every other pricing-engine field) lives on the Price Calculation
+    // Setting tab (modules/products/tabs/pricing.php) instead. Same "known value or OTHER +
+    // free text" pattern as cost_currency above.
     'original_price' => $product['original_price'] !== null ? (string) $product['original_price'] : '',
     'original_currency' => $product['original_currency'] === null || in_array($product['original_currency'], PRICING_REFERENCE_CURRENCY_OPTIONS, true)
         ? ($product['original_currency'] ?? 'MYR')
@@ -123,18 +120,6 @@ $form = [
     'original_currency_other' => $product['original_currency'] !== null && !in_array($product['original_currency'], PRICING_REFERENCE_CURRENCY_OPTIONS, true)
         ? $product['original_currency']
         : '',
-    'original_exchange_rate' => $product['original_exchange_rate'] !== null ? (string) $product['original_exchange_rate'] : '',
-    'market_price' => $product['market_price'] !== null ? (string) $product['market_price'] : '',
-    'market_currency' => $product['market_currency'] === null || in_array($product['market_currency'], PRICING_REFERENCE_CURRENCY_OPTIONS, true)
-        ? ($product['market_currency'] ?? 'MYR')
-        : 'OTHER',
-    'market_currency_other' => $product['market_currency'] !== null && !in_array($product['market_currency'], PRICING_REFERENCE_CURRENCY_OPTIONS, true)
-        ? $product['market_currency']
-        : '',
-    'market_exchange_rate' => $product['market_exchange_rate'] !== null ? (string) $product['market_exchange_rate'] : '',
-    'selling_multiplier' => $product['selling_multiplier'] !== null ? (string) $product['selling_multiplier'] : '',
-    'weight_grams' => $product['weight_grams'] !== null ? (string) $product['weight_grams'] : '',
-    'shipping_origin_country_id' => $product['shipping_origin_country_id'] !== null ? (string) $product['shipping_origin_country_id'] : '',
 ];
 $selectedTagIds = catalog_get_product_tag_ids($pdo, $productId);
 
@@ -179,18 +164,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form['preorder_closing_date'] = trim((string) ($_POST['preorder_closing_date'] ?? ''));
     $selectedTagIds = array_map('intval', $_POST['tag_ids'] ?? []);
 
-    // Phase 9D (Pricing Engine)
+    // Phase 9D/9F (Pricing Engine)
     $form['original_price'] = trim((string) ($_POST['original_price'] ?? ''));
     $form['original_currency'] = trim((string) ($_POST['original_currency'] ?? 'MYR'));
     $form['original_currency_other'] = trim((string) ($_POST['original_currency_other'] ?? ''));
-    $form['original_exchange_rate'] = trim((string) ($_POST['original_exchange_rate'] ?? ''));
-    $form['market_price'] = trim((string) ($_POST['market_price'] ?? ''));
-    $form['market_currency'] = trim((string) ($_POST['market_currency'] ?? 'MYR'));
-    $form['market_currency_other'] = trim((string) ($_POST['market_currency_other'] ?? ''));
-    $form['market_exchange_rate'] = trim((string) ($_POST['market_exchange_rate'] ?? ''));
-    $form['selling_multiplier'] = trim((string) ($_POST['selling_multiplier'] ?? ''));
-    $form['weight_grams'] = trim((string) ($_POST['weight_grams'] ?? ''));
-    $form['shipping_origin_country_id'] = trim((string) ($_POST['shipping_origin_country_id'] ?? ''));
 
     if ($error === '') {
         if ($form['sku'] === '' || strlen($form['sku']) > 100) {
@@ -218,11 +195,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // Phase 7C.1 (Product Cost Data Entry) - same validation shape as
-    // modules/products/create.php / modules/supplier-orders/create.php: MYR needs no rate,
-    // any other currency must have one, never silently defaulted to 1:1.
+    // Phase 7C.1 (Product Cost Data Entry) - Supplier Currency code validity only. Phase 9F
+    // removed the Exchange Rate input from this form (set on the Price Calculation Setting
+    // tab instead), so a foreign cost currency with no rate yet is a valid, expected state
+    // here - product_cost.php's engine already reports that as "missing_exchange_rate", not
+    // an error blocking save.
     $costCurrency = $form['cost_currency'] === 'OTHER' ? strtoupper($form['cost_currency_other']) : strtoupper($form['cost_currency']);
-    $exchangeRateValue = null;
     if ($error === '') {
         if ($form['cost_currency'] === 'OTHER' && ($costCurrency === '' || strlen($costCurrency) > 10)) {
             $error = 'Enter a valid cost currency code (up to 10 characters).';
@@ -230,17 +208,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Invalid cost currency.';
         }
     }
-    if ($error === '' && $costCurrency !== 'MYR') {
-        if ($form['exchange_rate'] === '' || !is_numeric($form['exchange_rate']) || (float) $form['exchange_rate'] <= 0) {
-            $error = 'Enter a valid exchange rate (1 ' . $costCurrency . ' = ? MYR).';
-        } else {
-            $exchangeRateValue = (float) $form['exchange_rate'];
-        }
-    }
 
-    // Phase 9D (Pricing Engine) - same shape as modules/products/create.php.
+    // Phase 9D/9F (Pricing Engine) - same shape as modules/products/create.php. Only the
+    // amount/currency are validated here; the exchange rate is set on the Price Calculation
+    // Setting tab.
     $originalCurrency = $form['original_currency'] === 'OTHER' ? strtoupper($form['original_currency_other']) : strtoupper($form['original_currency']);
-    $originalExchangeRateValue = null;
     if ($error === '' && $form['original_price'] !== '') {
         if (!is_numeric($form['original_price']) || (float) $form['original_price'] < 0) {
             $error = 'Original Price must be a valid non-negative number.';
@@ -248,48 +220,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Enter a valid Original Currency code (up to 10 characters).';
         } elseif ($form['original_currency'] !== 'OTHER' && !in_array($form['original_currency'], PRICING_REFERENCE_CURRENCY_OPTIONS, true)) {
             $error = 'Invalid Original Currency.';
-        } elseif ($originalCurrency !== 'MYR') {
-            if ($form['original_exchange_rate'] === '' || !is_numeric($form['original_exchange_rate']) || (float) $form['original_exchange_rate'] <= 0) {
-                $error = 'Enter a valid Original Exchange Rate (1 ' . $originalCurrency . ' = ? MYR).';
-            } else {
-                $originalExchangeRateValue = (float) $form['original_exchange_rate'];
-            }
-        }
-    }
-
-    $marketCurrency = $form['market_currency'] === 'OTHER' ? strtoupper($form['market_currency_other']) : strtoupper($form['market_currency']);
-    $marketExchangeRateValue = null;
-    if ($error === '' && $form['market_price'] !== '') {
-        if (!is_numeric($form['market_price']) || (float) $form['market_price'] < 0) {
-            $error = 'Market Price must be a valid non-negative number.';
-        } elseif ($form['market_currency'] === 'OTHER' && ($marketCurrency === '' || strlen($marketCurrency) > 10)) {
-            $error = 'Enter a valid Market Currency code (up to 10 characters).';
-        } elseif ($form['market_currency'] !== 'OTHER' && !in_array($form['market_currency'], PRICING_REFERENCE_CURRENCY_OPTIONS, true)) {
-            $error = 'Invalid Market Currency.';
-        } elseif ($marketCurrency !== 'MYR') {
-            if ($form['market_exchange_rate'] === '' || !is_numeric($form['market_exchange_rate']) || (float) $form['market_exchange_rate'] <= 0) {
-                $error = 'Enter a valid Market Exchange Rate (1 ' . $marketCurrency . ' = ? MYR).';
-            } else {
-                $marketExchangeRateValue = (float) $form['market_exchange_rate'];
-            }
-        }
-    }
-
-    if ($error === '' && $form['selling_multiplier'] !== '' && (!is_numeric($form['selling_multiplier']) || (float) $form['selling_multiplier'] <= 0)) {
-        $error = 'Selling Multiplier must be a valid number greater than 0.';
-    }
-
-    if ($error === '' && $form['weight_grams'] !== '' && (!is_numeric($form['weight_grams']) || (float) $form['weight_grams'] < 0)) {
-        $error = 'Weight cannot be negative.';
-    }
-
-    $shippingOriginCountryId = null;
-    if ($error === '' && $form['shipping_origin_country_id'] !== '') {
-        $shippingOriginCountryId = (int) $form['shipping_origin_country_id'];
-        $check = $pdo->prepare('SELECT COUNT(*) FROM shipping_rate_countries WHERE id = ?');
-        $check->execute([$shippingOriginCountryId]);
-        if ((int) $check->fetchColumn() === 0) {
-            $error = 'Selected shipping origin does not exist.';
         }
     }
 
@@ -359,14 +289,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 UPDATE products
                 SET sku = ?, name = ?, short_description = ?, description = ?, product_type = ?, catalog_type = ?, brand_id = ?, barcode = ?,
                     supplier_sku = ?, internal_code = ?,
-                    supplier_id = ?, product_cost = ?, cost_currency = ?, exchange_rate = ?, selling_price = ?, sale_enabled = ?, sale_price = ?,
+                    supplier_id = ?, product_cost = ?, cost_currency = ?, selling_price = ?, sale_enabled = ?, sale_price = ?,
                     min_stock_threshold = ?, target_stock_level = ?, sale_start_date = ?, estimated_arrival_date = ?, estimated_release_month = ?,
                     preorder_closing_date = ?, preorder_reopened_at = ?, expiry_date = ?, moq = ?, status = ?, availability_override = ?,
-                    original_price = ?, original_currency = ?, original_exchange_rate = ?,
-                    market_price = ?, market_currency = ?, market_exchange_rate = ?,
-                    selling_multiplier = ?, weight_grams = ?, shipping_origin_country_id = ?
+                    original_price = ?, original_currency = ?
                 WHERE id = ?
             ');
+            // Phase 9F - exchange_rate/original_exchange_rate/market_price/market_currency/
+            // market_exchange_rate/selling_multiplier/weight_grams/shipping_origin_country_id
+            // are deliberately NOT in this UPDATE - they're edited exclusively on the Price
+            // Calculation Setting tab (modules/products/tabs/pricing.php) now. Including them
+            // here (even as "unchanged" values from a $form that no longer collects them)
+            // would silently overwrite whatever that tab has saved every time this basic
+            // form is submitted.
             $stmt->execute([
                 $form['sku'],
                 $form['name'],
@@ -381,7 +316,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $supplierId,
                 round((float) $form['product_cost'], 2),
                 $costCurrency !== 'MYR' ? $costCurrency : null,
-                $costCurrency !== 'MYR' ? $exchangeRateValue : null,
                 round((float) $form['selling_price'], 2),
                 $form['sale_enabled'] ? 1 : 0,
                 ($form['sale_enabled'] && $form['sale_price'] !== '') ? round((float) $form['sale_price'], 2) : null,
@@ -398,13 +332,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $form['availability_override'],
                 $form['original_price'] !== '' ? round((float) $form['original_price'], 2) : null,
                 $form['original_price'] !== '' && $originalCurrency !== 'MYR' ? $originalCurrency : null,
-                $form['original_price'] !== '' && $originalCurrency !== 'MYR' ? $originalExchangeRateValue : null,
-                $form['market_price'] !== '' ? round((float) $form['market_price'], 2) : null,
-                $form['market_price'] !== '' && $marketCurrency !== 'MYR' ? $marketCurrency : null,
-                $form['market_price'] !== '' && $marketCurrency !== 'MYR' ? $marketExchangeRateValue : null,
-                $form['selling_multiplier'] !== '' ? round((float) $form['selling_multiplier'], 2) : null,
-                $form['weight_grams'] !== '' ? round((float) $form['weight_grams'], 2) : null,
-                $shippingOriginCountryId,
                 $productId,
             ]);
 
@@ -493,7 +420,6 @@ $attributes = array_map(static function (array $attribute) use ($pdo): array {
 
     return $attribute;
 }, catalog_list_attributes($pdo));
-$shippingCountries = pricing_list_shipping_rate_countries($pdo);
 
 $existingAssignments = [];
 foreach (catalog_get_product_attribute_assignments($pdo, $productId) as $assignment) {

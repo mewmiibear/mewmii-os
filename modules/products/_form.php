@@ -90,6 +90,7 @@ $productFormCssVersion = is_file($productFormCssPath) ? filemtime($productFormCs
         <?php endif; ?>
         <?php if ($isEdit): ?>
             <a class="btn btn-outline-primary btn-sm" href="/modules/products/control-center.php?id=<?php echo (int) $productId; ?>">Open Product Control Center</a>
+            <a class="btn btn-outline-primary btn-sm" href="/modules/products/tabs/pricing.php?id=<?php echo (int) $productId; ?>">Price Calculation Setting</a>
         <?php endif; ?>
         <a class="btn btn-outline-secondary btn-sm" href="/modules/products/index.php">Back to Products</a>
     </div>
@@ -340,10 +341,20 @@ $productFormCssVersion = is_file($productFormCssPath) ? filemtime($productFormCs
                     <input type="text" class="form-control mt-2<?php echo $form['cost_currency'] !== 'OTHER' ? ' d-none' : ''; ?>" id="cost-currency-other" name="cost_currency_other" maxlength="10" placeholder="e.g. KRW" value="<?php echo app_escape($form['cost_currency_other']); ?>">
                     <div class="form-text">Currency Cost Price was quoted in. Leave as MYR if it's already in ringgit.</div>
                 </div>
-                <div class="col-md-4 js-cost-currency-foreign<?php echo $form['cost_currency'] === 'MYR' ? ' d-none' : ''; ?>">
-                    <label class="form-label">Exchange Rate</label>
-                    <input type="number" step="0.0001" min="0" class="form-control" name="exchange_rate" id="cost-exchange-rate" value="<?php echo app_escape($form['exchange_rate']); ?>" placeholder="e.g. 0.6800">
-                    <div class="form-text">1 <span id="cost-currency-rate-label"><?php echo app_escape($form['cost_currency'] !== 'OTHER' ? $form['cost_currency'] : ($form['cost_currency_other'] !== '' ? $form['cost_currency_other'] : 'unit')); ?></span> = ? MYR. Required for a foreign cost currency.</div>
+                <div class="col-md-4">
+                    <label class="form-label">Original Price</label>
+                    <input type="number" step="0.01" min="0" class="form-control" name="original_price" value="<?php echo app_escape($form['original_price']); ?>" placeholder="0.00">
+                    <div class="form-text">Official brand/retail reference price - exchange rate is set on the Price Calculation Setting tab after saving.</div>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Original Currency</label>
+                    <select class="form-select" name="original_currency" id="original-currency-select">
+                        <?php foreach (PRICING_REFERENCE_CURRENCY_OPTIONS as $currencyOption): ?>
+                            <option value="<?php echo app_escape($currencyOption); ?>" <?php echo $form['original_currency'] === $currencyOption ? 'selected' : ''; ?>><?php echo app_escape($currencyOption); ?></option>
+                        <?php endforeach; ?>
+                        <option value="OTHER" <?php echo $form['original_currency'] === 'OTHER' ? 'selected' : ''; ?>>Other</option>
+                    </select>
+                    <input type="text" class="form-control mt-2<?php echo $form['original_currency'] !== 'OTHER' ? ' d-none' : ''; ?>" id="original-currency-other" name="original_currency_other" maxlength="10" placeholder="e.g. KRW" value="<?php echo app_escape($form['original_currency_other']); ?>">
                 </div>
 
                 <div class="col-md-4 js-sale-fields">
@@ -467,106 +478,8 @@ $productFormCssVersion = is_file($productFormCssPath) ? filemtime($productFormCs
         </details>
     </div>
 
-    <div class="card pf-card">
-        <div class="pf-card-title"><span class="pf-card-step">3</span> Pricing Intelligence</div>
-        <p class="pf-card-hint">Reference prices and an automatic Recommended Selling Price - Supplier Price above remains the actual buying cost, and Selling Price above remains the final stored/editable price. Nothing here changes Landed Cost, Cost History, or WooCommerce sync.</p>
-
-        <div class="pf-group">
-            <div class="pf-group-label">Original Price <span class="text-muted fw-normal text-lowercase">(brand/official retail reference)</span></div>
-            <div class="row g-3">
-                <div class="col-md-4">
-                    <label class="form-label">Original Price</label>
-                    <input type="number" step="0.01" min="0" class="form-control" name="original_price" value="<?php echo app_escape($form['original_price']); ?>" placeholder="0.00">
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label">Original Currency</label>
-                    <select class="form-select" name="original_currency" id="original-currency-select">
-                        <?php foreach (PRICING_REFERENCE_CURRENCY_OPTIONS as $currencyOption): ?>
-                            <option value="<?php echo app_escape($currencyOption); ?>" <?php echo $form['original_currency'] === $currencyOption ? 'selected' : ''; ?>><?php echo app_escape($currencyOption); ?></option>
-                        <?php endforeach; ?>
-                        <option value="OTHER" <?php echo $form['original_currency'] === 'OTHER' ? 'selected' : ''; ?>>Other</option>
-                    </select>
-                    <input type="text" class="form-control mt-2<?php echo $form['original_currency'] !== 'OTHER' ? ' d-none' : ''; ?>" id="original-currency-other" name="original_currency_other" maxlength="10" placeholder="e.g. KRW" value="<?php echo app_escape($form['original_currency_other']); ?>">
-                </div>
-                <div class="col-md-4 js-original-currency-foreign<?php echo $form['original_currency'] === 'MYR' ? ' d-none' : ''; ?>">
-                    <label class="form-label">Original Exchange Rate</label>
-                    <input type="number" step="0.0001" min="0" class="form-control" name="original_exchange_rate" id="original-exchange-rate" value="<?php echo app_escape($form['original_exchange_rate']); ?>" placeholder="e.g. 0.0260">
-                    <div class="form-text">1 <span id="original-currency-rate-label"><?php echo app_escape($form['original_currency'] !== 'OTHER' ? $form['original_currency'] : ($form['original_currency_other'] !== '' ? $form['original_currency_other'] : 'unit')); ?></span> = ? MYR. Required for a foreign currency.</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="pf-group">
-            <div class="pf-group-label">Market Price <span class="text-muted fw-normal text-lowercase">(competitor/reseller reference)</span></div>
-            <div class="row g-3">
-                <div class="col-md-4">
-                    <label class="form-label">Market Price</label>
-                    <input type="number" step="0.01" min="0" class="form-control" name="market_price" value="<?php echo app_escape($form['market_price']); ?>" placeholder="0.00">
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label">Market Currency</label>
-                    <select class="form-select" name="market_currency" id="market-currency-select">
-                        <?php foreach (PRICING_REFERENCE_CURRENCY_OPTIONS as $currencyOption): ?>
-                            <option value="<?php echo app_escape($currencyOption); ?>" <?php echo $form['market_currency'] === $currencyOption ? 'selected' : ''; ?>><?php echo app_escape($currencyOption); ?></option>
-                        <?php endforeach; ?>
-                        <option value="OTHER" <?php echo $form['market_currency'] === 'OTHER' ? 'selected' : ''; ?>>Other</option>
-                    </select>
-                    <input type="text" class="form-control mt-2<?php echo $form['market_currency'] !== 'OTHER' ? ' d-none' : ''; ?>" id="market-currency-other" name="market_currency_other" maxlength="10" placeholder="e.g. KRW" value="<?php echo app_escape($form['market_currency_other']); ?>">
-                </div>
-                <div class="col-md-4 js-market-currency-foreign<?php echo $form['market_currency'] === 'MYR' ? ' d-none' : ''; ?>">
-                    <label class="form-label">Market Exchange Rate</label>
-                    <input type="number" step="0.0001" min="0" class="form-control" name="market_exchange_rate" id="market-exchange-rate" value="<?php echo app_escape($form['market_exchange_rate']); ?>" placeholder="e.g. 0.0350">
-                    <div class="form-text">1 <span id="market-currency-rate-label"><?php echo app_escape($form['market_currency'] !== 'OTHER' ? $form['market_currency'] : ($form['market_currency_other'] !== '' ? $form['market_currency_other'] : 'unit')); ?></span> = ? MYR. Required for a foreign currency.</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="pf-group">
-            <div class="pf-group-label">Recommended Selling Price</div>
-            <div class="row g-3">
-                <div class="col-md-4">
-                    <label class="form-label">Selling Multiplier</label>
-                    <input type="number" step="0.01" min="0" class="form-control" name="selling_multiplier" id="pf-selling-multiplier" value="<?php echo app_escape($form['selling_multiplier']); ?>" placeholder="e.g. 1.25">
-                    <div class="form-text">Recommended Selling Price = Original Price (MYR) &times; Selling Multiplier.</div>
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label d-block">Recommended Selling Price (RM)</label>
-                    <div class="form-control-plaintext fw-semibold" id="pf-recommended-selling-price">&mdash;</div>
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label d-block">&nbsp;</label>
-                    <button type="button" class="btn btn-outline-primary" id="pf-use-recommended-btn" disabled>Use recommended &darr;</button>
-                    <div class="form-text">Fills the Selling Price field above - still fully editable afterward.</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="pf-group">
-            <div class="pf-group-label">Shipping</div>
-            <div class="row g-3">
-                <div class="col-md-4">
-                    <label class="form-label">Default Weight (grams)</label>
-                    <input type="number" step="0.01" min="0" class="form-control" name="weight_grams" value="<?php echo app_escape($form['weight_grams']); ?>" placeholder="0.00">
-                    <div class="form-text">For a variable product, this is the fallback weight for any variation left on "Follow Product Weight" - a variation set to "Custom Weight" uses its own value instead (see the Variations table below).</div>
-                </div>
-                <div class="col-md-4">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <label class="form-label mb-1">Shipping Origin</label>
-                        <a class="small" href="/modules/settings/shipping_rates.php" target="_blank" rel="noopener">Manage &#8599;</a>
-                    </div>
-                    <select class="form-select" name="shipping_origin_country_id">
-                        <option value="">None</option>
-                        <?php foreach ($shippingCountries as $shippingCountry): ?>
-                            <option value="<?php echo (int) $shippingCountry['id']; ?>" <?php echo $form['shipping_origin_country_id'] === (string) $shippingCountry['id'] ? 'selected' : ''; ?>><?php echo app_escape($shippingCountry['country_name']); ?> (RM <?php echo app_escape(number_format((float) $shippingCountry['rate_per_gram'], 4)); ?>/g)</option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <div class="card pf-card js-variable-section">
-        <div class="pf-card-title"><span class="pf-card-step">4</span> Variations</div>
+        <div class="pf-card-title"><span class="pf-card-step">3</span> Variations</div>
         <p class="pf-card-hint">Character, Color, Size, and any other attribute are managed the same way. Each value's SKU prefix can still be edited inline below, but new attributes and values are added from Catalog &gt; Attributes, not here. New variations are created Active by default. <a href="/modules/catalog/index.php?tab=attributes" target="_blank" rel="noopener">Manage Attributes &#8599;</a></p>
         <div id="attribute-builder-blocks"></div>
         <div class="d-flex flex-wrap gap-2 mt-2">
@@ -873,85 +786,5 @@ $entryFormJsVersion = is_file($entryFormJsPath) ? filemtime($entryFormJsPath) : 
 
     setupCurrencyToggle('cost-currency-select', 'cost-currency-other', 'js-cost-currency-foreign', 'cost-currency-rate-label');
     setupCurrencyToggle('original-currency-select', 'original-currency-other', 'js-original-currency-foreign', 'original-currency-rate-label');
-    setupCurrencyToggle('market-currency-select', 'market-currency-other', 'js-market-currency-foreign', 'market-currency-rate-label');
-
-    // Phase 9D (Pricing Engine) - Recommended Selling Price = Original Price (MYR) x Selling
-    // Multiplier, recalculated live as any input field changes. Mirrors
-    // pricing_calculate_recommended_selling_price() in includes/pricing_engine.php exactly -
-    // same "currency null = already MYR, currency set + rate blank = not convertible yet"
-    // rule, so this preview never disagrees with the server-side value shown on the product
-    // page after saving.
-    var originalPriceInput = document.querySelector('input[name="original_price"]');
-    var originalCurrencySelect = document.getElementById('original-currency-select');
-    var originalCurrencyOtherInput = document.getElementById('original-currency-other');
-    var originalExchangeRateInput = document.getElementById('original-exchange-rate');
-    var multiplierInput = document.getElementById('pf-selling-multiplier');
-    var recommendedDisplay = document.getElementById('pf-recommended-selling-price');
-    var useRecommendedBtn = document.getElementById('pf-use-recommended-btn');
-    var sellingPriceInput = document.getElementById('pf-selling-price-input');
-
-    var lastRecommended = null;
-
-    function computeRecommendedSellingPrice() {
-        var amount = originalPriceInput ? parseFloat(originalPriceInput.value) : NaN;
-        var multiplier = multiplierInput ? parseFloat(multiplierInput.value) : NaN;
-
-        if (!recommendedDisplay) {
-            return;
-        }
-        if (isNaN(amount) || isNaN(multiplier) || multiplier <= 0) {
-            recommendedDisplay.textContent = '—';
-            lastRecommended = null;
-            if (useRecommendedBtn) {
-                useRecommendedBtn.disabled = true;
-            }
-            return;
-        }
-
-        var currency = originalCurrencySelect ? originalCurrencySelect.value : 'MYR';
-        var effectiveRate = 1;
-        var convertible = true;
-        if (currency !== 'MYR') {
-            var rate = originalExchangeRateInput ? parseFloat(originalExchangeRateInput.value) : NaN;
-            if (isNaN(rate) || rate <= 0) {
-                convertible = false;
-            } else {
-                effectiveRate = rate;
-            }
-        }
-
-        if (!convertible) {
-            recommendedDisplay.textContent = 'Not configured';
-            lastRecommended = null;
-            if (useRecommendedBtn) {
-                useRecommendedBtn.disabled = true;
-            }
-            return;
-        }
-
-        var recommended = amount * effectiveRate * multiplier;
-        recommendedDisplay.textContent = 'RM ' + recommended.toFixed(2);
-        lastRecommended = recommended;
-        if (useRecommendedBtn) {
-            useRecommendedBtn.disabled = false;
-        }
-    }
-
-    [originalPriceInput, originalCurrencySelect, originalCurrencyOtherInput, originalExchangeRateInput, multiplierInput].forEach(function (el) {
-        if (el) {
-            el.addEventListener('input', computeRecommendedSellingPrice);
-            el.addEventListener('change', computeRecommendedSellingPrice);
-        }
-    });
-    computeRecommendedSellingPrice();
-
-    if (useRecommendedBtn) {
-        useRecommendedBtn.addEventListener('click', function () {
-            if (lastRecommended !== null && sellingPriceInput) {
-                sellingPriceInput.value = lastRecommended.toFixed(2);
-            }
-        });
-    }
-
 })();
 </script>

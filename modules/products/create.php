@@ -67,18 +67,12 @@ $form = [
     'estimated_release_month' => '',
     'moq' => '1',
     'preorder_closing_date' => '',
-    // Phase 9D (Pricing Engine)
+    // Phase 9D/9F (Pricing Engine) - only the raw Original Price amount/currency are
+    // collected at creation; the exchange rate (and every other pricing-engine field) is
+    // set afterward on the Price Calculation Setting tab (modules/products/tabs/pricing.php).
     'original_price' => '',
     'original_currency' => 'MYR',
     'original_currency_other' => '',
-    'original_exchange_rate' => '',
-    'market_price' => '',
-    'market_currency' => 'MYR',
-    'market_currency_other' => '',
-    'market_exchange_rate' => '',
-    'selling_multiplier' => '',
-    'weight_grams' => '',
-    'shipping_origin_country_id' => '',
 ];
 $selectedTagIds = [];
 
@@ -129,18 +123,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form['preorder_closing_date'] = trim((string) ($_POST['preorder_closing_date'] ?? ''));
     $selectedTagIds = array_map('intval', $_POST['tag_ids'] ?? []);
 
-    // Phase 9D (Pricing Engine)
+    // Phase 9D/9F (Pricing Engine)
     $form['original_price'] = trim((string) ($_POST['original_price'] ?? ''));
     $form['original_currency'] = trim((string) ($_POST['original_currency'] ?? 'MYR'));
     $form['original_currency_other'] = trim((string) ($_POST['original_currency_other'] ?? ''));
-    $form['original_exchange_rate'] = trim((string) ($_POST['original_exchange_rate'] ?? ''));
-    $form['market_price'] = trim((string) ($_POST['market_price'] ?? ''));
-    $form['market_currency'] = trim((string) ($_POST['market_currency'] ?? 'MYR'));
-    $form['market_currency_other'] = trim((string) ($_POST['market_currency_other'] ?? ''));
-    $form['market_exchange_rate'] = trim((string) ($_POST['market_exchange_rate'] ?? ''));
-    $form['selling_multiplier'] = trim((string) ($_POST['selling_multiplier'] ?? ''));
-    $form['weight_grams'] = trim((string) ($_POST['weight_grams'] ?? ''));
-    $form['shipping_origin_country_id'] = trim((string) ($_POST['shipping_origin_country_id'] ?? ''));
 
     if ($error === '') {
         if ($form['sku'] === '' || strlen($form['sku']) > 100) {
@@ -181,20 +167,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Invalid cost currency.';
         }
     }
-    if ($error === '' && $costCurrency !== 'MYR') {
-        if ($form['exchange_rate'] === '' || !is_numeric($form['exchange_rate']) || (float) $form['exchange_rate'] <= 0) {
-            $error = 'Enter a valid exchange rate (1 ' . $costCurrency . ' = ? MYR).';
+    // Phase 9F - the Exchange Rate input was removed from this form (set later on the Price
+    // Calculation Setting tab instead), so a foreign cost currency with no rate yet is now a
+    // valid, expected state at creation time (not an error) - product_cost.php's engine
+    // already reports this as "missing_exchange_rate" rather than assuming 1:1.
+    if ($error === '' && $costCurrency !== 'MYR' && $form['exchange_rate'] !== '') {
+        if (!is_numeric($form['exchange_rate']) || (float) $form['exchange_rate'] <= 0) {
+            $error = 'Enter a valid exchange rate (1 ' . $costCurrency . ' = ? MYR), or leave it blank to set later on the Price Calculation Setting tab.';
         } else {
             $exchangeRateValue = (float) $form['exchange_rate'];
         }
     }
 
-    // Phase 9D (Pricing Engine) - Original Price and Market Price are both optional (a product
-    // may not have a known brand retail price or competitor reference yet), but if an amount
-    // IS entered, its currency/rate follow the exact same "foreign currency requires a rate,
-    // MYR needs none, never assumed 1:1" rule as Cost/Supplier Price above.
+    // Phase 9D/9F (Pricing Engine) - Original Price is optional at creation (a product may not
+    // have a known brand retail price yet); only the amount/currency are collected here, the
+    // exchange rate is set afterward on the Price Calculation Setting tab.
     $originalCurrency = $form['original_currency'] === 'OTHER' ? strtoupper($form['original_currency_other']) : strtoupper($form['original_currency']);
-    $originalExchangeRateValue = null;
     if ($error === '' && $form['original_price'] !== '') {
         if (!is_numeric($form['original_price']) || (float) $form['original_price'] < 0) {
             $error = 'Original Price must be a valid non-negative number.';
@@ -202,48 +190,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Enter a valid Original Currency code (up to 10 characters).';
         } elseif ($form['original_currency'] !== 'OTHER' && !in_array($form['original_currency'], PRICING_REFERENCE_CURRENCY_OPTIONS, true)) {
             $error = 'Invalid Original Currency.';
-        } elseif ($originalCurrency !== 'MYR') {
-            if ($form['original_exchange_rate'] === '' || !is_numeric($form['original_exchange_rate']) || (float) $form['original_exchange_rate'] <= 0) {
-                $error = 'Enter a valid Original Exchange Rate (1 ' . $originalCurrency . ' = ? MYR).';
-            } else {
-                $originalExchangeRateValue = (float) $form['original_exchange_rate'];
-            }
-        }
-    }
-
-    $marketCurrency = $form['market_currency'] === 'OTHER' ? strtoupper($form['market_currency_other']) : strtoupper($form['market_currency']);
-    $marketExchangeRateValue = null;
-    if ($error === '' && $form['market_price'] !== '') {
-        if (!is_numeric($form['market_price']) || (float) $form['market_price'] < 0) {
-            $error = 'Market Price must be a valid non-negative number.';
-        } elseif ($form['market_currency'] === 'OTHER' && ($marketCurrency === '' || strlen($marketCurrency) > 10)) {
-            $error = 'Enter a valid Market Currency code (up to 10 characters).';
-        } elseif ($form['market_currency'] !== 'OTHER' && !in_array($form['market_currency'], PRICING_REFERENCE_CURRENCY_OPTIONS, true)) {
-            $error = 'Invalid Market Currency.';
-        } elseif ($marketCurrency !== 'MYR') {
-            if ($form['market_exchange_rate'] === '' || !is_numeric($form['market_exchange_rate']) || (float) $form['market_exchange_rate'] <= 0) {
-                $error = 'Enter a valid Market Exchange Rate (1 ' . $marketCurrency . ' = ? MYR).';
-            } else {
-                $marketExchangeRateValue = (float) $form['market_exchange_rate'];
-            }
-        }
-    }
-
-    if ($error === '' && $form['selling_multiplier'] !== '' && (!is_numeric($form['selling_multiplier']) || (float) $form['selling_multiplier'] <= 0)) {
-        $error = 'Selling Multiplier must be a valid number greater than 0.';
-    }
-
-    if ($error === '' && $form['weight_grams'] !== '' && (!is_numeric($form['weight_grams']) || (float) $form['weight_grams'] < 0)) {
-        $error = 'Weight cannot be negative.';
-    }
-
-    $shippingOriginCountryId = null;
-    if ($error === '' && $form['shipping_origin_country_id'] !== '') {
-        $shippingOriginCountryId = (int) $form['shipping_origin_country_id'];
-        $check = $pdo->prepare('SELECT COUNT(*) FROM shipping_rate_countries WHERE id = ?');
-        $check->execute([$shippingOriginCountryId]);
-        if ((int) $check->fetchColumn() === 0) {
-            $error = 'Selected shipping origin does not exist.';
         }
     }
 
@@ -329,10 +275,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     supplier_id, product_cost, cost_currency, exchange_rate, selling_price, sale_enabled, sale_price,
                     min_stock_threshold, target_stock_level, sale_start_date, estimated_arrival_date, estimated_release_month,
                     preorder_closing_date, expiry_date, moq, status, availability_override,
-                    original_price, original_currency, original_exchange_rate,
-                    market_price, market_currency, market_exchange_rate,
-                    selling_multiplier, weight_grams, shipping_origin_country_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    original_price, original_currency
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ');
             $stmt->execute([
                 $form['sku'],
@@ -364,13 +308,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $form['availability_override'],
                 $form['original_price'] !== '' ? round((float) $form['original_price'], 2) : null,
                 $form['original_price'] !== '' && $originalCurrency !== 'MYR' ? $originalCurrency : null,
-                $form['original_price'] !== '' && $originalCurrency !== 'MYR' ? $originalExchangeRateValue : null,
-                $form['market_price'] !== '' ? round((float) $form['market_price'], 2) : null,
-                $form['market_price'] !== '' && $marketCurrency !== 'MYR' ? $marketCurrency : null,
-                $form['market_price'] !== '' && $marketCurrency !== 'MYR' ? $marketExchangeRateValue : null,
-                $form['selling_multiplier'] !== '' ? round((float) $form['selling_multiplier'], 2) : null,
-                $form['weight_grams'] !== '' ? round((float) $form['weight_grams'], 2) : null,
-                $shippingOriginCountryId,
             ]);
             $productId = (int) $pdo->lastInsertId();
 
@@ -471,7 +408,6 @@ $attributes = array_map(static function (array $attribute) use ($pdo): array {
 
     return $attribute;
 }, catalog_list_attributes($pdo));
-$shippingCountries = pricing_list_shipping_rate_countries($pdo);
 
 require_once __DIR__ . '/../../includes/header.php';
 require __DIR__ . '/_form.php';
