@@ -199,6 +199,7 @@ const SYSTEM_HEALTH_MIGRATIONS = [
     ['label' => 'Saved Views', 'migration' => 'migrate_saved_views.php', 'table' => 'saved_views', 'column' => null],
     ['label' => 'Product costing prep', 'migration' => 'migrate_product_costing.php', 'table' => 'products', 'column' => 'cost_currency'],
     ['label' => 'Additional costs framework', 'migration' => 'migrate_additional_costs.php', 'table' => 'supplier_order_item_costs', 'column' => null],
+    ['label' => 'Product cost history', 'migration' => 'migrate_product_cost_history.php', 'table' => 'product_cost_history', 'column' => null],
 ];
 
 // A subset of migrate_production_hardening.php's own performance indexes - grouped as one

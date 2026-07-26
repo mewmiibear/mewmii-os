@@ -91,6 +91,11 @@ $costConfigBadgeClass = [
     'missing_currency_configuration' => 'badge bg-warning text-dark',
 ];
 
+// Phase 8C - Cost History: frozen Landed Cost snapshots for this one product, single query
+// (product_cost_history_list_for_product()), no calculation here either.
+$costHistory = product_cost_history_list_for_product($pdo, $productId);
+$canViewSupplierOrdersForHistory = app_has_permission('supplier-orders.view');
+
 require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -260,6 +265,47 @@ require_once __DIR__ . '/../../includes/header.php';
     <?php elseif ($costBreakdown['is_estimated']): ?>
         <p class="text-muted small mt-3 mb-0">This is an estimate - shipping and/or other costs are not yet configured for this product, so Landed Cost/Gross Profit/Margin reflect only Supplier Cost and Currency Conversion.</p>
     <?php endif; ?>
+</div>
+<?php endif; ?>
+
+<?php if ($costHistory !== []): ?>
+<div class="card p-4 mb-4">
+    <h5 class="mb-1">Cost History</h5>
+    <p class="text-muted small mb-3">Landed cost as frozen each time a supplier order for this product was received or completed - never recalculated after the fact.</p>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Supplier Order</th>
+                    <th>Supplier</th>
+                    <th class="text-end">Supplier Cost</th>
+                    <th class="text-end">Shipping</th>
+                    <th class="text-end">Other Costs</th>
+                    <th class="text-end">Landed Cost</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach (array_reverse($costHistory) as $snapshot): ?>
+                    <tr>
+                        <td><?php echo app_escape($snapshot['captured_at']); ?></td>
+                        <td>
+                            <?php if ($canViewSupplierOrdersForHistory): ?>
+                                <a href="/modules/supplier-orders/view.php?id=<?php echo (int) $snapshot['supplier_order_id']; ?>"><?php echo app_escape($snapshot['purchase_number']); ?></a>
+                            <?php else: ?>
+                                <?php echo app_escape($snapshot['purchase_number']); ?>
+                            <?php endif; ?>
+                        </td>
+                        <td><?php echo $snapshot['supplier_name'] !== null ? app_escape($snapshot['supplier_name']) : '—'; ?></td>
+                        <td class="text-end">RM <?php echo app_escape(number_format((float) $snapshot['converted_cost'], 2)); ?></td>
+                        <td class="text-end"><?php echo $snapshot['shipping_cost'] !== null ? ('RM ' . app_escape(number_format((float) $snapshot['shipping_cost'], 2))) : '—'; ?></td>
+                        <td class="text-end">RM <?php echo app_escape(number_format((float) $snapshot['other_costs'], 2)); ?></td>
+                        <td class="text-end">RM <?php echo app_escape(number_format((float) $snapshot['landed_cost'], 2)); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
 </div>
 <?php endif; ?>
 

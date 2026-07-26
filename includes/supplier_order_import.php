@@ -62,5 +62,13 @@ function supplier_order_import_create(PDO $pdo, array $data, array $items): int
 
     supplier_order_log_event($pdo, $orderId, 'Imported as a historical supplier order (status: ' . supplier_order_status_label($data['status']) . ').');
 
+    // Phase 8C - a historical order never passes through supplier_order_receive_item() (see
+    // this function's own docblock above), so if it's imported directly with a status that
+    // implies it already arrived, the Landed Cost snapshot has to be captured here instead -
+    // otherwise this order would silently never appear in Cost History at all.
+    if (in_array($data['status'], ['received', 'completed'], true)) {
+        product_cost_history_capture($pdo, $orderId);
+    }
+
     return $orderId;
 }

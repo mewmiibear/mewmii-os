@@ -5,6 +5,7 @@ require_once __DIR__ . '/customer_storage.php';
 require_once __DIR__ . '/product_variations.php';
 require_once __DIR__ . '/catalog.php';
 require_once __DIR__ . '/activity_log.php';
+require_once __DIR__ . '/product_cost.php';
 
 // --- Workflow: Draft -> Ordered -> Arrived -> Completed --------------------------------
 // "Arrived" is a display label for the existing status = 'received' value (set
@@ -344,6 +345,10 @@ function supplier_order_receive_item(PDO $pdo, int $itemId, int $quantity): void
         if (!in_array($currentStatus, ['received', 'completed'], true)) {
             $pdo->prepare("UPDATE supplier_orders SET status = 'received', received_date = CURDATE() WHERE id = ?")
                 ->execute([$orderId]);
+            // Phase 8C - freeze this order's Landed Cost breakdown right as it becomes fully
+            // received, exactly once (this branch only runs the one time the order transitions
+            // into 'received'/'completed', never again on a later call).
+            product_cost_history_capture($pdo, $orderId);
         }
     } elseif ($anyReceived && !in_array($currentStatus, ['partially_received', 'received', 'completed', 'cancelled'], true)) {
         // Some lines/quantities have arrived but not all - auto-label the order

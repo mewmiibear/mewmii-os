@@ -708,6 +708,43 @@ CREATE TABLE IF NOT EXISTS supplier_order_item_costs (
   INDEX idx_supplier_order_item_costs_item (supplier_order_item_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Phase 8C (Product Cost History) - a FROZEN snapshot of includes/product_cost.php's Landed
+-- Cost breakdown at the moment a supplier order is received or completed. Required because
+-- every input to that formula can change AFTER the fact and product_cost_calculate_batch() is
+-- always a LIVE recalculation, never a stored value:
+--   - products.cost_currency/exchange_rate can be edited later (Phase 7C.1).
+--   - supplier_order_items.shipping_allocated can be entered/changed after receiving, since
+--     Shipping Allocation (Phase 7D) has no ordering dependency on the receiving flow.
+--   - supplier_order_item_costs rows (Phase 7F) can likewise be added/removed at any time.
+-- Without a snapshot, "what did this cost land at when we received it" would silently drift
+-- every time any of those change - this table exists purely so a past receiving event's cost
+-- stays exactly what it was, forever. Never updated after insert, never read by
+-- product_cost_calculate_batch()/product_cost_calculate() themselves (those two remain pure,
+-- live, unchanged) - only modules/reports/cost_history.php and modules/products/view.php's
+-- Cost History section read this table.
+CREATE TABLE IF NOT EXISTS product_cost_history (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  product_id INT UNSIGNED NOT NULL,
+  variation_id INT UNSIGNED NULL,
+  supplier_id INT UNSIGNED NULL,
+  supplier_order_id INT UNSIGNED NOT NULL,
+  supplier_order_item_id INT UNSIGNED NOT NULL,
+  supplier_cost DECIMAL(12,2) NOT NULL,
+  cost_currency VARCHAR(10) NULL,
+  exchange_rate DECIMAL(10,4) NULL,
+  converted_cost DECIMAL(12,2) NOT NULL,
+  shipping_cost DECIMAL(12,2) NULL,
+  other_costs DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  landed_cost DECIMAL(12,2) NOT NULL,
+  captured_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_product_cost_history_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+  CONSTRAINT fk_product_cost_history_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE SET NULL,
+  CONSTRAINT fk_product_cost_history_order FOREIGN KEY (supplier_order_id) REFERENCES supplier_orders(id) ON DELETE CASCADE,
+  CONSTRAINT fk_product_cost_history_item FOREIGN KEY (supplier_order_item_id) REFERENCES supplier_order_items(id) ON DELETE CASCADE,
+  INDEX idx_product_cost_history_product (product_id, captured_at),
+  INDEX idx_product_cost_history_supplier (supplier_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Payment history against a supplier order - purely additive (add/delete rows), never
 -- overwrites supplier_orders' own total. Paid Amount is always SUM(amount) over this table
 -- computed live, never a cached column, so it can never drift from the actual entries.

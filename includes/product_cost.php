@@ -229,3 +229,127 @@ function product_cost_configuration_status(array $product, ?string $supplierCurr
 
     return 'complete';
 }
+
+/**
+ * Phase 8C (Product Cost History) - freezes product_cost_calculate_batch()'s Landed Cost
+ * breakdown into product_cost_history at the moment a supplier order is received or completed.
+ * Called from includes/supplier_orders.php (supplier_order_receive_item(), when an order
+ * becomes fully received) and includes/supplier_order_import.php (a historical order imported
+ * directly with status 'received'/'completed', which never goes through the normal receiving
+ * flow) - see database/schema.sql's product_cost_history comment for why a frozen snapshot is
+ * needed at all. This is the ONLY place that writes to product_cost_history; nothing here
+ * duplicates the Landed Cost formula itself - every number comes straight from
+ * product_cost_calculate_batch(), unchanged.
+ *
+ * A product whose Landed Cost isn't currently computable (currency not configured) is skipped
+ * rather than snapshotting an incomplete/guessed value - the same "don't invent data" rule the
+ * engine already applies everywhere else.
+ */
+function product_cost_history_capture(PDO $pdo, int $orderId): void
+{
+    $itemsStmt = $pdo->prepare('SELECT id, product_id, variation_id FROM supplier_order_items WHERE supplier_order_id = ?');
+    $itemsStmt->execute([$orderId]);
+    $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
+    if ($items === []) {
+        return;
+    }
+
+    $orderStmt = $pdo->prepare('SELECT supplier_id FROM supplier_orders WHERE id = ?');
+    $orderStmt->execute([$orderId]);
+    $supplierIdRaw = $orderStmt->fetchColumn();
+    $supplierId = $supplierIdRaw !== false && $supplierIdRaw !== null ? (int) $supplierIdRaw : null;
+
+    $productIds = array_map(static fn (array $item): int => (int) $item['product_id'], $items);
+    $costByProduct = product_cost_calculate_batch($pdo, $productIds);
+
+    $insertStmt = $pdo->prepare('
+        INSERT INTO product_cost_history
+            (product_id, variation_id, supplier_id, supplier_order_id, supplier_order_item_id,
+             supplier_cost, cost_currency, exchange_rate, converted_cost, shipping_cost, other_costs, landed_cost)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ');
+
+    foreach ($items as $item) {
+        $productId = (int) $item['product_id'];
+        $cost = $costByProduct[$productId] ?? null;
+        if ($cost === null || $cost['landed_cost'] === null) {
+            continue;
+        }
+
+        $insertStmt->execute([
+            $productId,
+            $item['variation_id'] !== null ? (int) $item['variation_id'] : null,
+            $supplierId,
+            $orderId,
+            (int) $item['id'],
+            $cost['supplier_cost'],
+            $cost['cost_currency'],
+            $cost['exchange_rate'],
+            $cost['converted_cost'],
+            $cost['shipping_cost'],
+            $cost['other_costs'],
+            $cost['landed_cost'],
+        ]);
+    }
+}
+
+/**
+ * Every frozen snapshot for one product, oldest first - for modules/products/view.php's Cost
+ * History section (single product, single query).
+ */
+function product_cost_history_list_for_product(PDO $pdo, int $productId): array
+{
+    $stmt = $pdo->prepare('
+        SELECT h.*, s.name AS supplier_name, so.purchase_number
+        FROM product_cost_history h
+        LEFT JOIN suppliers s ON s.id = h.supplier_id
+        INNER JOIN supplier_orders so ON so.id = h.supplier_order_id
+        WHERE h.product_id = ?
+        ORDER BY h.captured_at ASC, h.id ASC
+    ');
+    $stmt->execute([$productId]);
+
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Batched version of product_cost_history_list_for_product() for modules/reports/cost_history.php
+ * - one query for every product's full snapshot list, not one query per product. Returns
+ * product_id => list of snapshots, oldest first (same shape/order as the single-product
+ * function above).
+ */
+function product_cost_history_list_batch(PDO $pdo, array $productIds): array
+{
+    $productIds = array_values(array_unique(array_map('intval', $productIds)));
+    if ($productIds === []) {
+        return [];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($productIds), '?'));
+    $stmt = $pdo->prepare("
+        SELECT h.*, s.name AS supplier_name, so.purchase_number
+        FROM product_cost_history h
+        LEFT JOIN suppliers s ON s.id = h.supplier_id
+        INNER JOIN supplier_orders so ON so.id = h.supplier_order_id
+        WHERE h.product_id IN ({$placeholders})
+        ORDER BY h.product_id ASC, h.captured_at ASC, h.id ASC
+    ");
+    $stmt->execute($productIds);
+
+    $byProduct = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $byProduct[(int) $row['product_id']][] = $row;
+    }
+
+    return $byProduct;
+}
+
+/**
+ * Every distinct product_id that has at least one snapshot - the candidate list for
+ * modules/reports/cost_history.php, so that page never has to scan the whole product catalog
+ * looking for one with history.
+ */
+function product_cost_history_product_ids(PDO $pdo): array
+{
+    return array_map('intval', $pdo->query('SELECT DISTINCT product_id FROM product_cost_history')->fetchAll(PDO::FETCH_COLUMN));
+}

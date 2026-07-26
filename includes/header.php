@@ -572,6 +572,7 @@ $appTitle = 'Mewmii OS';
                             <?php endif; ?>
                             <?php if (app_has_permission('products.view')): ?>
                                 <a class="nav-link<?php echo $navActive('/modules/reports/margins.php'); ?>" href="/modules/reports/margins.php"><i class="bi bi-graph-up-arrow"></i> Margin Report</a>
+                                <a class="nav-link<?php echo $navActive('/modules/reports/cost_history.php'); ?>" href="/modules/reports/cost_history.php"><i class="bi bi-clock-history"></i> Cost History</a>
                             <?php endif; ?>
                             <?php if (app_has_permission('supplier-orders.view')): ?>
                                 <a class="nav-link<?php echo $navActive('/modules/reports/suppliers.php'); ?>" href="/modules/reports/suppliers.php"><i class="bi bi-truck"></i> Supplier Performance</a>
