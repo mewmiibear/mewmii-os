@@ -374,6 +374,102 @@ $recentActivity = dashboard_recent_activity($pdo, [
     'product_sync' => $canManageIntegrations && $canViewProducts,
 ], 8);
 
+// --- 12. Purchasing Intelligence (Phase 9A) ------------------------------------------------
+// Reuses the Phase 7/8 purchasing-intelligence subsystems exactly as built - no new formula,
+// no new calculation shape beyond what those functions/query patterns already established.
+// Each figure is only computed for a user who holds the permission its linked destination page
+// requires, same convention as every other section on this dashboard.
+require_once __DIR__ . '/includes/demand_forecast.php';
+require_once __DIR__ . '/includes/product_cost.php';
+
+// Inventory Risk - demand_forecast_calculate() (includes/demand_forecast.php, unchanged),
+// the exact same formula modules/reports/forecast.php and modules/purchasing/control-
+// center.php's "Urgent Reorder Products" section already use. Only a count is needed here.
+$urgentReorderCount = 0;
+if ($canViewInventory) {
+    foreach (demand_forecast_calculate($pdo, '30days', []) as $forecastRow) {
+        if ($forecastRow['recommended_qty'] !== null && $forecastRow['recommended_qty'] > 0) {
+            $urgentReorderCount++;
+        }
+    }
+}
+
+// Purchasing Status - Ordered/Partially Received/Overdue counts already computed in section 2
+// above ($supplierOrderStatusCounts, $overdueSupplierOrderCount) - no new query at all.
+// "Receiving Required" = partially_received (some quantity already arrived, the rest still
+// needs processing), the exact same count already sitting in $supplierOrderStatusCounts.
+$pendingSupplierOrderCount = $supplierOrderStatusCounts['ordered'];
+$receivingRequiredCount = $supplierOrderStatusCounts['partially_received'];
+
+// Cost Alerts - product_cost_history_product_ids()/product_cost_history_list_batch()/
+// product_cost_calculate_batch() (includes/product_cost.php), the exact "current landed cost
+// higher than the last snapshot" rule modules/purchasing/control-center.php's "Cost Change
+// Alerts" section already applies. Bounded to products that already have at least one
+// snapshot - never scans the whole catalog.
+$costAlertCount = 0;
+if ($canViewProducts) {
+    $historyProductIds = product_cost_history_product_ids($pdo);
+    if ($historyProductIds !== []) {
+        $historyByProduct = product_cost_history_list_batch($pdo, $historyProductIds);
+        $currentCostByProduct = product_cost_calculate_batch($pdo, $historyProductIds);
+        foreach ($historyProductIds as $historyProductId) {
+            $history = $historyByProduct[$historyProductId] ?? [];
+            if ($history === []) {
+                continue;
+            }
+            $previousLandedCost = (float) $history[count($history) - 1]['landed_cost'];
+            $currentLandedCost = $currentCostByProduct[$historyProductId]['landed_cost'] ?? null;
+            if ($currentLandedCost !== null && $previousLandedCost > 0 && $currentLandedCost > $previousLandedCost) {
+                $costAlertCount++;
+            }
+        }
+    }
+}
+
+// Supplier Risk - supplier_lead_time_stats_batch() (includes/supplier_orders.php), the exact
+// "late orders" formula modules/reports/suppliers.php already shows. Bounded to suppliers that
+// actually have order history.
+$supplierRiskCount = 0;
+if ($canViewSupplierOrders) {
+    $supplierIdsWithOrders = array_map('intval', $pdo->query('SELECT DISTINCT supplier_id FROM supplier_orders')->fetchAll(PDO::FETCH_COLUMN));
+    foreach (supplier_lead_time_stats_batch($pdo, $supplierIdsWithOrders) as $leadTimeStats) {
+        if (($leadTimeStats['late_orders_count'] ?? 0) > 0) {
+            $supplierRiskCount++;
+        }
+    }
+}
+
+// Inventory Value - product_cost_calculate_batch() (includes/product_cost.php), the exact same
+// Landed Cost formula modules/reports/margins.php/modules/purchasing/index.php already use for
+// their own Inventory Value (Cost) cards. Bounded to products that actually have stock on hand
+// (same batched rollup pattern those pages already use) - never the whole catalog.
+$inventoryValueLandedCost = 0.0;
+if ($canViewInventory) {
+    $stockedProductsStmt = $pdo->query("
+        SELECT p.id, stock.available_quantity
+        FROM products p
+        INNER JOIN (
+            SELECT inv.product_id, SUM(inv.available_quantity) AS available_quantity
+            FROM mewmii_inventory inv
+            LEFT JOIN product_variations pv ON pv.id = inv.variation_id
+            WHERE inv.variation_id IS NULL OR pv.status <> 'archived'
+            GROUP BY inv.product_id
+        ) stock ON stock.product_id = p.id
+        WHERE p.status <> 'archived' AND stock.available_quantity > 0
+    ");
+    $stockedProducts = $stockedProductsStmt->fetchAll(PDO::FETCH_ASSOC);
+    if ($stockedProducts !== []) {
+        $stockedProductIds = array_map(static fn (array $row): int => (int) $row['id'], $stockedProducts);
+        $costByStockedProduct = product_cost_calculate_batch($pdo, $stockedProductIds);
+        foreach ($stockedProducts as $stockedProduct) {
+            $landedCost = $costByStockedProduct[(int) $stockedProduct['id']]['landed_cost'] ?? null;
+            if ($landedCost !== null) {
+                $inventoryValueLandedCost += (int) $stockedProduct['available_quantity'] * $landedCost;
+            }
+        }
+    }
+}
+
 require_once __DIR__ . '/includes/header.php';
 ?>
 
@@ -465,6 +561,75 @@ if ($canViewShipments) {
                 <a class="card stat-card stat-card-link p-3 h-100" href="<?php echo app_escape($card['url']); ?>">
                     <div class="stat-label"><?php echo app_escape($card['label']); ?></div>
                     <div class="stat-value <?php echo $card['count'] > 0 ? 'stat-value-alert' : ''; ?>" style="font-size: 1.6rem;"><?php echo (int) $card['count']; ?></div>
+                </a>
+            </div>
+        <?php endforeach; ?>
+    </div>
+</div>
+<?php endif; ?>
+
+<?php
+// Phase 9A - Purchasing Intelligence: teaser cards for the Phase 8 subsystems, each linking
+// out to its own full page (modules/purchasing/control-center.php, modules/reports/
+// suppliers.php, modules/reports/margins.php) rather than duplicating their detail here.
+$purchasingIntelligenceCards = [];
+if ($canViewInventory) {
+    $purchasingIntelligenceCards[] = [
+        'label' => 'Inventory Risk',
+        'value' => $urgentReorderCount . ' urgent',
+        'alert' => $urgentReorderCount > 0,
+        'url' => '/modules/purchasing/control-center.php',
+    ];
+}
+if ($canViewSupplierOrders) {
+    $purchasingIntelligenceCards[] = [
+        'label' => 'Purchasing Status',
+        'value' => $overdueSupplierOrderCount . ' overdue',
+        'helper' => $pendingSupplierOrderCount . ' pending &middot; ' . $receivingRequiredCount . ' receiving',
+        'alert' => $overdueSupplierOrderCount > 0,
+        'url' => '/modules/supplier-orders/index.php',
+    ];
+}
+if ($canViewProducts) {
+    $purchasingIntelligenceCards[] = [
+        'label' => 'Cost Alerts',
+        'value' => $costAlertCount . ' increased',
+        'alert' => $costAlertCount > 0,
+        'url' => '/modules/purchasing/control-center.php',
+    ];
+}
+if ($canViewSupplierOrders) {
+    $purchasingIntelligenceCards[] = [
+        'label' => 'Supplier Risk',
+        'value' => $supplierRiskCount . ' at risk',
+        'alert' => $supplierRiskCount > 0,
+        'url' => '/modules/reports/suppliers.php',
+    ];
+}
+if ($canViewInventory) {
+    $purchasingIntelligenceCards[] = [
+        'label' => 'Inventory Value',
+        'value' => 'RM ' . number_format($inventoryValueLandedCost, 2),
+        'alert' => false,
+        'url' => '/modules/reports/margins.php',
+    ];
+}
+?>
+<?php if ($purchasingIntelligenceCards !== []): ?>
+<div class="mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0">Purchasing Intelligence</h4>
+        <a class="small" href="/modules/purchasing/control-center.php">Open Purchasing Control Center &rarr;</a>
+    </div>
+    <div class="row row-cols-2 row-cols-md-3 row-cols-lg-5 g-3">
+        <?php foreach ($purchasingIntelligenceCards as $card): ?>
+            <div class="col">
+                <a class="card stat-card stat-card-link p-3 h-100" href="<?php echo app_escape($card['url']); ?>">
+                    <div class="stat-label"><?php echo app_escape($card['label']); ?></div>
+                    <div class="stat-value <?php echo $card['alert'] ? 'stat-value-alert' : ''; ?>" style="font-size: 1.3rem;"><?php echo app_escape($card['value']); ?></div>
+                    <?php if (isset($card['helper'])): ?>
+                        <div class="stat-helper"><?php echo $card['helper']; ?></div>
+                    <?php endif; ?>
                 </a>
             </div>
         <?php endforeach; ?>
