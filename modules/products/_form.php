@@ -13,15 +13,21 @@
  * (searchable selects, inline "+ Add" modals, live show/hide, AJAX-driven variation
  * builder in edit mode) but a full-page submit of the "Save" button still works.
  *
- * UX pass (product creation improvements): reorganized into Basic Information / Pricing &
- * Inventory / Images / Variations / Status sections. Every field keeps its original name/id
- * - this is a template reshuffle only, no field was renamed, added, or removed, and no
- * validation/save/image/inventory/WooCommerce logic changed. New product Status defaults to
- * Active (see modules/products/create.php's $form default) and new variations default to
- * Active (see includes/product_variations.php) - editing an existing product/variation
- * still shows and preserves its own real current status untouched.
+ * Shopify-style UI/UX redesign pass: two-column layout (assets/css/product-form.css),
+ * reorganized into Basic Information / Pricing & Inventory / Variations (left column) and
+ * Images / Publish (right column). This is a template/markup reshuffle only - every field
+ * keeps its original name/id/class, no validation/save/image/inventory/WooCommerce/
+ * variation logic changed. New product Status still defaults to Active (see
+ * modules/products/create.php's $form default) and new variations still default to Active
+ * (see includes/product_variations.php) - editing an existing product/variation still
+ * shows and preserves its own real current status untouched.
  */
+$productFormCssPath = __DIR__ . '/../../assets/css/product-form.css';
+$productFormCssVersion = is_file($productFormCssPath) ? filemtime($productFormCssPath) : time();
 ?>
+<link rel="stylesheet" href="/assets/css/product-form.css?v=<?php echo (int) $productFormCssVersion; ?>">
+
+<div class="pf-page">
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <h2 class="mb-1">
@@ -95,7 +101,7 @@
          wrapping/duplicating the form. Triggers the exact same submit event (and
          entry-form-validation.js's validation) as the bottom button(s). -->
     <div class="sticky-top bg-white border-bottom py-2 mb-3" style="z-index: 1015; margin-left: -1.5rem; margin-right: -1.5rem; padding-left: 1.5rem; padding-right: 1.5rem;">
-        <div class="d-flex justify-content-end gap-2">
+        <div class="pf-actionbar">
             <?php if (!$isEdit): ?>
                 <button class="btn btn-outline-secondary" type="submit" form="product-form" name="save_action" value="draft">Save Draft</button>
                 <button class="btn btn-primary" type="submit" form="product-form" name="save_action" value="publish">Create Product</button>
@@ -164,12 +170,15 @@
         <input type="hidden" name="attribute_selections" id="attribute-selections-field" value="">
     <?php endif; ?>
 
-    <div class="card p-4 mb-4">
-        <h5 class="mb-3">1. Basic Information</h5>
+    <div class="pf-layout">
+    <div class="pf-col-main">
+
+    <div class="card pf-card">
+        <div class="pf-card-title"><span class="pf-card-step">1</span> Basic Information</div>
         <div class="row g-3">
             <div class="col-md-8">
                 <label class="form-label">Product Name <span class="text-danger">*</span></label>
-                <input type="text" class="form-control" name="name" value="<?php echo app_escape($form['name']); ?>" maxlength="255" placeholder="e.g. Hello Kitty Plush" required>
+                <input type="text" class="form-control" name="name" value="<?php echo app_escape($form['name']); ?>" maxlength="255" placeholder="e.g. Hello Kitty Plush 25cm" required>
                 <div class="invalid-feedback">Product name is required.</div>
             </div>
             <div class="col-md-4">
@@ -192,7 +201,7 @@
             </div>
             <div class="col-12">
                 <label class="form-label">Description</label>
-                <textarea class="form-control" name="description" rows="3"><?php echo app_escape($form['description']); ?></textarea>
+                <textarea class="form-control" name="description" rows="3" placeholder="Describe this product..."><?php echo app_escape($form['description']); ?></textarea>
             </div>
 
             <div class="col-12"><hr class="my-1"></div>
@@ -268,217 +277,196 @@
         </div>
     </div>
 
-    <div class="card p-4 mb-4">
-        <h5 class="mb-3">2. Pricing &amp; Inventory</h5>
-        <div class="row g-3">
-            <div class="col-md-3">
-                <label class="form-label">SKU <span class="text-danger">*</span></label>
-                <input type="text" class="form-control" name="sku" value="<?php echo app_escape($form['sku']); ?>" maxlength="100" placeholder="e.g. HK-PLUSH-001" required>
-                <div class="invalid-feedback">SKU is required.</div>
-            </div>
-            <div class="col-md-3">
-                <label class="form-label">Barcode</label>
-                <input type="text" class="form-control" name="barcode" value="<?php echo app_escape($form['barcode']); ?>">
-            </div>
-            <div class="col-md-3">
-                <label class="form-label">Supplier SKU</label>
-                <input type="text" class="form-control" name="supplier_sku" value="<?php echo app_escape($form['supplier_sku']); ?>" maxlength="100">
-                <div class="form-text">The supplier's own code - kept alongside the SKU above, never replacing it.</div>
-            </div>
-            <div class="col-md-3">
-                <label class="form-label">Internal Code</label>
-                <input type="text" class="form-control" name="internal_code" value="<?php echo app_escape($form['internal_code']); ?>" maxlength="100">
-            </div>
+    <div class="card pf-card">
+        <div class="pf-card-title"><span class="pf-card-step">2</span> Pricing &amp; Inventory</div>
 
-            <div class="col-md-4">
-                <label class="form-label">Supplier</label>
-                <select class="form-select" name="supplier_id" id="supplier-select" data-searchable="1">
-                    <option value="">None</option>
-                    <?php foreach ($suppliers as $supplier): ?>
-                        <option value="<?php echo (int) $supplier['id']; ?>" <?php echo $form['supplier_id'] === (string) $supplier['id'] ? 'selected' : ''; ?>><?php echo app_escape($supplier['name']); ?></option>
-                    <?php endforeach; ?>
-                </select>
+        <div class="pf-group">
+            <div class="pf-group-label">Identifiers</div>
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">SKU <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" name="sku" value="<?php echo app_escape($form['sku']); ?>" maxlength="100" placeholder="HK-PLUSH-001" required>
+                    <div class="invalid-feedback">SKU is required.</div>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Supplier</label>
+                    <select class="form-select" name="supplier_id" id="supplier-select" data-searchable="1">
+                        <option value="">None</option>
+                        <?php foreach ($suppliers as $supplier): ?>
+                            <option value="<?php echo (int) $supplier['id']; ?>" <?php echo $form['supplier_id'] === (string) $supplier['id'] ? 'selected' : ''; ?>><?php echo app_escape($supplier['name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Supplier SKU</label>
+                    <input type="text" class="form-control" name="supplier_sku" value="<?php echo app_escape($form['supplier_sku']); ?>" maxlength="100">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Barcode</label>
+                    <input type="text" class="form-control" name="barcode" value="<?php echo app_escape($form['barcode']); ?>">
+                </div>
             </div>
-            <div class="col-md-4">
-                <label class="form-label">Cost Price (RM) <span class="text-danger">*</span></label>
-                <input type="number" step="0.01" min="0" class="form-control" name="product_cost" value="<?php echo app_escape($form['product_cost']); ?>" placeholder="0.00" required>
-                <div class="invalid-feedback">Cost price is required.</div>
-            </div>
-            <div class="col-md-4">
-                <label class="form-label">Selling Price (RM) <span class="text-danger">*</span></label>
-                <input type="number" step="0.01" min="0" class="form-control" name="selling_price" value="<?php echo app_escape($form['selling_price']); ?>" placeholder="0.00" required>
-                <div class="invalid-feedback">Regular price is required.</div>
-            </div>
+        </div>
 
-            <div class="col-md-6">
-                <label class="form-check">
-                    <input type="checkbox" class="form-check-input" name="sale_enabled" value="1" id="enable-sale" <?php echo $form['sale_enabled'] ? 'checked' : ''; ?>>
-                    <span class="form-check-label">Enable Sale (Early Bird)</span>
-                </label>
-            </div>
-            <div class="col-md-6">
-                <label class="form-label">Availability Override</label>
-                <select class="form-select" name="availability_override">
-                    <option value="auto" <?php echo $form['availability_override'] === 'auto' ? 'selected' : ''; ?>>Auto</option>
-                    <option value="available" <?php echo $form['availability_override'] === 'available' ? 'selected' : ''; ?>>Available</option>
-                    <option value="out_of_stock" <?php echo $form['availability_override'] === 'out_of_stock' ? 'selected' : ''; ?>>Out of Stock</option>
-                </select>
-                <div class="form-text">Ready Stock: follows actual quantity unless set here. Preorder/Early Bird: stays purchasable at 0 stock unless manually set to Out of Stock.</div>
-            </div>
+        <div class="pf-group">
+            <div class="pf-group-label">Pricing</div>
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label">Cost Price (RM) <span class="text-danger">*</span></label>
+                    <input type="number" step="0.01" min="0" class="form-control" name="product_cost" value="<?php echo app_escape($form['product_cost']); ?>" placeholder="0.00" required>
+                    <div class="invalid-feedback">Cost price is required.</div>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Selling Price (RM) <span class="text-danger">*</span></label>
+                    <input type="number" step="0.01" min="0" class="form-control" name="selling_price" value="<?php echo app_escape($form['selling_price']); ?>" placeholder="0.00" required>
+                    <div class="invalid-feedback">Regular price is required.</div>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label d-block">&nbsp;</label>
+                    <label class="form-check">
+                        <input type="checkbox" class="form-check-input" name="sale_enabled" value="1" id="enable-sale" <?php echo $form['sale_enabled'] ? 'checked' : ''; ?>>
+                        <span class="form-check-label">Enable Sale (Early Bird)</span>
+                    </label>
+                </div>
 
-            <div class="col-md-4 js-sale-fields">
-                <label class="form-label">Sale Price (RM)</label>
-                <input type="number" step="0.01" min="0" class="form-control" name="sale_price" value="<?php echo app_escape($form['sale_price']); ?>">
-            </div>
-            <div class="col-md-4 js-sale-fields">
-                <label class="form-label">Early Bird Start Date</label>
-                <input type="date" class="form-control" name="sale_start_date" value="<?php echo app_escape($form['sale_start_date']); ?>">
-            </div>
-            <div class="col-md-4 js-sale-fields">
-                <label class="form-label">Early Bird Closing Date</label>
-                <input type="date" class="form-control" name="preorder_closing_date" value="<?php echo app_escape($form['preorder_closing_date']); ?>">
-                <div class="form-text">Before this date, Sale Price applies. After, the sale ends and - for Preorder/Early Bird - ordering pauses until manually reopened (see below).</div>
-            </div>
+                <div class="col-md-4 js-sale-fields">
+                    <label class="form-label">Sale Price (RM)</label>
+                    <input type="number" step="0.01" min="0" class="form-control" name="sale_price" value="<?php echo app_escape($form['sale_price']); ?>" placeholder="0.00">
+                </div>
+                <div class="col-md-4 js-sale-fields">
+                    <label class="form-label">Early Bird Start Date</label>
+                    <input type="date" class="form-control" name="sale_start_date" value="<?php echo app_escape($form['sale_start_date']); ?>">
+                </div>
+                <div class="col-md-4 js-sale-fields">
+                    <label class="form-label">Early Bird Closing Date</label>
+                    <input type="date" class="form-control" name="preorder_closing_date" value="<?php echo app_escape($form['preorder_closing_date']); ?>">
+                    <div class="form-text">After this date, ordering pauses for Preorder/Early Bird until manually reopened.</div>
+                </div>
 
-            <?php
-            $showPreorderReopenControl = false;
-            $isWaitingForRelease = false;
-            if ($isEdit && in_array($form['product_type'], ['preorder', 'early_bird'], true) && !empty($product['preorder_closing_date'])) {
-                if (strtotime($product['preorder_closing_date']) < strtotime('today')) {
-                    $showPreorderReopenControl = true;
-                    $isWaitingForRelease = empty($product['preorder_reopened_at']);
+                <?php
+                $showPreorderReopenControl = false;
+                $isWaitingForRelease = false;
+                if ($isEdit && in_array($form['product_type'], ['preorder', 'early_bird'], true) && !empty($product['preorder_closing_date'])) {
+                    if (strtotime($product['preorder_closing_date']) < strtotime('today')) {
+                        $showPreorderReopenControl = true;
+                        $isWaitingForRelease = empty($product['preorder_reopened_at']);
+                    }
                 }
-            }
-            ?>
-            <?php if ($showPreorderReopenControl): ?>
-                <div class="col-12">
-                    <?php if ($isWaitingForRelease): ?>
-                        <span class="badge bg-secondary">Waiting for Release</span>
-                        <span class="text-muted small">Early Bird has ended. Ordering is paused until you manually reopen it - it does not resume on its own, even once the Estimated Release Month arrives.</span>
-                        <?php if ($canManage): ?>
-                            <form method="post" action="/modules/products/reopen_preorder.php" class="mt-2">
-                                <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
-                                <input type="hidden" name="product_id" value="<?php echo (int) $productId; ?>">
-                                <button type="submit" class="btn btn-sm btn-primary" onclick="return confirm('Reopen preorder at Regular Price? Early Bird pricing will not return.');">Open Preorder</button>
-                            </form>
+                ?>
+                <?php if ($showPreorderReopenControl): ?>
+                    <div class="col-12">
+                        <?php if ($isWaitingForRelease): ?>
+                            <span class="badge bg-secondary">Waiting for Release</span>
+                            <span class="text-muted small">Early Bird has ended. Ordering is paused until you manually reopen it - it does not resume on its own, even once the Estimated Release Month arrives.</span>
+                            <?php if ($canManage): ?>
+                                <form method="post" action="/modules/products/reopen_preorder.php" class="mt-2">
+                                    <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                                    <input type="hidden" name="product_id" value="<?php echo (int) $productId; ?>">
+                                    <button type="submit" class="btn btn-sm btn-primary" onclick="return confirm('Reopen preorder at Regular Price? Early Bird pricing will not return.');">Open Preorder</button>
+                                </form>
+                            <?php endif; ?>
+                        <?php else: ?>
+                            <span class="badge bg-success">Preorder Reopened</span>
+                            <span class="text-muted small">Reopened <?php echo app_escape($product['preorder_reopened_at']); ?> - Regular Price applies, Early Bird pricing will not return.</span>
                         <?php endif; ?>
-                    <?php else: ?>
-                        <span class="badge bg-success">Preorder Reopened</span>
-                        <span class="text-muted small">Reopened <?php echo app_escape($product['preorder_reopened_at']); ?> - Regular Price applies, Early Bird pricing will not return.</span>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <div class="pf-group">
+            <div class="pf-group-label">Stock</div>
+            <div class="row g-3">
+                <div class="col-md-4 js-stock-ready js-simple-section">
+                    <label class="form-label">Available Stock</label>
+                    <input type="number" min="0" class="form-control" name="stock_quantity" value="<?php echo app_escape($form['stock_quantity']); ?>" placeholder="0">
+                </div>
+                <div class="col-md-4 js-stock-ready">
+                    <label class="form-label">Minimum Stock</label>
+                    <input type="number" min="0" class="form-control" name="min_stock_threshold" value="<?php echo app_escape($form['min_stock_threshold']); ?>">
+                    <?php if ($isEdit && $lowStock): ?>
+                        <span class="badge bg-warning text-dark mt-1">Low Stock</span>
                     <?php endif; ?>
                 </div>
-            <?php endif; ?>
-
-            <div class="col-12"><hr class="my-1"></div>
-
-            <div class="col-md-4 js-stock-ready js-simple-section">
-                <label class="form-label">Available Stock</label>
-                <input type="number" min="0" class="form-control" name="stock_quantity" value="<?php echo app_escape($form['stock_quantity']); ?>" placeholder="0">
-            </div>
-            <div class="col-md-4 js-stock-ready">
-                <label class="form-label">Minimum Stock</label>
-                <input type="number" min="0" class="form-control" name="min_stock_threshold" value="<?php echo app_escape($form['min_stock_threshold']); ?>">
-                <?php if ($isEdit && $lowStock): ?>
-                    <span class="badge bg-warning text-dark mt-1">Low Stock</span>
-                <?php endif; ?>
-            </div>
-            <div class="col-md-4 js-stock-ready">
-                <label class="form-label">Target Stock Level</label>
-                <input type="number" min="0" class="form-control" name="target_stock_level" value="<?php echo app_escape($form['target_stock_level']); ?>">
-                <div class="form-text">Purchase Planning orders up to this quantity. Leave blank to exclude from Purchase Planning.</div>
-            </div>
-            <div class="col-md-4 js-stock-preorder">
-                <label class="form-label">ETA (Estimated Arrival)</label>
-                <input type="date" class="form-control" name="estimated_arrival_date" value="<?php echo app_escape($form['estimated_arrival_date']); ?>">
-            </div>
-            <div class="col-md-4 js-stock-preorder">
-                <label class="form-label">MOQ</label>
-                <input type="number" min="1" class="form-control" name="moq" value="<?php echo app_escape($form['moq']); ?>">
-            </div>
-            <div class="col-md-4 js-stock-preorder">
-                <label class="form-label">Estimated Release Month</label>
-                <input type="month" class="form-control" name="estimated_release_month" value="<?php echo app_escape($form['estimated_release_month']); ?>">
-                <?php $releaseMonthDisplay = catalog_format_release_month($form['estimated_release_month'] !== '' ? $form['estimated_release_month'] : null); ?>
-                <?php if ($releaseMonthDisplay !== null): ?>
-                    <div class="form-text">Shown to customers as "<?php echo app_escape($releaseMonthDisplay); ?>".</div>
-                <?php endif; ?>
-            </div>
-            <p class="text-muted small mb-0 js-stock-preorder">No stock quantity is requested here - stock arrives later via Supplier Orders receiving, then gets manually allocated from the Inventory page.</p>
-
-            <div class="col-12"><hr class="my-1"></div>
-
-            <div class="col-12">
-                <label class="form-check">
-                    <input type="checkbox" class="form-check-input" name="has_expiry" value="1" id="has-expiry-checkbox" <?php echo $form['expiry_date'] !== '' ? 'checked' : ''; ?>>
-                    <span class="form-check-label">Product has expiry date</span>
-                </label>
-            </div>
-            <div class="col-md-3 js-expiry-fields">
-                <label class="form-label">Expiry Date</label>
-                <input type="date" class="form-control" name="expiry_date" value="<?php echo app_escape($form['expiry_date']); ?>">
-                <div class="form-text">Only for products that physically expire (food, cosmetics, etc.).</div>
-            </div>
-        </div>
-    </div>
-
-    <div class="card p-4 mb-4">
-        <h5 class="mb-3">3. Images</h5>
-        <div class="row g-4">
-            <div class="col-md-6">
-                <label class="form-label">Main Image</label>
-                <?php if ($mainImage !== null): ?>
-                    <div class="mb-2 position-relative d-inline-block">
-                        <img src="/<?php echo app_escape($mainImage['image_path']); ?>" alt="Main image" style="max-width: 140px; max-height: 140px;" class="border rounded d-block">
-                    </div>
-                    <?php if ($canManage): ?>
-                        <label class="d-block small mb-2">
-                            <input type="checkbox" name="remove_main_image" value="1"> Remove current main image
-                        </label>
+                <div class="col-md-4 js-stock-ready">
+                    <label class="form-label">Target Stock Level</label>
+                    <input type="number" min="0" class="form-control" name="target_stock_level" value="<?php echo app_escape($form['target_stock_level']); ?>">
+                    <div class="form-text">Purchase Planning orders up to this quantity. Leave blank to exclude.</div>
+                </div>
+                <div class="col-md-4 js-stock-preorder">
+                    <label class="form-label">ETA (Estimated Arrival)</label>
+                    <input type="date" class="form-control" name="estimated_arrival_date" value="<?php echo app_escape($form['estimated_arrival_date']); ?>">
+                </div>
+                <div class="col-md-4 js-stock-preorder">
+                    <label class="form-label">MOQ</label>
+                    <input type="number" min="1" class="form-control" name="moq" value="<?php echo app_escape($form['moq']); ?>">
+                </div>
+                <div class="col-md-4 js-stock-preorder">
+                    <label class="form-label">Estimated Release Month</label>
+                    <input type="month" class="form-control" name="estimated_release_month" value="<?php echo app_escape($form['estimated_release_month']); ?>">
+                    <?php $releaseMonthDisplay = catalog_format_release_month($form['estimated_release_month'] !== '' ? $form['estimated_release_month'] : null); ?>
+                    <?php if ($releaseMonthDisplay !== null): ?>
+                        <div class="form-text">Shown to customers as "<?php echo app_escape($releaseMonthDisplay); ?>".</div>
                     <?php endif; ?>
-                <?php endif; ?>
-                <input type="file" class="form-control image-file-input" name="main_image" id="main-image-input" accept="image/*">
-                <div class="form-text">Automatically resized, compressed, and converted to WebP. This is the image shown first everywhere.</div>
-            </div>
-
-            <div class="col-md-6">
-                <label class="form-label">Gallery Images</label>
-                <input type="file" class="form-control" name="gallery_images[]" id="gallery-add-input" accept="image/*" multiple>
-                <div class="form-text">Additional photos - angles, packaging, in use, etc.</div>
-                <?php if ($galleryImages !== []): ?>
-                    <div id="gallery-container" class="d-flex flex-wrap gap-3 mt-3">
-                        <?php foreach ($galleryImages as $image): ?>
-                            <div class="gallery-item border rounded p-2 text-center" style="width: 110px;" draggable="true" data-image-id="<?php echo (int) $image['id']; ?>">
-                                <img src="/<?php echo app_escape($image['image_path']); ?>" alt="" style="max-width: 90px; max-height: 90px;" class="mb-1">
-                                <input type="hidden" name="gallery_sort_order[<?php echo (int) $image['id']; ?>]" value="<?php echo (int) $image['sort_order']; ?>">
-                                <label class="small d-block">
-                                    <input type="checkbox" class="gallery-delete" name="gallery_delete[]" value="<?php echo (int) $image['id']; ?>"> Delete
-                                </label>
-                            </div>
-                        <?php endforeach; ?>
-                    </div>
-                <?php else: ?>
-                    <div id="gallery-container" class="mt-2"></div>
-                <?php endif; ?>
+                </div>
+                <p class="text-muted small mb-0 js-stock-preorder">No stock quantity is requested here - stock arrives later via Supplier Orders receiving, then gets manually allocated from the Inventory page.</p>
             </div>
         </div>
+
+        <div class="pf-group">
+            <div class="pf-group-label">Availability</div>
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label">Availability Override</label>
+                    <select class="form-select" name="availability_override">
+                        <option value="auto" <?php echo $form['availability_override'] === 'auto' ? 'selected' : ''; ?>>Auto</option>
+                        <option value="available" <?php echo $form['availability_override'] === 'available' ? 'selected' : ''; ?>>Available</option>
+                        <option value="out_of_stock" <?php echo $form['availability_override'] === 'out_of_stock' ? 'selected' : ''; ?>>Out of Stock</option>
+                    </select>
+                    <div class="form-text">Ready Stock: follows actual quantity unless set here. Preorder/Early Bird: stays purchasable at 0 stock unless manually set to Out of Stock.</div>
+                </div>
+            </div>
+        </div>
+
+        <details class="pf-advanced" <?php echo ($form['internal_code'] !== '' || $form['expiry_date'] !== '') ? 'open' : ''; ?>>
+            <summary>Advanced options</summary>
+            <div class="pf-advanced-body row g-3">
+                <div class="col-md-6">
+                    <label class="form-label">Internal Code</label>
+                    <input type="text" class="form-control" name="internal_code" value="<?php echo app_escape($form['internal_code']); ?>" maxlength="100">
+                </div>
+                <div class="col-12">
+                    <label class="form-check">
+                        <input type="checkbox" class="form-check-input" name="has_expiry" value="1" id="has-expiry-checkbox" <?php echo $form['expiry_date'] !== '' ? 'checked' : ''; ?>>
+                        <span class="form-check-label">Product has expiry date</span>
+                    </label>
+                </div>
+                <div class="col-md-4 js-expiry-fields">
+                    <label class="form-label">Expiry Date</label>
+                    <input type="date" class="form-control" name="expiry_date" value="<?php echo app_escape($form['expiry_date']); ?>">
+                    <div class="form-text">Only for products that physically expire (food, cosmetics, etc.).</div>
+                </div>
+            </div>
+        </details>
     </div>
 
-    <div class="card p-4 mb-4 js-variable-section">
-        <h5 class="mb-1">4. Variations</h5>
-        <p class="text-muted small">Character, Color, Size, and any other attribute are managed the same way. Each value's SKU prefix can still be edited inline below, but new attributes and values are added from Catalog &gt; Attributes, not here. New variations are created Active by default.</p>
-        <div class="d-flex justify-content-between align-items-center mb-2">
-            <a class="small" href="/modules/catalog/index.php?tab=attributes" target="_blank" rel="noopener">Manage Attributes &#8599;</a>
-        </div>
+    <div class="card pf-card js-variable-section">
+        <div class="pf-card-title"><span class="pf-card-step">3</span> Variations</div>
+        <p class="pf-card-hint">Character, Color, Size, and any other attribute are managed the same way. Each value's SKU prefix can still be edited inline below, but new attributes and values are added from Catalog &gt; Attributes, not here. New variations are created Active by default. <a href="/modules/catalog/index.php?tab=attributes" target="_blank" rel="noopener">Manage Attributes &#8599;</a></p>
         <div id="attribute-builder-blocks"></div>
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="add-attribute-block-btn">+ Add Another Attribute</button>
-        <div class="mt-3">
+        <div class="d-flex flex-wrap gap-2 mt-2">
+            <button type="button" class="btn btn-outline-secondary" id="add-attribute-block-btn">+ Add Attribute</button>
             <button type="button" class="btn btn-primary" id="generate-variations-btn">Generate Variations</button>
         </div>
     </div>
 
-    <div class="card p-4 mb-4 js-variable-section" id="variation-table-wrapper">
-        <h5 class="mb-1">Variations List</h5>
-        <p class="text-muted small">Deleting a variation removes it completely - only possible if it has no order/inventory/supplier history. Otherwise deletion is blocked to protect that history.</p>
+    <div class="card pf-card js-variable-section" id="variation-table-wrapper">
+        <div class="pf-variation-toolbar">
+            <div>
+                <div class="pf-card-title mb-1">Generated Variations</div>
+                <p class="pf-card-hint mb-0">Deleting a variation removes it completely - only possible if it has no order/inventory/supplier history.</p>
+            </div>
+        </div>
 
         <div class="border rounded p-3 mb-3 bg-light">
             <div class="fw-semibold mb-2">Bulk Edit Selected</div>
@@ -543,24 +531,90 @@
         </div>
     </div>
 
-    <div class="card p-4 mb-4">
-        <h5 class="mb-3">5. Status</h5>
-        <div class="row g-3">
-            <div class="col-md-6">
-                <label class="form-label">Status</label>
-                <select class="form-select" name="status">
-                    <?php foreach ($statusOptions as $statusValue): ?>
-                        <option value="<?php echo app_escape($statusValue); ?>" <?php echo $form['status'] === $statusValue ? 'selected' : ''; ?>><?php echo app_escape(ucfirst($statusValue)); ?></option>
-                    <?php endforeach; ?>
-                </select>
-                <?php if (!$isEdit): ?>
-                    <div class="form-text">New products are Active by default and visible immediately - switch to Draft above (or use "Save Draft" below) if it's not ready yet.</div>
-                <?php else: ?>
-                    <div class="form-text">Change anytime - e.g. set to Draft/Hidden to temporarily pull a product without deleting it.</div>
-                <?php endif; ?>
+    </div><!-- /.pf-col-main -->
+
+    <div class="pf-col-side">
+
+    <div class="card pf-card">
+        <div class="pf-card-title">Images</div>
+
+        <label class="form-label">Main Image</label>
+        <div class="pf-dropzone pf-main-dropzone<?php echo $mainImage !== null ? ' has-image' : ''; ?>" id="pf-main-image-dropzone">
+            <img alt="Main image" class="pf-main-dropzone-preview" id="pf-main-image-preview" <?php echo $mainImage !== null ? 'src="/' . app_escape($mainImage['image_path']) . '"' : ''; ?>>
+            <div class="pf-dropzone-hint">
+                <i class="bi bi-cloud-arrow-up"></i>
+                <strong>Drop image here</strong>
+                or click to upload
             </div>
+            <input type="file" class="form-control image-file-input" name="main_image" id="main-image-input" accept="image/*">
         </div>
+        <?php if ($mainImage !== null && $canManage): ?>
+            <div class="pf-main-image-actions">
+                <label class="btn btn-outline-secondary btn-sm mb-0" for="main-image-input">Change image</label>
+                <label class="btn btn-outline-danger btn-sm mb-0">
+                    <input type="checkbox" name="remove_main_image" value="1" class="d-none"> Remove image
+                </label>
+            </div>
+        <?php endif; ?>
+        <div class="form-text mt-2">Automatically resized, compressed, and converted to WebP.</div>
+
+        <hr class="my-3">
+
+        <label class="form-label">Gallery Images</label>
+        <div class="pf-dropzone pf-gallery-dropzone" id="pf-gallery-dropzone">
+            <div class="pf-dropzone-hint">
+                <i class="bi bi-images"></i>
+                <strong>Drop images here</strong>
+                or click to upload
+            </div>
+            <input type="file" class="form-control" name="gallery_images[]" id="gallery-add-input" accept="image/*" multiple>
+        </div>
+        <div class="form-text mt-2">Additional photos - angles, packaging, in use, etc.</div>
+        <?php if ($galleryImages !== []): ?>
+            <div id="gallery-container" class="pf-gallery-grid">
+                <?php foreach ($galleryImages as $image): ?>
+                    <div class="gallery-item border rounded p-2 text-center" style="width: 110px;" draggable="true" data-image-id="<?php echo (int) $image['id']; ?>">
+                        <img src="/<?php echo app_escape($image['image_path']); ?>" alt="" style="max-width: 90px; max-height: 90px;" class="mb-1">
+                        <input type="hidden" name="gallery_sort_order[<?php echo (int) $image['id']; ?>]" value="<?php echo (int) $image['sort_order']; ?>">
+                        <label class="small d-block">
+                            <input type="checkbox" class="gallery-delete" name="gallery_delete[]" value="<?php echo (int) $image['id']; ?>"> Delete
+                        </label>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        <?php else: ?>
+            <div id="gallery-container" class="pf-gallery-grid"></div>
+        <?php endif; ?>
     </div>
+
+    <div class="card pf-card">
+        <div class="pf-card-title">Publish</div>
+        <div class="pf-publish-row">
+            <label for="pf-status-select">Status</label>
+            <select class="form-select form-select-sm" name="status" id="pf-status-select">
+                <?php foreach ($statusOptions as $statusValue): ?>
+                    <option value="<?php echo app_escape($statusValue); ?>" <?php echo $form['status'] === $statusValue ? 'selected' : ''; ?>><?php echo app_escape(ucfirst($statusValue)); ?></option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="pf-publish-row">
+            <span>Availability</span>
+            <span class="pf-availability-readout" id="pf-availability-readout">
+                <?php
+                $availabilityLabels = ['ready_stock' => 'Ready Stock', 'preorder' => 'Preorder', 'early_bird' => 'Early Bird'];
+                echo app_escape($availabilityLabels[$form['product_type']] ?? 'Ready Stock');
+                ?>
+            </span>
+        </div>
+        <?php if (!$isEdit): ?>
+            <div class="form-text mt-2">New products are Active by default and visible immediately - switch to Draft above (or use "Save Draft") if it's not ready yet.</div>
+        <?php else: ?>
+            <div class="form-text mt-2">Change anytime - e.g. set to Draft/Hidden to temporarily pull a product without deleting it.</div>
+        <?php endif; ?>
+    </div>
+
+    </div><!-- /.pf-col-side -->
+    </div><!-- /.pf-layout -->
 
     <div class="d-flex gap-2 mt-2">
         <?php if (!$isEdit): ?>
@@ -595,6 +649,8 @@
 </div>
 <?php endif; ?>
 
+</div><!-- /.pf-page -->
+
 <script id="product-form-data" type="application/json"><?php echo json_encode([
     'csrfToken' => app_csrf_token(),
     'isEdit' => $isEdit,
@@ -613,8 +669,7 @@
     'variations' => $variations,
     // Sprint 11: only ever non-empty in create mode, right after a failed submit for a
     // variable product - lets renderPreviewTable() restore the user's edited SKU/barcode/
-    // price/etc. instead of resetting every row to its auto-generated default. See
-    // modules/products/create.php's restore block.
+    // price/etc via config.previewFieldOverrides instead of leaving the table empty.
     'previewFieldOverrides' => $previewFieldOverrides ?? [],
     'urls' => [
         // No createBrand/createCategory/createCollection/createTag/createAttribute/

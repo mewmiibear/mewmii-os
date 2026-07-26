@@ -620,6 +620,28 @@
         }
     }
 
+    // ---------------------------------------------------------------------------------
+    // UI redesign pass: purely cosmetic per-row coloring on the existing .variation-status
+    // <select> (still the same field, same name/options, still fully editable) - matches
+    // assets/css/product-form.css's .is-status-* rules. Never touches the select's value.
+    // ---------------------------------------------------------------------------------
+    function statusBadgeHandler(row) {
+        var select = row.querySelector('.variation-status');
+        if (!select) {
+            return;
+        }
+        function applyStatusClass() {
+            select.classList.remove('is-status-active', 'is-status-inactive');
+            if (select.value === 'active') {
+                select.classList.add('is-status-active');
+            } else if (select.value === 'inactive') {
+                select.classList.add('is-status-inactive');
+            }
+        }
+        select.addEventListener('change', applyStatusClass);
+        applyStatusClass();
+    }
+
     function imagePreviewHandler(row) {
         var fileInput = row.querySelector('.variation-image-input');
         if (!fileInput) {
@@ -710,6 +732,7 @@
             });
             priceModeChangeHandler(row);
             imagePreviewHandler(row);
+            statusBadgeHandler(row);
             tbody.appendChild(row);
         });
 
@@ -750,6 +773,7 @@
         });
         priceModeChangeHandler(row);
         imagePreviewHandler(row);
+        statusBadgeHandler(row);
         return row;
     }
 
@@ -945,6 +969,7 @@
                     }
                     if (status) {
                         row.querySelector('.variation-status').value = status;
+                        row.querySelector('.variation-status').dispatchEvent(new Event('change'));
                     }
                     if (clearBarcode) {
                         row.querySelector('.variation-barcode').value = '';
@@ -1117,6 +1142,122 @@
     }
 
     // ---------------------------------------------------------------------------------
+    // UI redesign pass: modern "drop files here or click to upload" presentation for the
+    // Main Image / Gallery inputs. In every case the real <input type="file"> from the
+    // markup above is reused unchanged (same name/id/accept) and simply stretched to cover
+    // the styled box (see .pf-dropzone in assets/css/product-form.css), so native OS
+    // drag-and-drop and click-to-browse both work on the real input with zero new upload
+    // logic - these functions only add the visual drag-over highlight and, for fields that
+    // don't already have a live preview (a brand-new product's Main Image, and Gallery in
+    // create mode where files just sit in the input until the real multipart submit), a
+    // local object-URL preview of what's about to be uploaded.
+    // ---------------------------------------------------------------------------------
+    function initDropzoneHighlight() {
+        document.querySelectorAll('.pf-dropzone').forEach(function (zone) {
+            ['dragenter', 'dragover'].forEach(function (evt) {
+                zone.addEventListener(evt, function () {
+                    zone.classList.add('is-dragover');
+                });
+            });
+            ['dragleave', 'drop'].forEach(function (evt) {
+                zone.addEventListener(evt, function () {
+                    zone.classList.remove('is-dragover');
+                });
+            });
+        });
+    }
+
+    function initMainImageDropzonePreview() {
+        var zone = document.getElementById('pf-main-image-dropzone');
+        var input = document.getElementById('main-image-input');
+        if (!zone || !input) {
+            return;
+        }
+        // Additive - does not replace the existing generic `.image-file-input` listener
+        // above (which already sets the <img>'s src on change). This only toggles the
+        // has-image class so the dropzone hint disappears once a preview is showing.
+        input.addEventListener('change', function () {
+            if (input.files && input.files[0]) {
+                zone.classList.add('has-image');
+            }
+        });
+    }
+
+    function initGalleryDropzonePreview() {
+        // Edit mode already uploads via AJAX on change and reloads the page (see
+        // initGallery() above), which then shows the real, server-rendered thumbnail - a
+        // local preview here would only flash briefly before that reload. Create mode has
+        // no such upload-on-select step (the files just sit in the input until the main
+        // form submits), so this is the only place a create-mode gallery pick gets any
+        // preview at all.
+        if (config.isEdit) {
+            return;
+        }
+        var input = document.getElementById('gallery-add-input');
+        var container = document.getElementById('gallery-container');
+        if (!input || !container) {
+            return;
+        }
+
+        function render() {
+            Array.prototype.slice.call(container.querySelectorAll('.pf-gallery-pending')).forEach(function (el) {
+                el.remove();
+            });
+
+            Array.prototype.forEach.call(input.files || [], function (file, index) {
+                var item = document.createElement('div');
+                item.className = 'gallery-item pf-gallery-pending border rounded p-2 text-center';
+
+                var img = document.createElement('img');
+                img.src = URL.createObjectURL(file);
+                img.alt = '';
+                item.appendChild(img);
+
+                var removeBtn = document.createElement('button');
+                removeBtn.type = 'button';
+                removeBtn.className = 'btn btn-sm btn-outline-danger d-block w-100';
+                removeBtn.textContent = 'Remove';
+                removeBtn.addEventListener('click', function () {
+                    // A native file input's FileList can't be edited in place - rebuild it
+                    // via DataTransfer with every file except this one, so the picked-but-
+                    // not-yet-submitted selection can still be trimmed before Create Product.
+                    var dt = new DataTransfer();
+                    Array.prototype.forEach.call(input.files, function (f, i) {
+                        if (i !== index) {
+                            dt.items.add(f);
+                        }
+                    });
+                    input.files = dt.files;
+                    render();
+                });
+                item.appendChild(removeBtn);
+
+                container.appendChild(item);
+            });
+        }
+
+        input.addEventListener('change', render);
+    }
+
+    // ---------------------------------------------------------------------------------
+    // UI redesign pass: the compact Publish card's Availability readout is a plain <span>,
+    // not a form field (the real, validated Product Availability Type <select> stays put in
+    // Basic Information) - this just mirrors its current label so the summary card doesn't
+    // go stale if the admin changes it further up the page before saving.
+    // ---------------------------------------------------------------------------------
+    function initPublishCardSync() {
+        var availabilitySelect = document.getElementById('availability-type');
+        var readout = document.getElementById('pf-availability-readout');
+        if (!availabilitySelect || !readout) {
+            return;
+        }
+        availabilitySelect.addEventListener('change', function () {
+            var selected = availabilitySelect.options[availabilitySelect.selectedIndex];
+            readout.textContent = selected ? selected.textContent : readout.textContent;
+        });
+    }
+
+    // ---------------------------------------------------------------------------------
     // Variation Gallery modal: lazy-loaded (fetched only when opened, mirroring the
     // Inventory page's History modal), lets staff add/remove close-up/angle/packaging
     // photos for one variation - separate from its single Main Image, which is still
@@ -1218,6 +1359,10 @@
         initFormSubmitSync();
         initBulkActions();
         initGallery();
+        initDropzoneHighlight();
+        initMainImageDropzonePreview();
+        initGalleryDropzonePreview();
+        initPublishCardSync();
         initVariationGalleryModal();
 
         if (config.isEdit && (config.variations || []).length > 0) {
