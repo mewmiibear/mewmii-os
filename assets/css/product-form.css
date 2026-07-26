@@ -43,8 +43,17 @@
 
 @media (min-width: 992px) {
     .pf-col-side {
+        /* Bugfix: .pf-layout's implicit grid row is sized to the taller .pf-col-main, so
+           without an explicit height constraint here, sticky's containing block spans that
+           full tall row - the sidebar has room to stick/reserve space well past its own two
+           short cards, reading as a large blank area beneath them. .pf-layout's own
+           align-items:start already stops the box from visually stretching, but doesn't
+           stop grid from giving a sticky item that much taller a "reach" to move within -
+           align-self/height here make the content-sized box explicit and unambiguous. */
         position: sticky;
         top: 4.75rem;
+        align-self: start;
+        height: fit-content;
     }
 }
 
