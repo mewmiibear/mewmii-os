@@ -100,7 +100,7 @@ require_once __DIR__ . '/../../includes/header.php';
 
 <div class="card p-4">
     <div class="table-responsive">
-    <table class="table table-hover align-middle">
+    <table class="table table-hover align-middle responsive-stack-table">
         <thead>
             <tr>
                 <th>Name</th>
@@ -117,15 +117,15 @@ require_once __DIR__ . '/../../includes/header.php';
         <tbody>
             <?php foreach ($customers as $customer): ?>
                 <tr>
-                    <td><?php echo app_escape($customer['name']); ?></td>
-                    <td><?php echo app_escape($customer['email'] ?? '-'); ?></td>
-                    <td><?php echo app_escape($customer['phone'] ?? '-'); ?></td>
-                    <td><?php echo app_escape($customer['membership_tier']); ?></td>
-                    <td><?php echo app_escape((string) $customer['points']); ?></td>
-                    <td><?php echo (int) $customer['total_orders']; ?></td>
-                    <td>RM <?php echo app_escape(number_format((float) $customer['lifetime_spend'], 2)); ?></td>
-                    <td><?php echo $customer['last_order_date'] !== null ? app_escape($customer['last_order_date']) : 'Never'; ?></td>
-                    <td class="text-end">
+                    <td data-label="Name"><?php echo app_escape($customer['name']); ?></td>
+                    <td data-label="Email"><?php echo app_escape($customer['email'] ?? '-'); ?></td>
+                    <td data-label="Phone"><?php echo app_escape($customer['phone'] ?? '-'); ?></td>
+                    <td data-label="Tier"><?php echo app_escape($customer['membership_tier']); ?></td>
+                    <td data-label="Points"><?php echo app_escape((string) $customer['points']); ?></td>
+                    <td data-label="Total Orders"><?php echo (int) $customer['total_orders']; ?></td>
+                    <td data-label="Lifetime Spend">RM <?php echo app_escape(number_format((float) $customer['lifetime_spend'], 2)); ?></td>
+                    <td data-label="Last Order"><?php echo $customer['last_order_date'] !== null ? app_escape($customer['last_order_date']) : 'Never'; ?></td>
+                    <td data-label="" class="text-end">
                         <a class="btn btn-sm btn-outline-secondary" href="/modules/customers/view.php?id=<?php echo (int) $customer['id']; ?>">History</a>
                         <?php if ($canManage): ?>
                             <a class="btn btn-sm btn-outline-primary" href="/modules/customers/edit.php?id=<?php echo (int) $customer['id']; ?>">Edit</a>

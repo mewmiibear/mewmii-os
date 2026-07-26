@@ -545,7 +545,7 @@ require_once __DIR__ . '/../../includes/header.php';
 
 <div class="card p-4">
     <div class="table-responsive">
-    <table class="table table-hover align-middle">
+    <table class="table table-hover align-middle responsive-stack-table">
         <thead>
             <tr>
                 <?php if ($canManage): ?><th><input type="checkbox" id="products-bulk-select-all" aria-label="Select all products on this page"></th><?php endif; ?>
@@ -578,37 +578,37 @@ require_once __DIR__ . '/../../includes/header.php';
                 ?>
                 <tr>
                     <?php if ($canManage): ?>
-                        <td><input type="checkbox" class="products-bulk-checkbox" name="product_ids[]" value="<?php echo (int) $product['id']; ?>" form="products-bulk-form" aria-label="Select <?php echo app_escape($product['name']); ?>"></td>
+                        <td data-label=""><input type="checkbox" class="products-bulk-checkbox" name="product_ids[]" value="<?php echo (int) $product['id']; ?>" form="products-bulk-form" aria-label="Select <?php echo app_escape($product['name']); ?>"></td>
                     <?php endif; ?>
-                    <td>
+                    <td data-label="">
                         <?php if (!empty($product['thumb_path'])): ?>
                             <img src="/<?php echo app_escape($product['thumb_path']); ?>" alt="" style="width:56px;height:56px;object-fit:cover;border-radius:8px;">
                         <?php else: ?>
                             <div class="bg-light text-muted border rounded d-flex align-items-center justify-content-center" style="width:56px;height:56px;font-size:.65rem;text-align:center;">No image</div>
                         <?php endif; ?>
                     </td>
-                    <td>
+                    <td data-label="Product">
                         <div class="fw-semibold"><?php echo app_escape($product['name']); ?></div>
                         <?php if ($secondary !== []): ?>
                             <div class="text-muted small"><?php echo app_escape(implode(' · ', $secondary)); ?></div>
                         <?php endif; ?>
                     </td>
-                    <td><?php echo $product['category_name'] !== null ? app_escape($product['category_name']) : '—'; ?></td>
-                    <td><?php echo $product['brand_name'] !== null ? app_escape($product['brand_name']) : '—'; ?></td>
-                    <td><?php echo $product['supplier_name'] !== null ? app_escape($product['supplier_name']) : '—'; ?></td>
-                    <td><span class="badge bg-<?php echo $isVariable ? 'info text-dark' : 'light text-dark'; ?>"><?php echo $isVariable ? 'Variable' : 'Simple'; ?></span></td>
-                    <td><?php echo catalog_lifecycle_badge($product); ?></td>
-                    <td>
+                    <td data-label="Category"><?php echo $product['category_name'] !== null ? app_escape($product['category_name']) : '—'; ?></td>
+                    <td data-label="Brand"><?php echo $product['brand_name'] !== null ? app_escape($product['brand_name']) : '—'; ?></td>
+                    <td data-label="Supplier"><?php echo $product['supplier_name'] !== null ? app_escape($product['supplier_name']) : '—'; ?></td>
+                    <td data-label="Structure"><span class="badge bg-<?php echo $isVariable ? 'info text-dark' : 'light text-dark'; ?>"><?php echo $isVariable ? 'Variable' : 'Simple'; ?></span></td>
+                    <td data-label="Stage"><?php echo catalog_lifecycle_badge($product); ?></td>
+                    <td data-label="Stock">
                         <?php if ((int) $product['available_quantity'] > 0): ?>
                             <?php echo (int) $product['available_quantity']; ?>
                         <?php else: ?>
                             <span class="badge bg-danger">🔴 Out of Stock</span>
                         <?php endif; ?>
                     </td>
-                    <td><?php echo (int) $product['reserved_quantity']; ?></td>
-                    <td><?php echo (int) $product['incoming_quantity']; ?></td>
-                    <td>RM <?php echo app_escape(number_format((float) $product['selling_price'], 2)); ?><?php if ($isVariable): ?> <span class="text-muted small">(default)</span><?php endif; ?></td>
-                    <td class="text-end">
+                    <td data-label="Reserved"><?php echo (int) $product['reserved_quantity']; ?></td>
+                    <td data-label="Incoming"><?php echo (int) $product['incoming_quantity']; ?></td>
+                    <td data-label="Price">RM <?php echo app_escape(number_format((float) $product['selling_price'], 2)); ?><?php if ($isVariable): ?> <span class="text-muted small">(default)</span><?php endif; ?></td>
+                    <td data-label="" class="text-end">
                         <?php if (app_has_permission('products.view')): ?>
                             <a class="btn btn-sm btn-outline-secondary" href="/modules/products/view.php?id=<?php echo (int) $product['id']; ?>">View</a>
                         <?php endif; ?>

@@ -367,6 +367,73 @@ $appTitle = 'Mewmii OS';
             color: var(--text-secondary);
         }
 
+        /* --- Mobile sidebar drawer (Responsive Improvement pass) --------------------------
+           Desktop (>=992px) is completely untouched - .sidebar keeps its normal static
+           column behaviour (col-lg-2) exactly as before this block exists. Below 992px, the
+           same <aside class="sidebar"> element is pulled out of the row's flow and turned
+           into a fixed off-canvas drawer instead, toggled by #sidebar-toggle-btn via
+           assets/js/sidebar.js. Nothing about the sidebar's own links/markup/permissions
+           logic changed - only how it's positioned/shown on a narrow viewport. */
+        @media (max-width: 991.98px) {
+            .sidebar {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 280px;
+                max-width: 82vw;
+                height: 100vh;
+                z-index: 1045;
+                transform: translateX(-100%);
+                transition: transform 0.25s ease;
+                box-shadow: 2px 0 16px rgba(0, 0, 0, 0.15);
+                overflow-y: auto;
+            }
+
+            .sidebar.is-open {
+                transform: translateX(0);
+            }
+        }
+
+        .sidebar-backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(17, 17, 20, 0.45);
+            z-index: 1040;
+        }
+
+        .sidebar-backdrop.is-open {
+            display: block;
+        }
+
+        /* --- Global responsive tweaks (Responsive Improvement pass) - small-viewport-only
+           spacing/width adjustments layered on top of existing desktop rules; nothing here
+           changes anything at >=992px, so desktop UI is unaffected. */
+        @media (max-width: 575.98px) {
+            .navbar .container-fluid {
+                padding-left: 1rem;
+                padding-right: 1rem;
+            }
+
+            main.p-4 {
+                padding: 1rem !important;
+            }
+
+            .card.p-4 {
+                padding: 1.1rem !important;
+            }
+
+            .page-header {
+                flex-direction: column !important;
+                align-items: stretch !important;
+                margin-bottom: 1.25rem;
+            }
+
+            .page-header .action-bar {
+                justify-content: flex-start;
+            }
+        }
+
         /* --- Needs Attention list rows (dashboard) - a coloured left border communicates
            urgency without a wall of bright badge colours. */
         .attention-item {
@@ -424,6 +491,11 @@ $appTitle = 'Mewmii OS';
 <body>
     <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm">
         <div class="container-fluid px-4">
+            <?php if (app_is_logged_in()): ?>
+                <button type="button" class="btn btn-outline-secondary d-lg-none me-2" id="sidebar-toggle-btn" aria-label="Toggle navigation menu" aria-expanded="false" aria-controls="app-sidebar">
+                    <i class="bi bi-list"></i>
+                </button>
+            <?php endif; ?>
             <a class="navbar-brand" href="/index.php">🌸 Mewmii OS</a>
             <?php if (app_is_logged_in()): ?>
                 <div class="position-relative mx-3 flex-grow-1" style="max-width: 420px;" id="global-search-wrapper">
@@ -445,6 +517,8 @@ $appTitle = 'Mewmii OS';
     </nav>
     <?php if (app_is_logged_in()): ?>
         <script src="/assets/js/global_search.js"></script>
+        <script src="/assets/js/sidebar.js"></script>
+        <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
     <?php endif; ?>
     <div class="container-fluid">
         <div class="row">
@@ -468,7 +542,7 @@ $appTitle = 'Mewmii OS';
                     return '';
                 };
                 ?>
-                <aside class="col-lg-2 sidebar p-3">
+                <aside class="col-lg-2 sidebar p-3" id="app-sidebar">
                     <div class="d-flex flex-column">
                         <a class="nav-link<?php echo $navActive('/index.php'); ?>" href="/index.php"><i class="bi bi-speedometer2"></i> Dashboard</a>
 
