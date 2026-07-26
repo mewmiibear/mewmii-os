@@ -1119,14 +1119,17 @@ function supplier_order_item_delete_cost(PDO $pdo, int $costId): void
 }
 
 /**
- * Phase 8D (Demand Forecasting) - the exact "Average Delivery Time" formula
- * modules/reports/suppliers.php / supplier_detail.php already compute (AVG(DATEDIFF(
- * received_date, order_date)) over orders where both dates are on file), factored out here so
- * modules/reports/forecast.php can reuse it for Supplier Lead Time instead of a second
- * definition of "how long does this supplier take to deliver." Batched for every supplier a
- * forecast run needs, not one query per supplier. Returns supplier_id => ['avg_lead_time_days'
- * => float|null, 'sample_count' => int] - null lead time (sample_count === 0) means this
- * supplier has no order with both dates on file, never guessed as 0 or any other default.
+ * Phase 8D (Demand Forecasting) / Phase 8E (Control Center) - the exact "Average Delivery
+ * Time" and "Late Orders" formulas modules/reports/suppliers.php / supplier_detail.php already
+ * compute (AVG(DATEDIFF(received_date, order_date)) and COUNT(received_date >
+ * expected_delivery_date), both over orders where the relevant dates are on file), factored out
+ * here so modules/reports/forecast.php and modules/purchasing/control-center.php can both reuse
+ * this one definition instead of a second/third copy. Batched for every supplier a caller
+ * needs, not one query per supplier. Returns supplier_id => [
+ *   'avg_lead_time_days' => float|null, 'sample_count' => int,
+ *   'late_orders_count' => int|null, 'late_eligible_count' => int,
+ * ] - a null figure (its own sample/eligible count is 0) means this supplier has no order with
+ * the dates that figure needs, never guessed as 0 or any other default.
  */
 function supplier_lead_time_stats_batch(PDO $pdo, array $supplierIds): array
 {
@@ -1140,7 +1143,9 @@ function supplier_lead_time_stats_batch(PDO $pdo, array $supplierIds): array
         SELECT
             supplier_id,
             SUM(CASE WHEN order_date IS NOT NULL AND received_date IS NOT NULL THEN DATEDIFF(received_date, order_date) ELSE 0 END) AS delivery_days_sum,
-            SUM(CASE WHEN order_date IS NOT NULL AND received_date IS NOT NULL THEN 1 ELSE 0 END) AS sample_count
+            SUM(CASE WHEN order_date IS NOT NULL AND received_date IS NOT NULL THEN 1 ELSE 0 END) AS sample_count,
+            SUM(CASE WHEN received_date IS NOT NULL AND expected_delivery_date IS NOT NULL AND received_date > expected_delivery_date THEN 1 ELSE 0 END) AS late_orders_count,
+            SUM(CASE WHEN received_date IS NOT NULL AND expected_delivery_date IS NOT NULL THEN 1 ELSE 0 END) AS late_eligible_count
         FROM supplier_orders
         WHERE supplier_id IN ({$placeholders})
         GROUP BY supplier_id
@@ -1150,9 +1155,12 @@ function supplier_lead_time_stats_batch(PDO $pdo, array $supplierIds): array
     $bySupplier = [];
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $sampleCount = (int) $row['sample_count'];
+        $lateEligibleCount = (int) $row['late_eligible_count'];
         $bySupplier[(int) $row['supplier_id']] = [
             'avg_lead_time_days' => $sampleCount > 0 ? ((float) $row['delivery_days_sum'] / $sampleCount) : null,
             'sample_count' => $sampleCount,
+            'late_orders_count' => $lateEligibleCount > 0 ? (int) $row['late_orders_count'] : null,
+            'late_eligible_count' => $lateEligibleCount,
         ];
     }
 
