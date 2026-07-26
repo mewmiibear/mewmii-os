@@ -10,6 +10,13 @@ $error = '';
 $pdo = app_db();
 $canManage = true;
 
+// Phase 7C.1 (Product Cost Data Entry) - same dropdown-plus-"Other" convention already used
+// by modules/supplier-orders/create.php's SUPPLIER_ORDER_CURRENCY_OPTIONS, kept as its own
+// constant here since a product's cost currency is a separate field from any supplier order's
+// currency (one product can be costed in a currency that differs from its usual supplier's
+// default order currency).
+const PRODUCT_COST_CURRENCY_OPTIONS = ['MYR', 'JPY', 'CNY', 'USD'];
+
 $isEdit = false;
 $productId = null;
 $product = null;
@@ -43,6 +50,9 @@ $form = [
     'status' => 'active',
     'availability_override' => 'auto',
     'product_cost' => '',
+    'cost_currency' => 'MYR',
+    'cost_currency_other' => '',
+    'exchange_rate' => '',
     'selling_price' => '',
     'sale_enabled' => false,
     'sale_price' => '',
@@ -88,6 +98,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     $form['availability_override'] = (string) ($_POST['availability_override'] ?? 'auto');
     $form['product_cost'] = trim((string) ($_POST['product_cost'] ?? ''));
+    $form['cost_currency'] = trim((string) ($_POST['cost_currency'] ?? 'MYR'));
+    $form['cost_currency_other'] = trim((string) ($_POST['cost_currency_other'] ?? ''));
+    $form['exchange_rate'] = trim((string) ($_POST['exchange_rate'] ?? ''));
     $form['selling_price'] = trim((string) ($_POST['selling_price'] ?? ''));
     $form['sale_enabled'] = !empty($_POST['sale_enabled']);
     $form['sale_price'] = trim((string) ($_POST['sale_price'] ?? ''));
@@ -126,6 +139,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Enter a valid sale price, or disable Enable Sale.';
         } elseif ($form['estimated_release_month'] !== '' && !preg_match('/^\d{4}-\d{2}$/', $form['estimated_release_month'])) {
             $error = 'Estimated Release Month must be a valid month.';
+        }
+    }
+
+    // Phase 7C.1 (Product Cost Data Entry) - same validation shape as
+    // modules/supplier-orders/create.php's currency/exchange rate handling: MYR needs no
+    // rate, any other currency must have one, and a missing rate is never silently defaulted
+    // to 1:1 (this is exactly the "not configured" state includes/product_cost.php reports).
+    $costCurrency = $form['cost_currency'] === 'OTHER' ? strtoupper($form['cost_currency_other']) : strtoupper($form['cost_currency']);
+    $exchangeRateValue = null;
+    if ($error === '') {
+        if ($form['cost_currency'] === 'OTHER' && ($costCurrency === '' || strlen($costCurrency) > 10)) {
+            $error = 'Enter a valid cost currency code (up to 10 characters).';
+        } elseif ($form['cost_currency'] !== 'OTHER' && !in_array($form['cost_currency'], PRODUCT_COST_CURRENCY_OPTIONS, true)) {
+            $error = 'Invalid cost currency.';
+        }
+    }
+    if ($error === '' && $costCurrency !== 'MYR') {
+        if ($form['exchange_rate'] === '' || !is_numeric($form['exchange_rate']) || (float) $form['exchange_rate'] <= 0) {
+            $error = 'Enter a valid exchange rate (1 ' . $costCurrency . ' = ? MYR).';
+        } else {
+            $exchangeRateValue = (float) $form['exchange_rate'];
         }
     }
 
@@ -208,10 +242,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 INSERT INTO products (
                     sku, name, short_description, description, product_type, catalog_type, brand_id, barcode,
                     supplier_sku, internal_code,
-                    supplier_id, product_cost, selling_price, sale_enabled, sale_price,
+                    supplier_id, product_cost, cost_currency, exchange_rate, selling_price, sale_enabled, sale_price,
                     min_stock_threshold, target_stock_level, sale_start_date, estimated_arrival_date, estimated_release_month,
                     preorder_closing_date, expiry_date, moq, status, availability_override
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ');
             $stmt->execute([
                 $form['sku'],
@@ -226,6 +260,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $form['internal_code'] !== '' ? $form['internal_code'] : null,
                 $supplierId,
                 round((float) $form['product_cost'], 2),
+                $costCurrency !== 'MYR' ? $costCurrency : null,
+                $costCurrency !== 'MYR' ? $exchangeRateValue : null,
                 round((float) $form['selling_price'], 2),
                 $form['sale_enabled'] ? 1 : 0,
                 ($form['sale_enabled'] && $form['sale_price'] !== '') ? round((float) $form['sale_price'], 2) : null,

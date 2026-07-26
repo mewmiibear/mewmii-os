@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/catalog.php';
 require_once __DIR__ . '/../../includes/inventory.php';
+require_once __DIR__ . '/../../includes/purchase_planning.php';
 app_require_permission('inventory.view');
 
 $appTitle = 'Purchasing';
@@ -186,6 +187,71 @@ $products = array_slice($filteredRows, ($page - 1) * $perPage, $perPage);
 
 $filterSuppliers = $pdo->query('SELECT id, name FROM suppliers ORDER BY name ASC')->fetchAll(PDO::FETCH_ASSOC);
 
+/**
+ * Phase 7B - Purchase Recommendations: reuses purchase_planning_needs() (includes/purchase_planning.php)
+ * exactly as-is - the same "what needs ordering, how much" calculation already used by the
+ * root dashboard's Purchasing card and modules/purchase-planning/generate.php. This section
+ * only groups/totals what that function already returns; no quantity/cost/MOQ math is
+ * duplicated here. Deliberately a SEPARATE notion of "needs ordering" from the Status column
+ * above (this page's own current/reserved/incoming-vs-reorder-level view) - the two already
+ * coexist without conflict elsewhere (modules/inventory/index.php has both its own Low Stock
+ * rule and a separate purchase_planning_needs()-powered "Needs Ordering" filter), so they stay
+ * clearly labeled here too rather than merged into one number.
+ */
+$supplierNameById = array_column($filterSuppliers, 'name', 'id');
+
+$purchaseNeeds = purchase_planning_needs($pdo);
+if ($filterSupplierId !== null) {
+    $purchaseNeeds = array_values(array_filter(
+        $purchaseNeeds,
+        static fn (array $need): bool => $need['supplier_id'] === $filterSupplierId
+    ));
+}
+
+$recommendationsBySupplier = [];
+foreach ($purchaseNeeds as $need) {
+    $supplierKey = $need['supplier_id'] ?? 0;
+    if (!isset($recommendationsBySupplier[$supplierKey])) {
+        $recommendationsBySupplier[$supplierKey] = [
+            'supplier_id' => $need['supplier_id'],
+            'supplier_name' => $need['supplier_id'] !== null ? ($supplierNameById[$need['supplier_id']] ?? 'Unknown Supplier') : 'No Supplier Assigned',
+            'lines' => [],
+            'total_cost' => 0.0,
+        ];
+    }
+    // Estimated Purchase Cost = suggested_quantity x cost_price, both already computed by
+    // purchase_planning_needs() (MOQ-rounded quantity, variation-aware cost fallback) - not a
+    // new calculation, just multiplying two of its existing output fields.
+    $need['estimated_cost'] = $need['suggested_quantity'] * $need['cost_price'];
+    $recommendationsBySupplier[$supplierKey]['lines'][] = $need;
+    $recommendationsBySupplier[$supplierKey]['total_cost'] += $need['estimated_cost'];
+}
+
+// "No Supplier Assigned" always sorts last rather than wherever it happens to land
+// alphabetically - every other group is a real supplier name, sorted A-Z.
+$namedRecommendationGroups = [];
+$unassignedRecommendationGroup = null;
+foreach ($recommendationsBySupplier as $group) {
+    if ($group['supplier_id'] === null) {
+        $unassignedRecommendationGroup = $group;
+    } else {
+        $namedRecommendationGroups[] = $group;
+    }
+}
+usort($namedRecommendationGroups, static fn (array $a, array $b): int => strcasecmp($a['supplier_name'], $b['supplier_name']));
+foreach ($namedRecommendationGroups as &$group) {
+    usort($group['lines'], static fn (array $a, array $b): int => strcasecmp($a['label'], $b['label']));
+}
+unset($group);
+if ($unassignedRecommendationGroup !== null) {
+    usort($unassignedRecommendationGroup['lines'], static fn (array $a, array $b): int => strcasecmp($a['label'], $b['label']));
+    $namedRecommendationGroups[] = $unassignedRecommendationGroup;
+}
+$recommendationGroups = $namedRecommendationGroups;
+
+$recommendationsTotalProducts = count($purchaseNeeds);
+$recommendationsGrandTotal = array_sum(array_column($recommendationGroups, 'total_cost'));
+
 $statusBadge = static function (string $status) use ($statusLabels): string {
     $classes = [
         'out_of_stock' => 'badge bg-danger',
@@ -365,4 +431,74 @@ require_once __DIR__ . '/../../includes/header.php';
         <?php endif; ?>
     </div>
 </div>
+
+<style>
+    .purchase-rec-header[aria-expanded="false"] .purchase-rec-caret { transform: rotate(-90deg); }
+    .purchase-rec-caret { display: inline-block; transition: transform 0.15s ease; }
+</style>
+
+<div class="page-header d-flex justify-content-between align-items-center mt-4">
+    <div>
+        <h2 class="mb-1">Purchase Recommendations</h2>
+        <p class="page-description">
+            What quantity to buy, grouped by supplier - from Purchase Planning's existing needs-ordering calculation.
+            <?php if ($recommendationsTotalProducts > 0): ?>
+                <?php echo (int) count($recommendationGroups); ?> supplier<?php echo count($recommendationGroups) === 1 ? '' : 's'; ?>
+                &middot; <?php echo (int) $recommendationsTotalProducts; ?> product<?php echo $recommendationsTotalProducts === 1 ? '' : 's'; ?>
+                &middot; Est. total RM <?php echo app_escape(number_format($recommendationsGrandTotal, 2)); ?>
+            <?php endif; ?>
+        </p>
+    </div>
+</div>
+
+<?php if ($recommendationGroups === []): ?>
+    <div class="card p-4">
+        <div class="empty-state">
+            <div class="empty-state-title">Nothing Needs Ordering Right Now</div>
+            <p class="empty-state-text">Purchase Planning has no open shortages<?php echo $filterSupplierId !== null ? ' for this supplier' : ''; ?>.</p>
+        </div>
+    </div>
+<?php else: ?>
+    <?php foreach ($recommendationGroups as $group): ?>
+        <?php $groupDomId = 'purchase-rec-' . ($group['supplier_id'] ?? 'none'); ?>
+        <div class="card mb-3">
+            <div class="card-header purchase-rec-header d-flex justify-content-between align-items-center" role="button" data-bs-toggle="collapse" data-bs-target="#<?php echo app_escape($groupDomId); ?>" aria-expanded="true" aria-controls="<?php echo app_escape($groupDomId); ?>">
+                <div>
+                    <i class="bi bi-chevron-down purchase-rec-caret me-2"></i>
+                    <strong><?php echo app_escape($group['supplier_name']); ?></strong>
+                    <span class="text-muted small ms-2"><?php echo count($group['lines']); ?> product<?php echo count($group['lines']) === 1 ? '' : 's'; ?></span>
+                </div>
+                <span class="badge bg-info text-dark">Est. RM <?php echo app_escape(number_format($group['total_cost'], 2)); ?></span>
+            </div>
+            <div class="collapse show" id="<?php echo app_escape($groupDomId); ?>">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle mb-0 responsive-stack-table">
+                        <thead>
+                            <tr>
+                                <th>Product</th>
+                                <th>SKU</th>
+                                <th class="text-end">MOQ</th>
+                                <th class="text-end">Suggested Purchase Qty</th>
+                                <th class="text-end">Supplier Pack Size</th>
+                                <th class="text-end">Estimated Purchase Cost</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($group['lines'] as $line): ?>
+                                <tr>
+                                    <td data-label="Product"><?php echo app_escape($line['label']); ?></td>
+                                    <td data-label="SKU"><?php echo app_escape($line['sku']); ?></td>
+                                    <td data-label="MOQ" class="text-end"><?php echo (int) $line['moq']; ?></td>
+                                    <td data-label="Suggested Purchase Qty" class="text-end"><?php echo (int) $line['suggested_quantity']; ?></td>
+                                    <td data-label="Supplier Pack Size" class="text-end"><span class="text-muted" title="Not tracked in Mewmii yet">&mdash;</span></td>
+                                    <td data-label="Estimated Purchase Cost" class="text-end">RM <?php echo app_escape(number_format($line['estimated_cost'], 2)); ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    <?php endforeach; ?>
+<?php endif; ?>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

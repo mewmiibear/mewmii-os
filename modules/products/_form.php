@@ -329,6 +329,23 @@ $productFormCssVersion = is_file($productFormCssPath) ? filemtime($productFormCs
                     </label>
                 </div>
 
+                <div class="col-md-4">
+                    <label class="form-label">Cost Currency</label>
+                    <select class="form-select" name="cost_currency" id="cost-currency-select">
+                        <?php foreach (PRODUCT_COST_CURRENCY_OPTIONS as $currencyOption): ?>
+                            <option value="<?php echo app_escape($currencyOption); ?>" <?php echo $form['cost_currency'] === $currencyOption ? 'selected' : ''; ?>><?php echo app_escape($currencyOption); ?></option>
+                        <?php endforeach; ?>
+                        <option value="OTHER" <?php echo $form['cost_currency'] === 'OTHER' ? 'selected' : ''; ?>>Other</option>
+                    </select>
+                    <input type="text" class="form-control mt-2<?php echo $form['cost_currency'] !== 'OTHER' ? ' d-none' : ''; ?>" id="cost-currency-other" name="cost_currency_other" maxlength="10" placeholder="e.g. KRW" value="<?php echo app_escape($form['cost_currency_other']); ?>">
+                    <div class="form-text">Currency Cost Price was quoted in. Leave as MYR if it's already in ringgit.</div>
+                </div>
+                <div class="col-md-4 js-cost-currency-foreign<?php echo $form['cost_currency'] === 'MYR' ? ' d-none' : ''; ?>">
+                    <label class="form-label">Exchange Rate</label>
+                    <input type="number" step="0.0001" min="0" class="form-control" name="exchange_rate" id="cost-exchange-rate" value="<?php echo app_escape($form['exchange_rate']); ?>" placeholder="e.g. 0.6800">
+                    <div class="form-text">1 <span id="cost-currency-rate-label"><?php echo app_escape($form['cost_currency'] !== 'OTHER' ? $form['cost_currency'] : ($form['cost_currency_other'] !== '' ? $form['cost_currency_other'] : 'unit')); ?></span> = ? MYR. Required for a foreign cost currency.</div>
+                </div>
+
                 <div class="col-md-4 js-sale-fields">
                     <label class="form-label">Sale Price (RM)</label>
                     <input type="number" step="0.01" min="0" class="form-control" name="sale_price" value="<?php echo app_escape($form['sale_price']); ?>" placeholder="0.00">
@@ -699,3 +716,39 @@ $entryFormJsVersion = is_file($entryFormJsPath) ? filemtime($entryFormJsPath) : 
 ?>
 <script src="/assets/js/product-form.js?v=<?php echo (int) $productFormJsVersion; ?>"></script>
 <script src="/assets/js/entry-form-validation.js?v=<?php echo (int) $entryFormJsVersion; ?>"></script>
+<script>
+(function () {
+    // Phase 7C.1 (Product Cost Data Entry) - same toggle-by-classList shape already used by
+    // product-form.js's own js-sale-fields/enable-sale toggle, just self-contained here since
+    // its trigger (a <select>, not a checkbox) and target fields are new to this phase.
+    var currencySelect = document.getElementById('cost-currency-select');
+    var currencyOtherInput = document.getElementById('cost-currency-other');
+    var rateLabel = document.getElementById('cost-currency-rate-label');
+
+    function applyCostCurrency() {
+        if (!currencySelect) {
+            return;
+        }
+        var isOther = currencySelect.value === 'OTHER';
+        var isMyr = currencySelect.value === 'MYR';
+
+        if (currencyOtherInput) {
+            currencyOtherInput.classList.toggle('d-none', !isOther);
+        }
+        document.querySelectorAll('.js-cost-currency-foreign').forEach(function (el) {
+            el.classList.toggle('d-none', isMyr);
+        });
+        if (rateLabel) {
+            rateLabel.textContent = isOther ? ((currencyOtherInput && currencyOtherInput.value) || 'unit') : currencySelect.value;
+        }
+    }
+
+    if (currencySelect) {
+        currencySelect.addEventListener('change', applyCostCurrency);
+    }
+    if (currencyOtherInput) {
+        currencyOtherInput.addEventListener('input', applyCostCurrency);
+    }
+    applyCostCurrency();
+})();
+</script>

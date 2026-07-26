@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/catalog.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
+require_once __DIR__ . '/../../includes/product_cost.php';
 app_require_permission('products.view');
 
 $appTitle = 'Product';
@@ -56,9 +57,11 @@ $productTags = array_values(array_filter(
 ));
 
 // Supplier - identical shape to modules/products/control-center.php's supplier lookup.
+// `currency` added to Phase 7C.1's own SELECT (not a second query) - product_cost_configuration_
+// status() below uses it to flag a product whose cost is likely foreign but never confirmed.
 $supplier = null;
 if ($product['supplier_id'] !== null) {
-    $supplierStmt = $pdo->prepare('SELECT id, name FROM suppliers WHERE id = ? LIMIT 1');
+    $supplierStmt = $pdo->prepare('SELECT id, name, currency FROM suppliers WHERE id = ? LIMIT 1');
     $supplierStmt->execute([$product['supplier_id']]);
     $supplier = $supplierStmt->fetch(PDO::FETCH_ASSOC) ?: null;
 }
@@ -69,6 +72,24 @@ $currentStock = product_effective_stock($pdo, $productId);
 
 // Variations - reuses the same listing function the edit form uses for its variation table.
 $variations = $product['catalog_type'] === 'variable' ? variation_list_for_product($pdo, $productId) : [];
+
+// Phase 7C - Cost Breakdown: reuses includes/product_cost.php's engine, no calculation here.
+$costBreakdown = product_cost_calculate($pdo, $productId);
+$notConfiguredBadge = '<span class="badge bg-secondary">Not configured</span>';
+
+// Phase 7C.1 - Cost Data status (Complete / Missing Exchange Rate / Missing Currency
+// Configuration), same reused engine, no calculation logic here either.
+$costConfigStatus = product_cost_configuration_status($product, $supplier['currency'] ?? null);
+$costConfigLabels = [
+    'complete' => 'Complete',
+    'missing_exchange_rate' => 'Missing Exchange Rate',
+    'missing_currency_configuration' => 'Missing Currency Configuration',
+];
+$costConfigBadgeClass = [
+    'complete' => 'badge bg-success',
+    'missing_exchange_rate' => 'badge bg-danger',
+    'missing_currency_configuration' => 'badge bg-warning text-dark',
+];
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
@@ -158,6 +179,80 @@ require_once __DIR__ . '/../../includes/header.php';
         </div>
     </div>
 </div>
+
+<?php if ($costBreakdown !== null): ?>
+<div class="card p-4 mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0">Cost Breakdown</h5>
+        <span class="<?php echo $costConfigBadgeClass[$costConfigStatus]; ?>"><?php echo app_escape($costConfigLabels[$costConfigStatus]); ?></span>
+    </div>
+    <?php if ($costConfigStatus === 'missing_exchange_rate'): ?>
+        <p class="text-muted small">This product's cost currency is set to <?php echo app_escape($costBreakdown['cost_currency']); ?> but has no exchange rate on file - Landed Cost cannot be calculated until one is added on Edit Product.</p>
+    <?php elseif ($costConfigStatus === 'missing_currency_configuration'): ?>
+        <p class="text-muted small">This product's cost is currently treated as MYR, but its supplier's default currency is <?php echo app_escape($supplier['currency']); ?> - confirm the Cost Currency on Edit Product if the cost was actually quoted in that currency.</p>
+    <?php endif; ?>
+    <div class="row g-3">
+        <div class="col-md-4">
+            <div class="text-muted small">Supplier Cost</div>
+            <div>RM <?php echo app_escape(number_format($costBreakdown['supplier_cost'], 2)); ?></div>
+        </div>
+        <div class="col-md-4">
+            <div class="text-muted small">Currency Rate</div>
+            <div>
+                <?php if ($costBreakdown['cost_currency'] === null): ?>
+                    <span class="text-muted">MYR (no conversion needed)</span>
+                <?php elseif ($costBreakdown['exchange_rate'] !== null): ?>
+                    1 <?php echo app_escape($costBreakdown['cost_currency']); ?> = <?php echo app_escape(number_format($costBreakdown['exchange_rate'], 4)); ?> MYR
+                <?php else: ?>
+                    <?php echo $notConfiguredBadge; ?>
+                <?php endif; ?>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="text-muted small">Converted Cost</div>
+            <div><?php echo $costBreakdown['converted_cost'] !== null ? ('RM ' . app_escape(number_format($costBreakdown['converted_cost'], 2))) : $notConfiguredBadge; ?></div>
+        </div>
+        <div class="col-md-4">
+            <div class="text-muted small">Shipping Cost</div>
+            <div><?php echo $costBreakdown['shipping_configured'] ? ('RM ' . app_escape(number_format($costBreakdown['shipping_cost'], 2))) : $notConfiguredBadge; ?></div>
+        </div>
+        <div class="col-md-4">
+            <div class="text-muted small">Other Costs</div>
+            <div><?php echo $costBreakdown['other_costs_configured'] ? ('RM ' . app_escape(number_format($costBreakdown['other_costs'], 2))) : $notConfiguredBadge; ?></div>
+        </div>
+        <div class="col-md-4">
+            <div class="text-muted small">Total Landed Cost</div>
+            <div>
+                <?php if ($costBreakdown['landed_cost'] !== null): ?>
+                    <strong>RM <?php echo app_escape(number_format($costBreakdown['landed_cost'], 2)); ?></strong>
+                    <?php if ($costBreakdown['is_estimated']): ?>
+                        <span class="badge bg-warning text-dark ms-1">Estimated</span>
+                    <?php endif; ?>
+                <?php else: ?>
+                    <?php echo $notConfiguredBadge; ?>
+                <?php endif; ?>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="text-muted small">Selling Price</div>
+            <div>RM <?php echo app_escape(number_format($costBreakdown['selling_price'], 2)); ?></div>
+        </div>
+        <div class="col-md-4">
+            <div class="text-muted small">Gross Profit</div>
+            <div><?php echo $costBreakdown['gross_profit'] !== null ? ('RM ' . app_escape(number_format($costBreakdown['gross_profit'], 2))) : $notConfiguredBadge; ?></div>
+        </div>
+        <div class="col-md-4">
+            <div class="text-muted small">Gross Margin %</div>
+            <div><?php echo $costBreakdown['gross_margin_percent'] !== null ? (app_escape(number_format($costBreakdown['gross_margin_percent'], 1)) . '%') : $notConfiguredBadge; ?></div>
+        </div>
+    </div>
+    <?php if ($costBreakdown['landed_cost'] === null): ?>
+        <p class="text-muted small mt-3 mb-0">Landed cost cannot be calculated - this product's cost currency is set but has no exchange rate on file. Add one on Edit Product.</p>
+    <?php elseif ($costBreakdown['is_estimated']): ?>
+        <p class="text-muted small mt-3 mb-0">This is an estimate - shipping and/or other costs are not yet configured for this product, so Landed Cost/Gross Profit/Margin reflect only Supplier Cost and Currency Conversion.</p>
+    <?php endif; ?>
+</div>
+<?php endif; ?>
 
 <?php if ($product['catalog_type'] === 'variable'): ?>
     <div class="card p-4">
