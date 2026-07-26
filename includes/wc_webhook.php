@@ -19,9 +19,23 @@
  * re-sent delivery never gets queued twice; independently, every downstream upsert function
  * this file dispatches to is already idempotent (matched by WooCommerce id, SKU, or order/
  * customer id), so even a duplicate that slipped through is still safe to process again.
+ *
+ * Phase 6F (production hardening) - additive on top of all of the above, same architecture:
+ * - wc_webhook_claim_event() adds an explicit SELECT ... FOR UPDATE row lock around the
+ *   pending->processing transition, reused by both the batch processor and manual retry, so
+ *   claiming is never just an optimistic status-check UPDATE on its own.
+ * - wc_webhook_recover_stale_processing() runs first on every processor invocation, returning
+ *   an abandoned 'processing' row (a crashed prior run) to 'pending' so it re-enters the
+ *   normal claim flow rather than needing a separate "abandoned" code path.
+ * - Batch size, the stale-processing timeout, and cleanup retention are now all configurable
+ *   (config.php's woocommerce.webhook_batch_size/webhook_processing_timeout/
+ *   webhook_cleanup_days - see wc_webhook_config_int()), each with a sensible default.
+ * - wc_webhook_cleanup_completed_events() deletes old 'completed' rows only - pending/
+ *   processing/failed are never touched by it, regardless of age.
  */
 
 require_once __DIR__ . '/sync_log.php';
+require_once __DIR__ . '/wc_client.php';
 
 const WC_WEBHOOK_SYNC_TYPE = 'woocommerce_webhook';
 
@@ -40,11 +54,55 @@ const WC_WEBHOOK_MAX_ATTEMPTS = 5;
 const WC_WEBHOOK_LOCK_NAME = 'mewmii_wc_webhook_process';
 const WC_WEBHOOK_LOCK_BUSY_CODE = 42303;
 
-// A claimed ('processing') row whose updated_at is older than this is treated as abandoned
-// (the PHP process that claimed it died before reaching either the success or failure
-// bookkeeping - e.g. a fatal error not caught by any try/catch) and becomes eligible for
-// another attempt, so a crash can never leave an event stuck forever.
-const WC_WEBHOOK_STALE_PROCESSING_MINUTES = 10;
+// Phase 6F - defaults for the three config.php-overridable values below (see
+// wc_webhook_config_int()). Each stays this constant's value when config.php doesn't set
+// (or blanks out) the corresponding woocommerce.webhook_* key.
+const WC_WEBHOOK_BATCH_SIZE_DEFAULT = 50;
+const WC_WEBHOOK_PROCESSING_TIMEOUT_DEFAULT = 15; // minutes
+const WC_WEBHOOK_CLEANUP_DAYS_DEFAULT = 90;
+
+/**
+ * Shared reader for the three optional config.php overrides (woocommerce.webhook_batch_size/
+ * webhook_processing_timeout/webhook_cleanup_days - see config.example.php) - one helper
+ * instead of three near-identical blank/invalid-value-falls-back-to-default checks. Blank,
+ * missing, or non-numeric config values are silently treated as "not set" (falls back to
+ * $default) rather than a startup error - these are tuning knobs, not required
+ * configuration, matching the existing woocommerce.webhook_receive_secret's own
+ * empty-string-default convention in wc_client_config().
+ */
+function wc_webhook_config_int(string $key, int $default): int
+{
+    $config = wc_client_config();
+    $value = trim((string) ($config[$key] ?? ''));
+
+    if ($value === '' || !ctype_digit($value)) {
+        return $default;
+    }
+
+    return max(1, (int) $value);
+}
+
+function wc_webhook_batch_size(): int
+{
+    return wc_webhook_config_int('webhook_batch_size', WC_WEBHOOK_BATCH_SIZE_DEFAULT);
+}
+
+/**
+ * A claimed ('processing') row whose updated_at is older than this is treated as abandoned
+ * (the PHP process that claimed it died before reaching either the success or failure
+ * bookkeeping - e.g. a fatal error not caught by any try/catch, or the host killed a
+ * long-running request) and becomes eligible for another attempt, so a crash can never leave
+ * an event stuck forever - see wc_webhook_recover_stale_processing().
+ */
+function wc_webhook_processing_timeout_minutes(): int
+{
+    return wc_webhook_config_int('webhook_processing_timeout', WC_WEBHOOK_PROCESSING_TIMEOUT_DEFAULT);
+}
+
+function wc_webhook_cleanup_days(): int
+{
+    return wc_webhook_config_int('webhook_cleanup_days', WC_WEBHOOK_CLEANUP_DAYS_DEFAULT);
+}
 
 /**
  * WooCommerce signs the RAW request body (before any JSON decoding) as
@@ -72,9 +130,11 @@ function wc_webhook_verify_signature(string $rawBody, string $signatureHeader, s
  *
  * Duplicate detection: WooCommerce's own delivery id (X-WC-Webhook-Delivery-ID) when present
  * - the strongest signal, since a genuine redelivery reuses it. Falls back to
- * (resource, resource_id, payload_hash) when that header is missing/empty. The UNIQUE
- * constraint on woocommerce_delivery_id is the authoritative guard either way (see the catch
- * block below) - the SELECT checks above are just the fast, common-case path.
+ * (topic, resource_id, payload_hash) when that header is missing/empty - topic rather than
+ * the coarser resource, since "product.updated" and "product.created" for the same
+ * resource_id are genuinely different events and must not be deduped against each other.
+ * The UNIQUE constraint on woocommerce_delivery_id is the authoritative guard either way
+ * (see the catch block below) - the SELECT checks above are just the fast, common-case path.
  */
 function wc_webhook_record_event(PDO $pdo, string $topic, string $resource, ?int $resourceId, ?string $deliveryId, string $rawPayload): ?int
 {
@@ -87,8 +147,8 @@ function wc_webhook_record_event(PDO $pdo, string $topic, string $resource, ?int
             return null;
         }
     } else {
-        $existingStmt = $pdo->prepare('SELECT id FROM webhook_events WHERE resource = ? AND resource_id <=> ? AND payload_hash = ? LIMIT 1');
-        $existingStmt->execute([$resource, $resourceId, $payloadHash]);
+        $existingStmt = $pdo->prepare('SELECT id FROM webhook_events WHERE topic = ? AND resource_id <=> ? AND payload_hash = ? LIMIT 1');
+        $existingStmt->execute([$topic, $resourceId, $payloadHash]);
         if ($existingStmt->fetchColumn() !== false) {
             return null;
         }
@@ -253,6 +313,108 @@ function wc_webhook_dispatch_customer(PDO $pdo, array $wcCustomer): ?int
 }
 
 /**
+ * Phase 6F hardening - claims one event row for processing under an explicit row lock
+ * (SELECT ... FOR UPDATE inside its own short transaction), not just the optimistic
+ * status-check UPDATE this used to rely on alone. The transaction commits immediately after
+ * marking the row 'processing' (releasing the row lock) - actual dispatch/processing happens
+ * afterward, outside this transaction, since wc_webhook_dispatch_order()/_customer() already
+ * open their own transactions and PDO/MySQL has no true nested transaction support.
+ *
+ * Reused by both the automatic batch processor (wc_webhook_process_pending_events_body())
+ * and the manual "Retry" action (wc_webhook_retry_event_now()) so there is exactly one place
+ * this locking logic lives, per the "avoid duplicated SQL" requirement.
+ *
+ * @return array|null the freshly-locked row (attempts already incremented in the returned
+ * value), or null if the row no longer exists or isn't in a claimable state (already
+ * completed, or genuinely still being processed by another still-live run - a *stale*
+ * 'processing' row is never claimable here directly; it must go through
+ * wc_webhook_recover_stale_processing() back to 'pending' first).
+ */
+function wc_webhook_claim_event(PDO $pdo, int $eventId): ?array
+{
+    $pdo->beginTransaction();
+
+    try {
+        $stmt = $pdo->prepare("
+            SELECT id, woocommerce_delivery_id, topic, resource, resource_id, payload_json, status, attempts
+            FROM webhook_events WHERE id = ? FOR UPDATE
+        ");
+        $stmt->execute([$eventId]);
+        $event = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($event === false || !in_array($event['status'], ['pending', 'failed'], true)) {
+            $pdo->rollBack();
+
+            return null;
+        }
+
+        $pdo->prepare("UPDATE webhook_events SET status = 'processing', attempts = attempts + 1 WHERE id = ?")
+            ->execute([$eventId]);
+        $pdo->commit();
+
+        $event['attempts'] = (int) $event['attempts'] + 1;
+
+        return $event;
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        throw $e;
+    }
+}
+
+/**
+ * Phase 6F hardening - explicit stale-processing recovery, run first on every processor
+ * invocation (see wc_webhook_process_pending_events_body() below). A row stuck in
+ * 'processing' past wc_webhook_processing_timeout_minutes() means the PHP process that
+ * claimed it died before reaching either the success or failure bookkeeping - returning it
+ * to 'pending' lets the normal claim/dispatch flow simply pick it up again, rather than a
+ * separate "abandoned row" code path. Deliberately does not touch attempts here -
+ * wc_webhook_claim_event() increments it when this recovered row is claimed again, exactly
+ * like any other pending row.
+ *
+ * @return int how many rows were recovered, for the run summary/log line.
+ */
+function wc_webhook_recover_stale_processing(PDO $pdo): int
+{
+    $stmt = $pdo->prepare("
+        UPDATE webhook_events
+        SET status = 'pending'
+        WHERE status = 'processing' AND updated_at < (UTC_TIMESTAMP() - INTERVAL ? MINUTE)
+    ");
+    $stmt->bindValue(1, wc_webhook_processing_timeout_minutes(), PDO::PARAM_INT);
+    $stmt->execute();
+
+    return $stmt->rowCount();
+}
+
+/**
+ * Phase 6F hardening - deletes 'completed' events older than the configured retention
+ * window (default WC_WEBHOOK_CLEANUP_DAYS_DEFAULT days - see wc_webhook_cleanup_days()).
+ * The WHERE clause only ever matches status = 'completed': pending/processing/failed rows
+ * are never deleted by this, regardless of age, since they still represent unfinished or
+ * unresolved work. Callable safely from cron (cli/wc_webhook_process.php's --cleanup flag)
+ * or the manual "Clean Old Completed Events" button (modules/webhooks/events.php) - both
+ * call this exact function, no separate cleanup logic anywhere else.
+ *
+ * @return int how many rows were deleted.
+ */
+function wc_webhook_cleanup_completed_events(PDO $pdo, ?int $days = null): int
+{
+    $days = $days ?? wc_webhook_cleanup_days();
+
+    $stmt = $pdo->prepare("
+        DELETE FROM webhook_events
+        WHERE status = 'completed' AND processed_at IS NOT NULL AND processed_at < (UTC_TIMESTAMP() - INTERVAL ? DAY)
+    ");
+    $stmt->bindValue(1, $days, PDO::PARAM_INT);
+    $stmt->execute();
+
+    return $stmt->rowCount();
+}
+
+/**
  * Batch entrypoint for cli/wc_webhook_process.php (cron, every 1-2 minutes). Wraps
  * wc_webhook_process_pending_events_body() in a MySQL advisory lock, identical reasoning to
  * wc_order_import_run()/wc_product_import_run() - GET_LOCK(name, 0) never waits, so an
@@ -261,7 +423,7 @@ function wc_webhook_dispatch_customer(PDO $pdo, array $wcCustomer): ?int
  * @throws RuntimeException with code WC_WEBHOOK_LOCK_BUSY_CODE if another processing run is
  * already in progress - callers should treat this as benign/expected, not a real failure.
  */
-function wc_webhook_process_pending_events(PDO $pdo, int $batchSize = 20): array
+function wc_webhook_process_pending_events(PDO $pdo, int $batchSize = WC_WEBHOOK_BATCH_SIZE_DEFAULT): array
 {
     $lockStmt = $pdo->prepare('SELECT GET_LOCK(?, 0)');
     $lockStmt->execute([WC_WEBHOOK_LOCK_NAME]);
@@ -284,12 +446,12 @@ function wc_webhook_process_pending_events(PDO $pdo, int $batchSize = 20): array
  * The actual queue processor, only ever called by wc_webhook_process_pending_events() above,
  * which holds the advisory lock for its whole duration.
  *
- * Selects: pending/failed rows still under the attempt cap and due (next_retry_at is null or
- * already past), PLUS any 'processing' row stuck past WC_WEBHOOK_STALE_PROCESSING_MINUTES
- * (an abandoned claim from a crashed prior run). Each selected row is claimed via an
- * optimistic UPDATE ... WHERE status IN (...) - defends against a second overlapping run
- * despite the advisory lock (e.g. two processes racing inside GET_LOCK's non-blocking
- * window); if the claim affects zero rows, another run already took it and this one moves on.
+ * Phase 6F hardening flow: recover any abandoned 'processing' row first (see
+ * wc_webhook_recover_stale_processing()), then select up to $batchSize pending/failed
+ * candidate ids still under the attempt cap and due (next_retry_at null or already past),
+ * then claim + lock each one individually via wc_webhook_claim_event() (SELECT ... FOR
+ * UPDATE, not just an optimistic status-check UPDATE) - if a claim returns null, another run
+ * already took that row (or it's no longer eligible) and this one moves on.
  *
  * One bad event never stops the batch: each dispatch is its own try/catch, mirroring every
  * other per-item loop in this codebase (wc_order_import_run_body(), the products bulk sync,
@@ -299,37 +461,33 @@ function wc_webhook_process_pending_events(PDO $pdo, int $batchSize = 20): array
  */
 function wc_webhook_process_pending_events_body(PDO $pdo, int $batchSize): array
 {
-    $summary = ['processed' => 0, 'completed' => 0, 'retrying' => 0, 'failed' => 0];
+    $summary = ['recovered' => 0, 'processed' => 0, 'completed' => 0, 'retrying' => 0, 'failed' => 0];
+
+    $summary['recovered'] = wc_webhook_recover_stale_processing($pdo);
 
     $stmt = $pdo->prepare("
-        SELECT id, woocommerce_delivery_id, topic, resource, resource_id, payload_json, status, attempts
+        SELECT id
         FROM webhook_events
-        WHERE
-            (status IN ('pending', 'failed') AND attempts < ? AND (next_retry_at IS NULL OR next_retry_at <= UTC_TIMESTAMP()))
-            OR (status = 'processing' AND updated_at < (UTC_TIMESTAMP() - INTERVAL " . WC_WEBHOOK_STALE_PROCESSING_MINUTES . " MINUTE))
+        WHERE status IN ('pending', 'failed') AND attempts < ? AND (next_retry_at IS NULL OR next_retry_at <= UTC_TIMESTAMP())
         ORDER BY created_at ASC
         LIMIT ?
     ");
     $stmt->bindValue(1, WC_WEBHOOK_MAX_ATTEMPTS, PDO::PARAM_INT);
     $stmt->bindValue(2, $batchSize, PDO::PARAM_INT);
     $stmt->execute();
-    $events = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $candidateIds = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
 
-    foreach ($events as $event) {
-        $eventId = (int) $event['id'];
-
-        $claimStmt = $pdo->prepare("
-            UPDATE webhook_events
-            SET status = 'processing', attempts = attempts + 1
-            WHERE id = ? AND status IN ('pending', 'failed', 'processing')
-        ");
-        $claimStmt->execute([$eventId]);
-        if ($claimStmt->rowCount() === 0) {
+    foreach ($candidateIds as $eventId) {
+        $event = wc_webhook_claim_event($pdo, $eventId);
+        if ($event === null) {
+            // Already claimed by another run since the candidate scan above, or no longer
+            // eligible - not an error, just move on to the next candidate.
             continue;
         }
 
         $summary['processed']++;
-        $newAttempts = (int) $event['attempts'] + 1;
+        // wc_webhook_claim_event() already incremented this and returned the new value.
+        $newAttempts = (int) $event['attempts'];
 
         try {
             // Local id (never the WooCommerce id in $event['resource_id']) - see each
@@ -368,31 +526,32 @@ function wc_webhook_process_pending_events_body(PDO $pdo, int $batchSize): array
  * Manual "Retry" (modules/webhooks/events.php) - processes one event synchronously so the
  * admin gets an immediate result, instead of waiting for the next cron tick. Bypasses the
  * attempt cap deliberately (a human explicitly asked for this one more try) but still goes
- * through the exact same claim/dispatch/bookkeeping as the automatic path, and still writes
- * to sync_logs the same way - this is not a second, separate retry mechanism.
+ * through the exact same row-locked claim (wc_webhook_claim_event() - Phase 6F hardening,
+ * shared with the automatic path rather than a second, duplicated claim query) and the same
+ * dispatch/bookkeeping, and still writes to sync_logs the same way.
  *
  * @throws RuntimeException if the event is not currently in a retryable state (e.g. already
  * completed, or another run has it claimed).
  */
 function wc_webhook_retry_event_now(PDO $pdo, int $eventId): void
 {
-    $stmt = $pdo->prepare("
-        SELECT id, woocommerce_delivery_id, topic, resource, resource_id, payload_json, status, attempts
-        FROM webhook_events WHERE id = ?
-    ");
-    $stmt->execute([$eventId]);
-    $event = $stmt->fetch(PDO::FETCH_ASSOC);
+    // wc_webhook_claim_event() only ever claims a 'pending'/'failed' row (by design, it's the
+    // same helper the attempt-cap-respecting automatic path uses) - checked separately here
+    // first so "already completed" gets its own clear message rather than the generic
+    // "being processed by another run" one a failed claim would otherwise imply.
+    $checkStmt = $pdo->prepare('SELECT status FROM webhook_events WHERE id = ?');
+    $checkStmt->execute([$eventId]);
+    $currentStatus = $checkStmt->fetchColumn();
 
-    if ($event === false) {
+    if ($currentStatus === false) {
         throw new RuntimeException('Webhook event not found.');
     }
-    if ($event['status'] === 'completed') {
+    if ($currentStatus === 'completed') {
         throw new RuntimeException('This event already completed successfully - nothing to retry.');
     }
 
-    $claimStmt = $pdo->prepare("UPDATE webhook_events SET status = 'processing', attempts = attempts + 1 WHERE id = ? AND status IN ('pending', 'failed', 'processing')");
-    $claimStmt->execute([$eventId]);
-    if ($claimStmt->rowCount() === 0) {
+    $event = wc_webhook_claim_event($pdo, $eventId);
+    if ($event === null) {
         throw new RuntimeException('This event is currently being processed by another run - try again shortly.');
     }
 
