@@ -913,7 +913,9 @@ function supplier_order_picker_products(PDO $pdo): array
                 $units[] = [
                     'key' => $productId . ':' . $variationId,
                     'sku' => $variation['sku'],
-                    'supplier_sku' => $variation['supplier_sku'],
+                    // Phase 9E - variation's own Supplier SKU wins if set, otherwise falls
+                    // back to the parent product's - see variation_effective_supplier_sku().
+                    'supplier_sku' => variation_effective_supplier_sku($variation['supplier_sku'], $product['supplier_sku']),
                     'label' => variation_build_label($pdo, $variationId),
                     'cost_price' => variation_effective_cost($variation['cost_price'], $product['product_cost']),
                     'moq' => $product['moq'] !== null ? (int) $product['moq'] : null,

@@ -256,7 +256,7 @@ $productFormCssVersion = is_file($productFormCssPath) ? filemtime($productFormCs
                 <label class="form-label d-block">Product Type</label>
                 <div class="d-flex gap-4">
                     <label class="form-check">
-                        <input type="radio" class="form-check-input" name="catalog_type" value="simple" <?php echo $form['catalog_type'] === 'simple' ? 'checked' : ''; ?> <?php echo $isEdit && $product['catalog_type'] === 'variable' ? 'disabled title="Cannot switch back to simple while it has variations."' : ''; ?>>
+                        <input type="radio" class="form-check-input" name="catalog_type" value="simple" id="pf-catalog-type-simple" data-was-variable="<?php echo ($isEdit && $product['catalog_type'] === 'variable') ? '1' : '0'; ?>" <?php echo $form['catalog_type'] === 'simple' ? 'checked' : ''; ?>>
                         <span class="form-check-label">Simple Product</span>
                     </label>
                     <label class="form-check">
@@ -544,10 +544,10 @@ $productFormCssVersion = is_file($productFormCssPath) ? filemtime($productFormCs
         <div class="pf-group">
             <div class="pf-group-label">Shipping</div>
             <div class="row g-3">
-                <div class="col-md-4 js-pf-weight-wrapper">
-                    <label class="form-label">Weight (grams)</label>
+                <div class="col-md-4">
+                    <label class="form-label">Default Weight (grams)</label>
                     <input type="number" step="0.01" min="0" class="form-control" name="weight_grams" value="<?php echo app_escape($form['weight_grams']); ?>" placeholder="0.00">
-                    <div class="form-text">Simple products only - variable products use each variation's own weight instead.</div>
+                    <div class="form-text">For a variable product, this is the fallback weight for any variation left on "Follow Product Weight" - a variation set to "Custom Weight" uses its own value instead (see the Variations table below).</div>
                 </div>
                 <div class="col-md-4">
                     <div class="d-flex justify-content-between align-items-center">
@@ -816,6 +816,25 @@ $entryFormJsVersion = is_file($entryFormJsPath) ? filemtime($entryFormJsPath) : 
 <script src="/assets/js/entry-form-validation.js?v=<?php echo (int) $entryFormJsVersion; ?>"></script>
 <script>
 (function () {
+    // Phase 9E (Product Weight & Variation SKU Logic) - switching an existing variable
+    // product to Simple now archives its variations automatically on save (see
+    // modules/products/edit.php) instead of the old hard block that disabled this radio
+    // entirely - a plain confirm here is the only warning needed before submit, since the
+    // archive itself is server-side and reversible in effect (variations are archived, never
+    // deleted - see variation_archive_all_for_product()).
+    var simpleRadio = document.getElementById('pf-catalog-type-simple');
+    if (simpleRadio && simpleRadio.dataset.wasVariable === '1') {
+        simpleRadio.addEventListener('change', function () {
+            if (simpleRadio.checked && !confirm('Switch to Simple Product? All existing variations will be archived (not deleted) - their weight, Supplier SKU, pricing, and order/history data are kept.')) {
+                simpleRadio.checked = false;
+                var variableRadio = document.querySelector('input[name="catalog_type"][value="variable"]');
+                if (variableRadio) {
+                    variableRadio.checked = true;
+                }
+            }
+        });
+    }
+
     // Phase 7C.1 (Product Cost Data Entry) - toggle-by-classList shape already used by
     // product-form.js's own js-sale-fields/enable-sale toggle. Phase 9D (Pricing Engine)
     // reuses the exact same function for the two new currency selects (Original/Market)
@@ -934,22 +953,5 @@ $entryFormJsVersion = is_file($entryFormJsPath) ? filemtime($entryFormJsPath) : 
         });
     }
 
-    // Weight is a simple-product-only field (variable products use each variation's own
-    // weight instead) - hidden whenever Product Type is "variable", independent of
-    // Ready Stock/Preorder/Early Bird (unlike .js-simple-section, which also depends on
-    // availability type and would incorrectly hide Weight for a simple Preorder product).
-    var weightWrapper = document.querySelector('.js-pf-weight-wrapper');
-    function applyWeightVisibility() {
-        if (!weightWrapper) {
-            return;
-        }
-        var catalogChecked = document.querySelector('input[name="catalog_type"]:checked');
-        var isVariable = !!catalogChecked && catalogChecked.value === 'variable';
-        weightWrapper.classList.toggle('d-none', isVariable);
-    }
-    document.querySelectorAll('input[name="catalog_type"]').forEach(function (radio) {
-        radio.addEventListener('change', applyWeightVisibility);
-    });
-    applyWeightVisibility();
 })();
 </script>

@@ -23,6 +23,45 @@ function variation_effective_cost($variationCostPrice, $parentCost): float
     return (float) $parentCost;
 }
 
+/**
+ * Phase 9E (Product Weight & Variation SKU Logic) - which weight applies to a variation:
+ * its own `weight` (reused, not a new weight_grams column) when weight_mode = 'custom' AND a
+ * real value is on file, otherwise the parent product's weight_grams (Phase 9D). Unlike
+ * variation_effective_cost() above, this doesn't need a ">0" guard - weight_mode is the
+ * explicit signal here (mirroring price_mode/custom_price), so a 'custom' variation with a
+ * genuinely blank weight still falls through to the parent rather than resolving to 0.
+ * Returns null only when neither the variation nor the parent has a weight on file - callers
+ * (shipping/estimated cost) must treat that the same way pricing_engine.php already treats a
+ * missing products.weight_grams: "not configured", never silently 0.
+ */
+function variation_effective_weight(string $weightMode, $variationWeight, $parentWeightGrams): ?float
+{
+    if ($weightMode === 'custom' && $variationWeight !== null) {
+        return (float) $variationWeight;
+    }
+
+    return $parentWeightGrams !== null ? (float) $parentWeightGrams : null;
+}
+
+/**
+ * Phase 9E (Product Weight & Variation SKU Logic) - which Supplier SKU applies: the
+ * variation's own supplier_sku (reused, not a new supplier_sku_override column) when set,
+ * otherwise the parent product's own supplier_sku. Used anywhere a specific variation's
+ * supplier-facing SKU needs to be shown/sent (e.g. the Supplier Order picker) - see
+ * supplier_order_picker_products() in includes/supplier_orders.php.
+ */
+function variation_effective_supplier_sku(?string $variationSupplierSku, ?string $parentSupplierSku): ?string
+{
+    $variationSupplierSku = trim((string) ($variationSupplierSku ?? ''));
+    if ($variationSupplierSku !== '') {
+        return $variationSupplierSku;
+    }
+
+    $parentSupplierSku = trim((string) ($parentSupplierSku ?? ''));
+
+    return $parentSupplierSku !== '' ? $parentSupplierSku : null;
+}
+
 // --- SKU generation ---------------------------------------------------------------------
 
 function variation_generate_sku(string $parentSku, array $valueLabels): string
@@ -258,6 +297,7 @@ function variation_apply_preview_edits(PDO $pdo, int $productId, array $createdV
     $barcodes = $_POST['variation_barcode'] ?? [];
     $supplierSkus = $_POST['variation_supplier_sku'] ?? [];
     $weights = $_POST['variation_weight'] ?? [];
+    $weightModes = $_POST['variation_weight_mode'] ?? [];
     $priceModes = $_POST['variation_price_mode'] ?? [];
     $customPrices = $_POST['variation_custom_price'] ?? [];
     $costPrices = $_POST['variation_cost_price'] ?? [];
@@ -290,6 +330,10 @@ function variation_apply_preview_edits(PDO $pdo, int $productId, array $createdV
         $barcode = trim((string) ($barcodes[$signature] ?? ''));
         $supplierSku = trim((string) ($supplierSkus[$signature] ?? ''));
         $weight = trim((string) ($weights[$signature] ?? ''));
+        $weightMode = (string) ($weightModes[$signature] ?? 'inherit');
+        if (!in_array($weightMode, ['inherit', 'custom'], true)) {
+            $weightMode = 'inherit';
+        }
         $priceMode = (string) ($priceModes[$signature] ?? 'inherit');
         if (!in_array($priceMode, ['inherit', 'custom'], true)) {
             $priceMode = 'inherit';
@@ -305,12 +349,13 @@ function variation_apply_preview_edits(PDO $pdo, int $productId, array $createdV
 
         $pdo->prepare('
             UPDATE product_variations
-            SET barcode = ?, supplier_sku = ?, weight = ?, price_mode = ?, custom_price = ?, cost_price = ?, status = ?, is_system_generated = 0
+            SET barcode = ?, supplier_sku = ?, weight = ?, weight_mode = ?, price_mode = ?, custom_price = ?, cost_price = ?, status = ?, is_system_generated = 0
             WHERE id = ?
         ')->execute([
             $barcode !== '' ? $barcode : null,
             $supplierSku !== '' ? $supplierSku : null,
-            ($weight !== '' && is_numeric($weight)) ? round((float) $weight, 3) : null,
+            ($weightMode === 'custom' && $weight !== '' && is_numeric($weight)) ? round((float) $weight, 3) : null,
+            $weightMode,
             $priceMode,
             ($priceMode === 'custom' && is_numeric($customPrice)) ? round((float) $customPrice, 2) : null,
             ($costPrice !== '' && is_numeric($costPrice)) ? round((float) $costPrice, 2) : null,
@@ -413,7 +458,10 @@ function variation_bulk_apply(PDO $pdo, array $variationIds, array $changes): vo
     }
 
     if (isset($changes['weight']) && $changes['weight'] !== '' && is_numeric($changes['weight'])) {
-        $pdo->prepare("UPDATE product_variations SET weight = ? WHERE id IN ({$placeholders})")
+        // A bulk-typed weight is always an explicit override - forces weight_mode to
+        // 'custom' alongside it, otherwise the value just written would be silently ignored
+        // by variation_effective_weight() for any row still left at 'inherit'.
+        $pdo->prepare("UPDATE product_variations SET weight = ?, weight_mode = 'custom' WHERE id IN ({$placeholders})")
             ->execute(array_merge([round((float) $changes['weight'], 3)], $variationIds));
     }
 
@@ -462,6 +510,26 @@ function variation_delete_if_unused(PDO $pdo, int $variationId): void
     }
 
     $pdo->prepare('DELETE FROM product_variations WHERE id = ?')->execute([$variationId]);
+}
+
+/**
+ * Phase 9E (Product Weight & Variation SKU Logic) - archives (never deletes) every
+ * non-archived variation of a product, for the variable -> simple conversion path in
+ * modules/products/edit.php. Uses the exact same 'archived' status every other read site
+ * already excludes on (inventory.php, purchase_planning.php, supplier_orders.php,
+ * customer_storage.php, orders.php, demand_forecast.php, wc_client.php all already filter on
+ * `status <> 'archived'`) - so archiving here is not a new concept, just the first write path
+ * that sets it for this reason. Weight, Supplier SKU, pricing fields, and every row that
+ * references variation_id (order items, supplier order items, inventory transactions,
+ * customer storage) are left completely untouched - only status/archived_at change, so
+ * historical transactions keep displaying the exact same variation data they always have.
+ */
+function variation_archive_all_for_product(PDO $pdo, int $productId): int
+{
+    $stmt = $pdo->prepare("UPDATE product_variations SET status = 'archived', archived_at = NOW() WHERE product_id = ? AND status <> 'archived'");
+    $stmt->execute([$productId]);
+
+    return $stmt->rowCount();
 }
 
 // --- Sellable units: what a staff member can actually pick in an order/PO/storage form ---

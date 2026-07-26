@@ -846,8 +846,18 @@ function wc_client_sync_variable_product_from_mewmii(PDO $pdo, array $product): 
             $variationPayload = array_merge($variationPayload, wc_client_build_sale_price_fields($product));
         }
 
-        if (!empty($variation['weight'])) {
-            $variationPayload['weight'] = (string) $variation['weight'];
+        // Phase 9E - variation's own weight when weight_mode = 'custom', otherwise the
+        // parent product's weight_grams (Phase 9D) - previously this only ever pushed the
+        // variation's own (usually blank) weight, so an "inherit" variation's shipping
+        // weight was silently omitted from WooCommerce instead of falling back to the
+        // parent's. See variation_effective_weight() in includes/product_variations.php.
+        $effectiveWeight = variation_effective_weight(
+            (string) ($variation['weight_mode'] ?? 'inherit'),
+            $variation['weight'],
+            $product['weight_grams'] ?? null
+        );
+        if ($effectiveWeight !== null) {
+            $variationPayload['weight'] = (string) $effectiveWeight;
         }
 
         $image = wc_client_build_variation_image($pdo, $variationId);

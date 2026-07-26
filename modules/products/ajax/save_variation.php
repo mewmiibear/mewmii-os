@@ -19,6 +19,7 @@ $sku = trim((string) ($_POST['sku'] ?? ''));
 $barcode = trim((string) ($_POST['barcode'] ?? ''));
 $supplierSku = trim((string) ($_POST['supplier_sku'] ?? ''));
 $weight = trim((string) ($_POST['weight'] ?? ''));
+$weightMode = (string) ($_POST['weight_mode'] ?? 'inherit');
 $priceMode = (string) ($_POST['price_mode'] ?? 'inherit');
 $customPrice = trim((string) ($_POST['custom_price'] ?? ''));
 $costPrice = trim((string) ($_POST['cost_price'] ?? ''));
@@ -26,6 +27,9 @@ $status = (string) ($_POST['status'] ?? 'draft');
 
 if ($sku === '') {
     ajax_json(['error' => 'Every variation needs a SKU.'], 400);
+}
+if (!in_array($weightMode, ['inherit', 'custom'], true)) {
+    $weightMode = 'inherit';
 }
 if (!in_array($priceMode, ['inherit', 'custom'], true)) {
     $priceMode = 'inherit';
@@ -60,13 +64,14 @@ try {
 
     $pdo->prepare('
         UPDATE product_variations
-        SET sku = ?, barcode = ?, supplier_sku = ?, weight = ?, price_mode = ?, custom_price = ?, cost_price = ?, status = ?, is_system_generated = 0
+        SET sku = ?, barcode = ?, supplier_sku = ?, weight = ?, weight_mode = ?, price_mode = ?, custom_price = ?, cost_price = ?, status = ?, is_system_generated = 0
         WHERE id = ? AND product_id = ?
     ')->execute([
         $sku,
         $barcode !== '' ? $barcode : null,
         $supplierSku !== '' ? $supplierSku : null,
-        ($weight !== '' && is_numeric($weight)) ? round((float) $weight, 3) : null,
+        ($weightMode === 'custom' && $weight !== '' && is_numeric($weight)) ? round((float) $weight, 3) : null,
+        $weightMode,
         $priceMode,
         $priceMode === 'custom' ? round((float) $customPrice, 2) : null,
         $costPrice !== '' ? round((float) $costPrice, 2) : null,

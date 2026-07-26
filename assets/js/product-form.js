@@ -578,8 +578,16 @@
             '<td>' + options.label + '</td>' +
             '<td><input type="text" class="form-control form-control-sm variation-sku"' + fieldName('variation_sku') + ' value="' + options.sku + '"' + readonlyAttr + '></td>' +
             '<td><input type="text" class="form-control form-control-sm variation-barcode"' + fieldName('variation_barcode') + ' value="' + (options.barcode || '') + '"' + readonlyAttr + '></td>' +
-            '<td><input type="text" class="form-control form-control-sm variation-supplier-sku"' + fieldName('variation_supplier_sku') + ' style="width:110px;" value="' + (options.supplierSku || '') + '"' + readonlyAttr + '></td>' +
-            '<td><input type="number" step="0.001" min="0" class="form-control form-control-sm variation-weight"' + fieldName('variation_weight') + ' style="width:90px;" value="' + (options.weight || '') + '"' + readonlyAttr + '></td>' +
+            '<td><input type="text" class="form-control form-control-sm variation-supplier-sku" placeholder="Parent SKU"' + fieldName('variation_supplier_sku') + ' style="width:110px;" value="' + (options.supplierSku || '') + '"' + readonlyAttr + '>' +
+            '<div class="text-muted small">Blank = use parent SKU</div>' +
+            '</td>' +
+            '<td>' +
+            '<select class="form-select form-select-sm variation-weight-mode"' + fieldName('variation_weight_mode') + disabledAttr + '>' +
+            '<option value="inherit"' + (options.weightMode !== 'custom' ? ' selected' : '') + '>Follow Product Weight</option>' +
+            '<option value="custom"' + (options.weightMode === 'custom' ? ' selected' : '') + '>Custom Weight</option>' +
+            '</select>' +
+            '<input type="number" step="0.001" min="0" class="form-control form-control-sm variation-weight mt-1' + (options.weightMode === 'custom' ? '' : ' d-none') + '" placeholder="grams"' + fieldName('variation_weight') + ' style="width:90px;" value="' + (options.weight || '') + '"' + readonlyAttr + '>' +
+            '</td>' +
             '<td>' +
             '<select class="form-select form-select-sm variation-price-mode"' + fieldName('variation_price_mode') + disabledAttr + '>' +
             '<option value="inherit"' + (options.priceMode !== 'custom' ? ' selected' : '') + '>Follow Product Price</option>' +
@@ -616,6 +624,18 @@
         if (select && customPriceInput) {
             select.addEventListener('change', function () {
                 customPriceInput.classList.toggle('d-none', select.value !== 'custom');
+            });
+        }
+    }
+
+    // Phase 9E (Product Weight & Variation SKU Logic) - same shape as priceModeChangeHandler
+    // above, for the new "Follow Product Weight" / "Custom Weight" toggle.
+    function weightModeChangeHandler(row) {
+        var select = row.querySelector('.variation-weight-mode');
+        var weightInput = row.querySelector('.variation-weight');
+        if (select && weightInput) {
+            select.addEventListener('change', function () {
+                weightInput.classList.toggle('d-none', select.value !== 'custom');
             });
         }
     }
@@ -717,6 +737,7 @@
                 barcode: overrideFor('variation_barcode', signature) || '',
                 supplierSku: overrideFor('variation_supplier_sku', signature) || '',
                 weight: overrideFor('variation_weight', signature) || '',
+                weightMode: overrideFor('variation_weight_mode', signature) || 'inherit',
                 priceMode: overrideFor('variation_price_mode', signature) || 'inherit',
                 customPrice: overrideFor('variation_custom_price', signature) || '',
                 costPrice: overrideFor('variation_cost_price', signature),
@@ -731,6 +752,7 @@
                 fallbackNote: 'uses parent main image'
             });
             priceModeChangeHandler(row);
+            weightModeChangeHandler(row);
             imagePreviewHandler(row);
             statusBadgeHandler(row);
             tbody.appendChild(row);
@@ -759,6 +781,7 @@
             barcode: variation.barcode,
             supplierSku: variation.supplier_sku,
             weight: variation.weight,
+            weightMode: variation.weight_mode,
             priceMode: variation.price_mode,
             customPrice: variation.custom_price,
             costPrice: variation.cost_price,
@@ -772,6 +795,7 @@
             readonly: archived
         });
         priceModeChangeHandler(row);
+        weightModeChangeHandler(row);
         imagePreviewHandler(row);
         statusBadgeHandler(row);
         return row;
@@ -810,6 +834,7 @@
                 formData.append('barcode', row.querySelector('.variation-barcode').value);
                 formData.append('supplier_sku', row.querySelector('.variation-supplier-sku').value);
                 formData.append('weight', row.querySelector('.variation-weight').value);
+                formData.append('weight_mode', row.querySelector('.variation-weight-mode').value);
                 formData.append('price_mode', row.querySelector('.variation-price-mode').value);
                 formData.append('custom_price', row.querySelector('.variation-custom-price').value);
                 formData.append('cost_price', row.querySelector('.variation-cost-price').value);
@@ -965,7 +990,11 @@
                         row.querySelector('.variation-custom-price').value = customPrice;
                     }
                     if (weight !== '') {
+                        // A bulk-typed weight is always an explicit override - matches
+                        // variation_bulk_apply()'s server-side behavior for edit mode below.
                         row.querySelector('.variation-weight').value = weight;
+                        row.querySelector('.variation-weight-mode').value = 'custom';
+                        row.querySelector('.variation-weight-mode').dispatchEvent(new Event('change'));
                     }
                     if (status) {
                         row.querySelector('.variation-status').value = status;

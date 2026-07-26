@@ -343,6 +343,11 @@ CREATE TABLE IF NOT EXISTS product_variations (
   barcode VARCHAR(64) NULL,
   supplier_sku VARCHAR(100) NULL,
   weight DECIMAL(10,3) NULL,
+  -- Phase 9E (Product Weight & Variation SKU Logic) - 'inherit' (default) uses the parent
+  -- product's weight_grams; 'custom' uses this row's own `weight` above (reused, not a new
+  -- weight_grams column) - same shape as price_mode/custom_price below. See
+  -- variation_effective_weight() in includes/product_variations.php.
+  weight_mode VARCHAR(20) NOT NULL DEFAULT 'inherit',
   price_mode VARCHAR(20) NOT NULL DEFAULT 'inherit',
   custom_price DECIMAL(12,2) NULL,
   cost_price DECIMAL(12,2) NULL DEFAULT NULL,

@@ -204,6 +204,7 @@ const SYSTEM_HEALTH_MIGRATIONS = [
     ['label' => 'Notification Actions & Lifecycle', 'migration' => 'migrate_notification_lifecycle.php', 'table' => 'mewmii_notifications', 'column' => 'resolved_status'],
     ['label' => 'Pricing Engine', 'migration' => 'migrate_pricing_engine.php', 'table' => 'products', 'column' => 'original_price'],
     ['label' => 'Pricing Engine (shipping rate countries)', 'migration' => 'migrate_pricing_engine.php', 'table' => 'shipping_rate_countries', 'column' => null],
+    ['label' => 'Variation Weight Mode', 'migration' => 'migrate_variation_weight_mode.php', 'table' => 'product_variations', 'column' => 'weight_mode'],
 ];
 
 // A subset of migrate_production_hardening.php's own performance indexes - grouped as one

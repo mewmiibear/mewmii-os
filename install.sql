@@ -344,6 +344,7 @@ CREATE TABLE IF NOT EXISTS product_variations (
   barcode VARCHAR(64) NULL,
   supplier_sku VARCHAR(100) NULL,
   weight DECIMAL(10,3) NULL,
+  weight_mode VARCHAR(20) NOT NULL DEFAULT 'inherit',
   price_mode VARCHAR(20) NOT NULL DEFAULT 'inherit',
   custom_price DECIMAL(12,2) NULL,
   cost_price DECIMAL(12,2) NULL DEFAULT NULL,

@@ -201,8 +201,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Short description must be 500 characters or fewer.';
         } elseif (!in_array($form['catalog_type'], $catalogTypes, true)) {
             $error = 'Invalid product structure (simple/variable).';
-        } elseif ($product['catalog_type'] === 'variable' && $form['catalog_type'] === 'simple') {
-            $error = 'Cannot switch a variable product back to simple while it has variations. Archive its variations first.';
         } elseif (!in_array($form['product_type'], $productTypes, true)) {
             $error = 'Invalid availability type.';
         } elseif (!in_array($form['status'], $statusOptions, true)) {
@@ -413,6 +411,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             catalog_sync_product_category($pdo, $productId, $categoryId);
             catalog_sync_product_collection($pdo, $productId, $collectionId);
             catalog_sync_product_tag_ids($pdo, $productId, $selectedTagIds);
+
+            // Phase 9E (Product Weight & Variation SKU Logic) - converting variable -> simple
+            // no longer requires manually archiving variations first; they're archived here
+            // automatically instead of being deleted. Weight, Supplier SKU, pricing fields, and
+            // every order/supplier-order/inventory-transaction/customer-storage row that
+            // references variation_id are left untouched - only status/archived_at change, so
+            // historical transactions keep showing the exact same variation data as before.
+            if ($product['catalog_type'] === 'variable' && $form['catalog_type'] === 'simple') {
+                variation_archive_all_for_product($pdo, $productId);
+            }
 
             // Images: normal AJAX handles the "instant" experience in the browser, but the
             // plain form submit still applies these directly too (progressive enhancement -
