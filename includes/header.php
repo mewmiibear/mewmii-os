@@ -582,6 +582,7 @@ $appTitle = 'Mewmii OS';
                             <?php endif; ?>
                             <?php if (app_has_permission('inventory.view')): ?>
                                 <a class="nav-link<?php echo $navActive('/modules/inventory/index.php'); ?>" href="/modules/inventory/index.php"><i class="bi bi-boxes"></i> Inventory</a>
+                                <a class="nav-link<?php echo $navActive('/modules/purchasing/index.php'); ?>" href="/modules/purchasing/index.php"><i class="bi bi-cart-check"></i> Purchasing</a>
                             <?php endif; ?>
                         <?php endif; ?>
 
