@@ -69,6 +69,13 @@ return [
         // direction, different trust boundary, so a compromise of one never compromises
         // the other.
         'webhook_receive_secret' => getenv('WC_WEBHOOK_RECEIVE_SECRET') ?: '',
+        // Phase 6F (webhook production hardening) - all three optional; blank/unset falls
+        // back to a sensible default (see WC_WEBHOOK_BATCH_SIZE_DEFAULT/
+        // WC_WEBHOOK_PROCESSING_TIMEOUT_DEFAULT/WC_WEBHOOK_CLEANUP_DAYS_DEFAULT and
+        // wc_webhook_config_int() in includes/wc_webhook.php) - never required configuration.
+        'webhook_batch_size' => getenv('WC_WEBHOOK_BATCH_SIZE') ?: '',
+        'webhook_processing_timeout' => getenv('WC_WEBHOOK_PROCESSING_TIMEOUT') ?: '',
+        'webhook_cleanup_days' => getenv('WC_WEBHOOK_CLEANUP_DAYS') ?: '',
     ],
 
 ];

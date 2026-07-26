@@ -478,7 +478,23 @@ function wc_webhook_process_pending_events_body(PDO $pdo, int $batchSize): array
     $candidateIds = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
 
     foreach ($candidateIds as $eventId) {
-        $event = wc_webhook_claim_event($pdo, $eventId);
+        try {
+            $event = wc_webhook_claim_event($pdo, $eventId);
+        } catch (Throwable $e) {
+            // The claim/lock step itself failed (e.g. an InnoDB lock-wait-timeout under real
+            // concurrency, or a transient connection error) - logged, then move on to the
+            // next candidate rather than aborting the rest of the batch over one row. This
+            // event is untouched (still 'pending'/'failed', attempts unchanged), so it's
+            // simply retried on the next run. The logging call itself is also guarded - if
+            // the connection is what's actually broken, a second write can't be relied on
+            // either, but that must never mask/replace this exception with a new one.
+            try {
+                sync_log_failure($pdo, WC_WEBHOOK_SYNC_TYPE, 'Failed to claim webhook event #' . $eventId . ': ' . $e->getMessage());
+            } catch (Throwable $loggingFailure) {
+            }
+            continue;
+        }
+
         if ($event === null) {
             // Already claimed by another run since the candidate scan above, or no longer
             // eligible - not an error, just move on to the next candidate.

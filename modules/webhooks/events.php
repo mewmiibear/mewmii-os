@@ -39,6 +39,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = 'Retry failed: ' . $exception->getMessage();
             }
         }
+    } elseif ($error === '' && ($_POST['action'] ?? '') === 'cleanup') {
+        // Phase 6F hardening - same wc_webhook_cleanup_completed_events() cli/wc_webhook_
+        // process.php's --cleanup flag calls; only ever deletes status='completed' rows
+        // older than the configured retention window (see its own docblock).
+        try {
+            $removed = wc_webhook_cleanup_completed_events($pdo);
+            app_redirect('/modules/webhooks/events.php?cleaned=' . $removed);
+        } catch (Throwable $exception) {
+            $error = 'Cleanup failed: ' . $exception->getMessage();
+        }
     }
 }
 
@@ -99,11 +109,21 @@ require_once __DIR__ . '/../../includes/header.php';
         <h2 class="mb-1">Webhook Events</h2>
         <p class="text-muted mb-0">Inbound WooCommerce webhook deliveries and their processing status.</p>
     </div>
-    <a class="btn btn-outline-secondary btn-sm" href="/modules/integrations/woocommerce.php">Back to WooCommerce Sync</a>
+    <div class="d-flex gap-2">
+        <form method="post" class="d-inline" onsubmit="return confirm('Delete completed webhook events older than ' + <?php echo (int) wc_webhook_cleanup_days(); ?> + ' days? Pending, processing, and failed events are never affected.');">
+            <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+            <input type="hidden" name="action" value="cleanup">
+            <button type="submit" class="btn btn-outline-secondary btn-sm">Clean Old Completed Events</button>
+        </form>
+        <a class="btn btn-outline-secondary btn-sm" href="/modules/integrations/woocommerce.php">Back to WooCommerce Sync</a>
+    </div>
 </div>
 
 <?php if (isset($_GET['retried'])): ?>
     <div class="alert alert-success">Event retried successfully.</div>
+<?php endif; ?>
+<?php if (isset($_GET['cleaned'])): ?>
+    <div class="alert alert-success"><?php echo (int) $_GET['cleaned']; ?> old completed event(s) removed.</div>
 <?php endif; ?>
 <?php if ($error !== ''): ?>
     <div class="alert alert-danger"><?php echo app_escape($error); ?></div>

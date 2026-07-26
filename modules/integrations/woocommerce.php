@@ -178,13 +178,28 @@ $webhookConfig = wc_client_config();
 $webhookReceiveSecretSet = trim((string) ($webhookConfig['webhook_receive_secret'] ?? '')) !== '';
 $webhookReceiverUrl = rtrim(app_base_url(), '/') . '/modules/webhooks/woocommerce.php';
 
+// Phase 6F hardening - queue health metrics, read-only (no new dashboard, just extending
+// this existing section's stat cards). "Completed today" is calendar-day in this app's own
+// configured timezone (see includes/bootstrap.php's date_default_timezone_set()), matching
+// how every other date this app displays is already read, not a rolling 24h window.
 $webhookCountsStmt = $pdo->query("
     SELECT
         SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
-        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_count
+        SUM(CASE WHEN status = 'processing' THEN 1 ELSE 0 END) AS processing_count,
+        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_count,
+        SUM(CASE WHEN status = 'completed' AND DATE(processed_at) = CURDATE() THEN 1 ELSE 0 END) AS completed_today_count,
+        MIN(CASE WHEN status = 'pending' THEN created_at ELSE NULL END) AS oldest_pending_created_at
     FROM webhook_events
 ");
 $webhookCounts = $webhookCountsStmt->fetch(PDO::FETCH_ASSOC);
+
+$oldestPendingAge = null;
+if (!empty($webhookCounts['oldest_pending_created_at'])) {
+    $oldestPendingSeconds = max(0, time() - strtotime($webhookCounts['oldest_pending_created_at']));
+    $oldestPendingAge = $oldestPendingSeconds < 3600
+        ? max(1, (int) floor($oldestPendingSeconds / 60)) . ' min'
+        : (round($oldestPendingSeconds / 3600, 1) . ' hr');
+}
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
@@ -603,7 +618,14 @@ require_once __DIR__ . '/../../includes/header.php';
         <div class="card stat-card p-4 h-100 d-flex flex-column">
             <div class="stat-label">Pending Events</div>
             <div class="stat-value"><?php echo (int) ($webhookCounts['pending_count'] ?? 0); ?></div>
-            <div class="stat-helper mb-0">Waiting for the next processing run.</div>
+            <div class="stat-helper mb-0"><?php echo $oldestPendingAge !== null ? 'Oldest waiting ' . app_escape($oldestPendingAge) . '.' : 'Waiting for the next processing run.'; ?></div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card p-4 h-100 d-flex flex-column">
+            <div class="stat-label">Processing Events</div>
+            <div class="stat-value"><?php echo (int) ($webhookCounts['processing_count'] ?? 0); ?></div>
+            <div class="stat-helper mb-0">Currently claimed by a processing run.</div>
         </div>
     </div>
     <div class="col-md-3">
@@ -613,7 +635,23 @@ require_once __DIR__ . '/../../includes/header.php';
             <div class="stat-helper mb-0">Includes auto-retrying and attempts-exhausted events.</div>
         </div>
     </div>
+</div>
+<div class="row g-3 mb-3">
     <div class="col-md-3">
+        <div class="card stat-card p-4 h-100 d-flex flex-column">
+            <div class="stat-label">Completed Today</div>
+            <div class="stat-value"><?php echo (int) ($webhookCounts['completed_today_count'] ?? 0); ?></div>
+            <div class="stat-helper mb-0">Successfully processed since midnight.</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card stat-card p-4 h-100 d-flex flex-column">
+            <div class="stat-label">Oldest Pending Age</div>
+            <div class="stat-value" style="font-size: 1.5rem;"><?php echo $oldestPendingAge !== null ? app_escape($oldestPendingAge) : '-'; ?></div>
+            <div class="stat-helper mb-0">How long the longest-waiting pending event has been queued.</div>
+        </div>
+    </div>
+    <div class="col-md-6">
         <div class="card stat-card p-4 h-100 d-flex flex-column justify-content-center">
             <a class="btn btn-outline-primary" href="/modules/webhooks/events.php">View Webhook Events</a>
         </div>
