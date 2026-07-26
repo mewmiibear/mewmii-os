@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/reports.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
+require_once __DIR__ . '/../../includes/product_cost.php';
 app_require_permission('inventory.view');
 
 /**
@@ -9,13 +10,20 @@ app_require_permission('inventory.view');
  * and no forecasting. Every number here is built from primitives that already exist and are
  * already trusted elsewhere:
  *   - catalog_sellable_units() (includes/product_variations.php, unchanged) - the same
- *     product/variation enumeration + resolved cost_price (via variation_effective_cost())
- *     that purchase_planning_needs() already builds on.
+ *     product/variation enumeration that purchase_planning_needs() already builds on.
  *   - mewmii_inventory.available_quantity - the same authoritative on-hand column every
  *     other inventory query in this app reads.
  *   - The exact "valid order" condition modules/reports/sales.php uses
  *     (payment_status = 'paid' AND order_status <> 'cancelled'), via the same
  *     includes/reports.php period helper sales.php now also uses.
+ *   - Phase 7G: Capital Tied Up / Total / Slow-Moving Inventory Value now come from
+ *     includes/product_cost.php's product_cost_calculate_batch() (true Landed Cost - Supplier
+ *     Cost + Currency Conversion + Shipping Allocation + Additional Costs), the same source
+ *     modules/reports/margins.php and modules/purchasing/index.php use, instead of raw
+ *     product_cost/variation cost_price. That engine works at the PARENT PRODUCT level only
+ *     (no per-variation cost), so every variation of the same variable product now shows the
+ *     same landed cost - consistent with how Purchasing/Margin Report already treat cost, but
+ *     a change from this report's previous per-variation cost_price precision.
  *
  * Scope is deliberately ready_stock only, same product-type split purchase_planning_needs()
  * already applies: preorder/early_bird capital lives in arrived_quantity/customer_storage
@@ -36,6 +44,10 @@ $units = array_values(array_filter(
     catalog_sellable_units($pdo),
     static fn (array $unit): bool => $unit['product_type'] === 'ready_stock' && ($unit['status'] ?? 'draft') !== 'archived'
 ));
+
+// Phase 7G - one batched product_cost_calculate_batch() call for every distinct product
+// behind these units, not one per unit and not one per variation.
+$costByProduct = product_cost_calculate_batch($pdo, array_column($units, 'product_id'));
 
 $deadStock = [];
 $fastMovers = [];
@@ -86,19 +98,31 @@ if ($units !== []) {
         }
 
         $recentSales = $salesByUnit[$key] ?? 0;
-        $costPrice = (float) $unit['cost_price'];
-        $capitalValue = $onHand * $costPrice;
-        $totalInventoryValue += $capitalValue;
+
+        // Phase 7G - Landed Cost from the batch call above, keyed by product_id (this engine
+        // has no per-variation cost, so every variation of the same product shares its parent's
+        // figure). A product whose cost data isn't configured contributes an unknown amount -
+        // capital_value stays null rather than guessed as 0 or as raw product_cost, and is
+        // excluded from both sum cards below, same convention as modules/reports/margins.php.
+        $cost = $costByProduct[$unit['product_id']] ?? null;
+        $landedCost = $cost['landed_cost'] ?? null;
+        $capitalValue = $landedCost !== null ? $onHand * $landedCost : null;
+        if ($capitalValue !== null) {
+            $totalInventoryValue += $capitalValue;
+        }
 
         $row = $unit;
         $row['on_hand'] = $onHand;
         $row['units_sold'] = $recentSales;
         $row['capital_value'] = $capitalValue;
+        $row['is_estimated'] = $cost['is_estimated'] ?? false;
 
         if ($recentSales === 0) {
             // Dead Stock / Slow Moving: real stock on hand, zero sales in the selected period.
             $deadStock[] = $row;
-            $slowMovingValue += $capitalValue;
+            if ($capitalValue !== null) {
+                $slowMovingValue += $capitalValue;
+            }
         } elseif ($onHand <= $recentSales) {
             // Fast Mover At Risk: a plain ratio flag ("sold at least as much as is currently
             // on hand, in this period") - a risk indicator only, not a projected stockout
@@ -108,7 +132,9 @@ if ($units !== []) {
     }
 }
 
-usort($deadStock, static fn (array $a, array $b): int => $b['capital_value'] <=> $a['capital_value']);
+// Phase 7G - capital_value can now be null (cost not configured) - sorts last regardless of
+// how much stock is on hand, since an unknown value can't be meaningfully ranked.
+usort($deadStock, static fn (array $a, array $b): int => ($b['capital_value'] ?? -INF) <=> ($a['capital_value'] ?? -INF));
 usort($fastMovers, static fn (array $a, array $b): int => $b['units_sold'] <=> $a['units_sold']);
 $deadStock = array_slice($deadStock, 0, 50);
 $fastMovers = array_slice($fastMovers, 0, 50);
@@ -181,7 +207,16 @@ require_once __DIR__ . '/../../includes/header.php';
                         <td><?php echo app_escape($row['sku']); ?></td>
                         <td class="text-end"><?php echo (int) $row['on_hand']; ?></td>
                         <td class="text-end"><?php echo (int) $row['units_sold']; ?></td>
-                        <td class="text-end">RM <?php echo app_escape(number_format($row['capital_value'], 2)); ?></td>
+                        <td class="text-end">
+                            <?php if ($row['capital_value'] !== null): ?>
+                                RM <?php echo app_escape(number_format($row['capital_value'], 2)); ?>
+                                <?php if ($row['is_estimated']): ?>
+                                    <span class="badge bg-warning text-dark ms-1">Estimated</span>
+                                <?php endif; ?>
+                            <?php else: ?>
+                                <span class="badge bg-secondary">Not configured</span>
+                            <?php endif; ?>
+                        </td>
                     </tr>
                 <?php endforeach; ?>
                 <?php if ($deadStock === []): ?>

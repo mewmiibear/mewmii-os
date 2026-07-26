@@ -3,6 +3,7 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/catalog.php';
 require_once __DIR__ . '/../../includes/inventory.php';
 require_once __DIR__ . '/../../includes/purchase_planning.php';
+require_once __DIR__ . '/../../includes/product_cost.php';
 app_require_permission('inventory.view');
 
 $appTitle = 'Purchasing';
@@ -10,10 +11,12 @@ $pdo = app_db();
 
 /**
  * Phase 7A - Smart Purchasing Dashboard. Read-only recommendations built entirely from
- * already-stored values (products.product_cost/selling_price/min_stock_threshold,
- * mewmii_inventory's available/reserved/incoming quantities) - no new inventory math, no
- * forecasting. Available Stock = Current Stock - Reserved + Incoming, exactly the formula
- * requested, computed here only (never written back to any table).
+ * already-stored values (products.selling_price/min_stock_threshold, mewmii_inventory's
+ * available/reserved/incoming quantities) - no new inventory math, no forecasting. Available
+ * Stock = Current Stock - Reserved + Incoming, exactly the formula requested, computed here
+ * only (never written back to any table). Phase 7G: Purchase Cost/Gross Margin/Inventory
+ * Value (Cost) now come from includes/product_cost.php's product_cost_calculate_batch()
+ * (true Landed Cost) instead of raw products.product_cost - see that file for the formula.
  */
 
 $statusOptions = ['critical', 'low_stock', 'healthy', 'out_of_stock'];
@@ -36,14 +39,17 @@ $inStockOnly = ($_GET['in_stock_only'] ?? '') === '1';
 $reorderOnly = ($_GET['reorder_only'] ?? '') === '1';
 $sortKey = in_array($_GET['sort'] ?? '', $sortOptions, true) ? $_GET['sort'] : 'stock_low';
 
+// Phase 7G - 'margin_high' is no longer a SQL-sortable column: Gross Margin now comes from
+// product_cost_calculate_batch() (PHP, after the query below), the same way
+// modules/reports/margins.php already sorts by margin. Every other option is still a plain
+// indexed/joined column, so it stays a SQL ORDER BY exactly as before.
 $sortColumns = [
     'stock_low' => 'COALESCE(stock.available_quantity, 0) ASC',
-    'margin_high' => '(p.selling_price - p.product_cost) DESC',
     'supplier' => 's.name ASC',
     'sku' => 'p.sku ASC',
     'name' => 'p.name ASC',
 ];
-$orderSql = $sortColumns[$sortKey] . ', p.id DESC';
+$orderSql = isset($sortColumns[$sortKey]) ? ($sortColumns[$sortKey] . ', p.id DESC') : 'p.name ASC, p.id DESC';
 
 // Batched stock rollup - identical to modules/products/index.php's own $stockJoinSql (same
 // simple-row / non-archived-variation-sum rule as includes/inventory.php:product_effective_stock()),
@@ -80,7 +86,7 @@ if ($inStockOnly) {
 
 $selectSql = "
     SELECT
-        p.id, p.sku, p.name, p.product_cost, p.selling_price, p.min_stock_threshold,
+        p.id, p.sku, p.name, p.selling_price, p.min_stock_threshold,
         s.name AS supplier_name,
         COALESCE(stock.available_quantity, 0) AS current_stock,
         COALESCE(stock.reserved_quantity, 0) AS reserved_stock,
@@ -95,8 +101,15 @@ $stmt = $pdo->prepare($selectSql);
 $stmt->execute($params);
 $rawRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+// Phase 7G - one batched product_cost_calculate_batch() call for every matching product, not
+// one calculation per row. Same pattern as modules/reports/margins.php: Purchase Cost/Gross
+// Margin below come entirely from this call's landed_cost/gross_profit/gross_margin_percent,
+// never recomputed from products.product_cost here.
+$productIds = array_map(static fn (array $row): int => (int) $row['id'], $rawRows);
+$costByProduct = product_cost_calculate_batch($pdo, $productIds);
+
 /**
- * Status/Available Stock/Margin are computed once per row in PHP rather than as SQL CASE
+ * Status/Available Stock are computed once per row in PHP rather than as SQL CASE
  * expressions - Status and Reorder Only both depend on a value (Available Stock) derived
  * from three already-joined columns, and this single query is already admin-catalog scale
  * (same "cheap to filter/paginate in PHP" reasoning already used by modules/products/index.php's
@@ -121,10 +134,7 @@ foreach ($rawRows as $row) {
         $status = 'healthy';
     }
 
-    $cost = (float) $row['product_cost'];
-    $price = (float) $row['selling_price'];
-    $marginAmount = $price - $cost;
-    $marginPercent = $price > 0 ? ($marginAmount / $price * 100) : null;
+    $cost = $costByProduct[(int) $row['id']] ?? null;
 
     $row['current_stock'] = $currentStock;
     $row['reserved_stock'] = $reservedStock;
@@ -132,8 +142,10 @@ foreach ($rawRows as $row) {
     $row['available_stock'] = $availableStock;
     $row['reorder_level'] = $reorderLevel;
     $row['status'] = $status;
-    $row['margin_amount'] = $marginAmount;
-    $row['margin_percent'] = $marginPercent;
+    $row['landed_cost'] = $cost['landed_cost'] ?? null;
+    $row['is_estimated'] = $cost['is_estimated'] ?? false;
+    $row['margin_amount'] = $cost['gross_profit'] ?? null;
+    $row['margin_percent'] = $cost['gross_margin_percent'] ?? null;
 
     $allRows[] = $row;
 }
@@ -158,7 +170,12 @@ foreach ($allRows as $row) {
     if ($row['status'] === 'low_stock') {
         $lowStockCount++;
     }
-    $inventoryValueCost += $row['current_stock'] * (float) $row['product_cost'];
+    // Phase 7G - only summed over rows with a computed Landed Cost, same convention as
+    // modules/reports/margins.php's own Inventory Value (Cost) card - a product whose cost
+    // data isn't configured contributes an unknown amount, never guessed as raw product_cost.
+    if ($row['landed_cost'] !== null) {
+        $inventoryValueCost += $row['current_stock'] * $row['landed_cost'];
+    }
     $inventoryValueSelling += $row['current_stock'] * (float) $row['selling_price'];
 }
 
@@ -175,6 +192,13 @@ $filteredRows = array_values(array_filter($allRows, static function (array $row)
 
     return true;
 }));
+
+// Phase 7G - 'margin_high' sorts on the batch-computed gross_margin_percent, so (like
+// modules/reports/margins.php) it's applied here in PHP rather than in the SQL ORDER BY above.
+// A product with no computed margin (cost not configured) sorts last regardless of direction.
+if ($sortKey === 'margin_high') {
+    usort($filteredRows, static fn (array $a, array $b): int => ($b['margin_percent'] ?? -INF) <=> ($a['margin_percent'] ?? -INF));
+}
 
 // --- Pagination: over the already-filtered in-memory array, same page-slice approach as
 // modules/products/index.php's lifecycle quick-filter branch. ---
@@ -381,12 +405,25 @@ require_once __DIR__ . '/../../includes/header.php';
                     <td data-label="Incoming" class="text-end"><?php echo (int) $product['incoming_stock']; ?></td>
                     <td data-label="Available Stock" class="text-end"><?php echo (int) $product['available_stock']; ?></td>
                     <td data-label="Reorder Level" class="text-end"><?php echo $product['reorder_level'] !== null ? (int) $product['reorder_level'] : '—'; ?></td>
-                    <td data-label="Purchase Cost" class="text-end">RM <?php echo app_escape(number_format((float) $product['product_cost'], 2)); ?></td>
+                    <td data-label="Purchase Cost" class="text-end">
+                        <?php if ($product['landed_cost'] !== null): ?>
+                            RM <?php echo app_escape(number_format($product['landed_cost'], 2)); ?>
+                            <?php if ($product['is_estimated']): ?>
+                                <span class="badge bg-warning text-dark ms-1">Estimated</span>
+                            <?php endif; ?>
+                        <?php else: ?>
+                            <span class="badge bg-secondary">Not configured</span>
+                        <?php endif; ?>
+                    </td>
                     <td data-label="Selling Price" class="text-end">RM <?php echo app_escape(number_format((float) $product['selling_price'], 2)); ?></td>
                     <td data-label="Gross Margin" class="text-end">
-                        RM <?php echo app_escape(number_format($product['margin_amount'], 2)); ?>
-                        <?php if ($product['margin_percent'] !== null): ?>
-                            <div class="text-muted small"><?php echo app_escape(number_format($product['margin_percent'], 1)); ?>%</div>
+                        <?php if ($product['margin_amount'] !== null): ?>
+                            RM <?php echo app_escape(number_format($product['margin_amount'], 2)); ?>
+                            <?php if ($product['margin_percent'] !== null): ?>
+                                <div class="text-muted small"><?php echo app_escape(number_format($product['margin_percent'], 1)); ?>%</div>
+                            <?php endif; ?>
+                        <?php else: ?>
+                            <span class="badge bg-secondary">Not configured</span>
                         <?php endif; ?>
                     </td>
                     <td data-label="Status"><?php echo $statusBadge($product['status']); ?></td>
