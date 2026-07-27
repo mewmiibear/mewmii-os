@@ -176,6 +176,20 @@ $form = [
 $selectedTagIds = catalog_get_product_tag_ids($pdo, $productId);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // --- TEMPORARY TIMING INSTRUMENTATION (product save performance audit) ----------------
+    // Same instrumentation as modules/products/create.php - see that file's own comment for
+    // the full explanation. Note: attribute save/variation generation are NOT part of this
+    // page's save flow (edit mode manages variations via separate AJAX endpoints - see
+    // modules/products/_form.php's own docblock), so only the marks that actually apply here
+    // are used.
+    $__timingStart = microtime(true);
+    $__timings = [];
+    $__mark = static function (string $label) use (&$__timings, $__timingStart): void {
+        $__timings[$label] = microtime(true) - $__timingStart;
+    };
+    $__mark('form_submit_start');
+    // --- END TEMPORARY TIMING INSTRUMENTATION (setup only - marks continue below) ---------
+
     try {
         app_require_csrf();
     } catch (RuntimeException $exception) {
@@ -435,6 +449,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($product['catalog_type'] === 'variable' && $form['catalog_type'] === 'simple') {
                 variation_archive_all_for_product($pdo, $productId);
             }
+            $__mark('database_product_update'); // TEMPORARY TIMING INSTRUMENTATION
 
             // Images: normal AJAX handles the "instant" experience in the browser, but the
             // plain form submit still applies these directly too (progressive enhancement -
@@ -454,6 +469,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($gallerySortOrders !== [] || $galleryDeleteIds !== []) {
                 product_image_update_gallery($pdo, $productId, $gallerySortOrders, $galleryDeleteIds);
             }
+            $__mark('image_processing'); // TEMPORARY TIMING INSTRUMENTATION (stock init below is folded into the next mark)
 
             // Simple product stock: only settable for ready_stock, never for preorder/
             // early_bird regardless of what was posted.
@@ -483,6 +499,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 wc_client_enqueue_product_sync($pdo, $productId);
                 $wcSyncStatus = '&wc_sync=queued';
             }
+            $__mark('outbound_jobs_creation'); // TEMPORARY TIMING INSTRUMENTATION (same call as wc_sync_enqueue post-Phase-11A - see includes/wc_client.php's wc_client_enqueue_product_sync())
+
+            // --- TEMPORARY TIMING INSTRUMENTATION - final log line, right before redirect ---
+            $__mark('response_redirect_start');
+            $__prevElapsed = 0.0;
+            $__parts = [];
+            foreach ($__timings as $__label => $__elapsed) {
+                $__parts[] = sprintf('%s=+%dms(total %dms)', $__label, (int) round(($__elapsed - $__prevElapsed) * 1000), (int) round($__elapsed * 1000));
+                $__prevElapsed = $__elapsed;
+            }
+            error_log('[product-save-timing][edit] product_id=' . $productId . ' ' . implode(' ', $__parts));
+            // --- END TEMPORARY TIMING INSTRUMENTATION ---------------------------------------
 
             app_redirect('/modules/products/edit.php?id=' . $productId . '&updated=1' . $wcSyncStatus);
         } catch (RuntimeException $exception) {

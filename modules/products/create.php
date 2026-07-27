@@ -83,6 +83,20 @@ $form = [
 $selectedTagIds = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // --- TEMPORARY TIMING INSTRUMENTATION (product save performance audit) ----------------
+    // Marks elapsed time (ms since this POST started) at each major step, logged as one line
+    // right before the final redirect (never after - app_redirect() calls exit()). error_log
+    // only - no response/behavior change. Remove this whole block, and the matching $__mark()
+    // calls/log line below, once the slow step is identified. See modules/products/edit.php
+    // for the same instrumentation on the update path.
+    $__timingStart = microtime(true);
+    $__timings = [];
+    $__mark = static function (string $label) use (&$__timings, $__timingStart): void {
+        $__timings[$label] = microtime(true) - $__timingStart;
+    };
+    $__mark('form_submit_start');
+    // --- END TEMPORARY TIMING INSTRUMENTATION (setup only - marks continue below) ---------
+
     try {
         app_require_csrf();
     } catch (RuntimeException $exception) {
@@ -345,6 +359,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             catalog_sync_product_category($pdo, $productId, $categoryId);
             catalog_sync_product_collection($pdo, $productId, $collectionId);
             catalog_sync_product_tag_ids($pdo, $productId, $selectedTagIds);
+            $__mark('database_product_insert'); // TEMPORARY TIMING INSTRUMENTATION
 
             if (!empty($_FILES['main_image']['name'])) {
                 product_image_set_main($pdo, $productId, $_FILES['main_image']);
@@ -354,6 +369,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($galleryFiles !== []) {
                 product_image_add_gallery($pdo, $productId, $galleryFiles);
             }
+
+            $__mark('image_processing'); // TEMPORARY TIMING INSTRUMENTATION (covers main+gallery image handling above; stock init below is folded into the next mark)
 
             if ($form['catalog_type'] === 'simple' && $form['product_type'] === 'ready_stock' && $form['stock_quantity'] !== '' && is_numeric($form['stock_quantity'])) {
                 $initialStock = max(0, (int) $form['stock_quantity']);
@@ -367,8 +384,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($form['catalog_type'] === 'variable') {
                 catalog_set_product_attributes($pdo, $productId, $attributeSelections);
+                $__mark('attribute_save'); // TEMPORARY TIMING INSTRUMENTATION
                 $generated = variation_generate_combinations($pdo, $productId);
                 variation_apply_preview_edits($pdo, $productId, $generated['variations']);
+                $__mark('variation_generation'); // TEMPORARY TIMING INSTRUMENTATION
             }
 
             $pdo->commit();
@@ -385,6 +404,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 wc_client_enqueue_product_sync($pdo, $productId);
                 $wcSyncStatus = '&wc_sync=queued';
             }
+            $__mark('outbound_jobs_creation'); // TEMPORARY TIMING INSTRUMENTATION (same call as wc_sync_enqueue post-Phase-11A - see includes/wc_client.php's wc_client_enqueue_product_sync())
+
+            // --- TEMPORARY TIMING INSTRUMENTATION - final log line, right before redirect ---
+            $__mark('response_redirect_start');
+            $__prevElapsed = 0.0;
+            $__parts = [];
+            foreach ($__timings as $__label => $__elapsed) {
+                $__parts[] = sprintf('%s=+%dms(total %dms)', $__label, (int) round(($__elapsed - $__prevElapsed) * 1000), (int) round($__elapsed * 1000));
+                $__prevElapsed = $__elapsed;
+            }
+            error_log('[product-save-timing][create] product_id=' . $productId . ' ' . implode(' ', $__parts));
+            // --- END TEMPORARY TIMING INSTRUMENTATION ---------------------------------------
 
             app_redirect('/modules/products/edit.php?id=' . $productId . '&created=1' . $wcSyncStatus);
         } catch (RuntimeException $exception) {
