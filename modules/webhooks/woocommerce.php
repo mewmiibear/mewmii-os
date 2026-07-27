@@ -214,6 +214,12 @@ if ($topic === '' || $resource === '') {
     exit;
 }
 
+if (!wc_webhook_verify_signature($rawBody, $signatureHeader, $secret)) {
+    http_response_code(401);
+    echo json_encode(['success' => false, 'error' => 'Invalid signature.']);
+    exit;
+}
+
 $payload = json_decode($rawBody, true);
 $resourceId = is_array($payload) && isset($payload['id']) ? (int) $payload['id'] : 0;
 
