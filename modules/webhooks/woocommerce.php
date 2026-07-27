@@ -132,6 +132,35 @@ if ($secret === '') {
 }
 
 if (!wc_webhook_verify_signature($rawBody, $signatureHeader, $secret)) {
+    // --- TEMPORARY DIAGNOSTIC (Invalid signature audit) --------------------------------
+    // error_log only - the response below is byte-for-byte unchanged from before this line,
+    // so this changes nothing about what WooCommerce (or anything else) observes. Logs
+    // lengths/hashes only, never the secret or the raw body content: a signature is a
+    // one-way HMAC output, safe to log in full (it can't be used to derive the secret or
+    // forge a signature for a different body), and a hash of the body proves whether the
+    // bytes this script received match what WooCommerce actually sent (get that from the
+    // WooCommerce webhook delivery log's own "Body" panel and hash it the same way to
+    // compare) without logging the body's contents. Remove this block once the mismatch is
+    // found.
+    $expectedForLog = base64_encode(hash_hmac('sha256', $rawBody, $secret, true));
+    error_log(sprintf(
+        '[wc_webhook][signature-diagnostic] topic=%s delivery_id=%s body_bytes=%d body_sha256=%s received_signature=%s (len=%d) expected_signature=%s (len=%d) secret_sha256_fingerprint=%s',
+        $topic !== '' ? $topic : '(none - see headers below)',
+        $deliveryId !== '' ? $deliveryId : '(none)',
+        strlen($rawBody),
+        hash('sha256', $rawBody),
+        $signatureHeader !== '' ? $signatureHeader : '(empty/missing header)',
+        strlen($signatureHeader),
+        $expectedForLog,
+        strlen($expectedForLog),
+        // NOT the secret - a one-way fingerprint of it, so you can independently hash
+        // whatever you pasted into WooCommerce's webhook Secret field the same way
+        // (hash('sha256', $secret)) and compare fingerprints without ever printing the
+        // real secret anywhere.
+        hash('sha256', $secret)
+    ));
+    // --- END TEMPORARY DIAGNOSTIC -------------------------------------------------------
+
     http_response_code(401);
     echo json_encode(['success' => false, 'error' => 'Invalid signature.']);
     exit;
