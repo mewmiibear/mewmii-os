@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/wc_client.php';
 app_require_permission('products.manage');
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -24,6 +25,12 @@ if ($productId < 1) {
 // from here on; Early Bird pricing does not come back (see catalog_product_effective_price()).
 $updateStmt = $pdo->prepare("UPDATE products SET preorder_reopened_at = NOW() WHERE id = ? AND product_type IN ('preorder', 'early_bird')");
 $updateStmt->execute([$productId]);
+
+// Full-automation pass - reopening a preorder changes availability/stock_status on the
+// WooCommerce side too (see wc_client_build_product_payload()'s preorder/early-bird branch),
+// but nothing here ever pushed that change automatically before. Never throws - see
+// wc_client_auto_sync_product()'s own docblock.
+wc_client_auto_sync_product($pdo, $productId);
 
 // --- TEMPORARY DEBUG INSTRUMENTATION (stale "Waiting Release" badge trace) -------------
 // Re-reads the row in the SAME request, right after the UPDATE, to answer two questions

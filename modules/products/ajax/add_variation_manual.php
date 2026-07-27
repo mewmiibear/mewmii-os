@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../../../includes/bootstrap.php';
 require_once __DIR__ . '/../../../includes/ajax_helpers.php';
 require_once __DIR__ . '/../../../includes/product_variations.php';
+require_once __DIR__ . '/../../../includes/wc_client.php';
 
 ajax_require_permission('products.manage');
 ajax_require_csrf();
@@ -50,6 +51,11 @@ try {
         'status' => (string) ($_POST['status'] ?? 'active'),
     ]);
     $pdo->commit();
+
+    // Full-automation pass - a new variation changes what gets pushed for this product's next
+    // sync (wc_client_sync_variable_product_from_mewmii() reads variation_list_for_product()
+    // itself); never throws, see wc_client_auto_sync_product()'s own docblock.
+    wc_client_auto_sync_product($pdo, $productId);
 
     ajax_json([
         'ok' => true,

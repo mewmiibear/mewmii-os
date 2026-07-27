@@ -194,6 +194,11 @@ function wc_client_put(string $endpoint, array $data = []): array
     return wc_client_request('PUT', $endpoint, $data);
 }
 
+function wc_client_delete(string $endpoint, array $query = []): array
+{
+    return wc_client_request('DELETE', $endpoint, [], $query);
+}
+
 /**
  * Bugfix pass (missing woocommerce_sync_hash column incident) - turns a caught sync
  * exception into one of a small set of admin-facing categories, so a bulk sync's summary
@@ -329,6 +334,60 @@ function wc_client_find_variation_by_id(int $parentWcId, int $wcVariationId): ?a
     }
 
     return ((int) ($variation['id'] ?? 0) === $wcVariationId) ? $variation : null;
+}
+
+/**
+ * Every variation WooCommerce currently has under one parent product - used only by
+ * wc_client_prune_orphaned_variations() (Full-automation pass) to find WooCommerce variations
+ * that no longer correspond to any active Mewmii variation. per_page=100 matches this app's
+ * realistic catalog scale (the same limit already used elsewhere, e.g.
+ * wc_client_find_product_by_sku()'s search) - a single page is enough for every product this
+ * app manages today.
+ */
+function wc_client_list_variations(int $parentWcId): array
+{
+    if ($parentWcId < 1) {
+        return [];
+    }
+
+    return wc_client_get('products/' . $parentWcId . '/variations', ['per_page' => 100]);
+}
+
+/**
+ * Full-automation pass - wc_client_sync_variable_product_from_mewmii() only ever creates/updates
+ * variations found in variation_list_for_product(); nothing ever removed a WooCommerce variation
+ * whose Mewmii counterpart was hard-deleted or archived (Phase 9I - variation_delete_or_archive()),
+ * leaving it purchasable on the live store indefinitely. Called after that sync loop with the set
+ * of WooCommerce variation ids that ARE still active in Mewmii - anything else under this parent
+ * product is deleted (force=true, matching the parent product's own permanent-delete semantics -
+ * see wc_client_delete_product()). Best-effort per variation: one failure doesn't stop the rest,
+ * and never throws back to the caller - a stale WooCommerce variation is a warning, not a reason
+ * to fail the whole product sync it's attached to.
+ */
+function wc_client_prune_orphaned_variations(PDO $pdo, int $productId, int $remoteProductId, array $keepWcVariationIds): void
+{
+    try {
+        $remoteVariations = wc_client_list_variations($remoteProductId);
+    } catch (Throwable $e) {
+        sync_log_write($pdo, 'woocommerce_product_sync', 'warning', $productId, 'Could not check for orphaned WooCommerce variations to remove: ' . $e->getMessage());
+
+        return;
+    }
+
+    foreach ($remoteVariations as $remoteVariation) {
+        $remoteVariationId = (int) ($remoteVariation['id'] ?? 0);
+        if ($remoteVariationId < 1 || in_array($remoteVariationId, $keepWcVariationIds, true)) {
+            continue;
+        }
+
+        try {
+            wc_client_delete('products/' . $remoteProductId . '/variations/' . $remoteVariationId, ['force' => 'true']);
+        } catch (Throwable $e) {
+            if (stripos($e->getMessage(), '(404)') === false) {
+                sync_log_write($pdo, 'woocommerce_product_sync', 'warning', $productId, 'Failed to remove orphaned WooCommerce variation #' . $remoteVariationId . ': ' . $e->getMessage());
+            }
+        }
+    }
 }
 
 /**
@@ -611,6 +670,76 @@ function wc_client_build_sale_price_fields(array $product): array
     return $fields;
 }
 
+/**
+ * Full-automation pass - categories/tags were never pushed to WooCommerce before (the payload
+ * builders below only ever set name/price/stock/status/images). categories.woocommerce_term_id
+ * (see database/schema.sql) already exists for exactly this purpose - deliberately left unused
+ * by the v1 importer (see includes/wc_product_import.php's own docblock) - this is the first
+ * code to actually read/write it. Mewmii has exactly one category per product (reused lookup,
+ * see catalog_get_product_category_id()) but many tags; product_tags has no equivalent id
+ * column, so tags are always sent by name - WooCommerce's own products endpoint resolves an
+ * existing term by name or creates one, so this is idempotent without needing a local mapping
+ * column for tags (unlike categories, where the id is preferred once known, to survive a
+ * category being renamed in Mewmii without creating a duplicate WooCommerce term).
+ *
+ * @return array{categories: array<int, array{id?: int, name?: string}>, tags: array<int, array{name: string}>}
+ */
+function wc_client_build_taxonomy_payloads(PDO $pdo, int $productId): array
+{
+    $categories = [];
+    $categoryId = catalog_get_product_category_id($pdo, $productId);
+    if ($categoryId !== null) {
+        $categoryStmt = $pdo->prepare('SELECT name, woocommerce_term_id FROM categories WHERE id = ?');
+        $categoryStmt->execute([$categoryId]);
+        $category = $categoryStmt->fetch(PDO::FETCH_ASSOC);
+        if ($category !== false) {
+            $categories[] = !empty($category['woocommerce_term_id'])
+                ? ['id' => (int) $category['woocommerce_term_id']]
+                : ['name' => (string) $category['name']];
+        }
+    }
+
+    $tags = [];
+    foreach (catalog_get_product_tag_ids($pdo, $productId) as $tagId) {
+        $tagStmt = $pdo->prepare('SELECT name FROM product_tags WHERE id = ?');
+        $tagStmt->execute([$tagId]);
+        $tagName = $tagStmt->fetchColumn();
+        if ($tagName !== false && trim((string) $tagName) !== '') {
+            $tags[] = ['name' => (string) $tagName];
+        }
+    }
+
+    return ['categories' => $categories, 'tags' => $tags];
+}
+
+/**
+ * After a product push whose category was sent by name (no woocommerce_term_id known yet),
+ * reads the term id WooCommerce assigned/matched back out of its response and stores it -
+ * every push after that can send `id` instead of `name` for the same category, avoiding a
+ * repeat name-resolution lookup on WooCommerce's side. A no-op if the category already has a
+ * stored id, or the response didn't include a categories array (nothing to learn).
+ */
+function wc_client_sync_category_term_id_from_response(PDO $pdo, int $productId, array $response): void
+{
+    $responseCategories = $response['categories'] ?? null;
+    if (!is_array($responseCategories) || $responseCategories === []) {
+        return;
+    }
+
+    $categoryId = catalog_get_product_category_id($pdo, $productId);
+    if ($categoryId === null) {
+        return;
+    }
+
+    $remoteTermId = (int) ($responseCategories[0]['id'] ?? 0);
+    if ($remoteTermId < 1) {
+        return;
+    }
+
+    $pdo->prepare('UPDATE categories SET woocommerce_term_id = ? WHERE id = ? AND woocommerce_term_id IS NULL')
+        ->execute([$remoteTermId, $categoryId]);
+}
+
 function wc_client_build_product_payload(array $product, PDO $pdo): array
 {
     $productId = (int) ($product['id'] ?? 0);
@@ -653,6 +782,22 @@ function wc_client_build_product_payload(array $product, PDO $pdo): array
     }
 
     $payload = array_merge($payload, wc_client_build_sale_price_fields($product));
+
+    // Full-automation pass - simple products' own weight_grams (Phase 9D/9E) was never sent to
+    // WooCommerce before; only the variable-product variation payload set 'weight' (see
+    // wc_client_sync_variable_product_from_mewmii()). Same grams-as-string convention as that
+    // existing code, for consistency.
+    if ($product['weight_grams'] !== null && $product['weight_grams'] !== '') {
+        $payload['weight'] = (string) $product['weight_grams'];
+    }
+
+    $taxonomies = wc_client_build_taxonomy_payloads($pdo, $productId);
+    if ($taxonomies['categories'] !== []) {
+        $payload['categories'] = $taxonomies['categories'];
+    }
+    if ($taxonomies['tags'] !== []) {
+        $payload['tags'] = $taxonomies['tags'];
+    }
 
     // The admin-entered short description (Basic Information section) and the
     // auto-generated preorder/Early Bird blurb are two independent pieces of customer-
@@ -725,6 +870,7 @@ function wc_client_sync_product_from_mewmii(PDO $pdo, array $product): array
         WHERE id = ?
     ');
     $stmt->execute([$remoteProductId, $productId]);
+    wc_client_sync_category_term_id_from_response($pdo, $productId, $response);
 
     // date_modified is WooCommerce's own timestamp for the product as of THIS push - see
     // wc_client_sync_if_changed()'s staleness baseline, which stores this so a later push
@@ -764,6 +910,16 @@ function wc_client_sync_variable_product_from_mewmii(PDO $pdo, array $product): 
         'attributes' => wc_client_build_variable_attributes_payload($pdo, $productId),
     ];
 
+    // Full-automation pass - see wc_client_build_product_payload()'s own comment; same
+    // taxonomy payload shape reused here rather than duplicated.
+    $taxonomies = wc_client_build_taxonomy_payloads($pdo, $productId);
+    if ($taxonomies['categories'] !== []) {
+        $payload['categories'] = $taxonomies['categories'];
+    }
+    if ($taxonomies['tags'] !== []) {
+        $payload['tags'] = $taxonomies['tags'];
+    }
+
     $shortDescription = trim((string) ($product['short_description'] ?? ''));
     $preorderBlurb = wc_client_build_preorder_blurb($product);
     $shortDescriptionParts = array_filter([$shortDescription !== '' ? $shortDescription : null, $preorderBlurb]);
@@ -802,8 +958,10 @@ function wc_client_sync_variable_product_from_mewmii(PDO $pdo, array $product): 
         SET woocommerce_product_id = ?, published_to_woocommerce = 1, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
     ')->execute([$remoteProductId, $productId]);
+    wc_client_sync_category_term_id_from_response($pdo, $productId, $response);
 
     $syncedVariations = 0;
+    $keepWcVariationIds = [];
     $isPreorderType = in_array($product['product_type'] ?? 'ready_stock', ['preorder', 'early_bird'], true);
 
     foreach (variation_list_for_product($pdo, $productId) as $variation) {
@@ -875,8 +1033,16 @@ function wc_client_sync_variable_product_from_mewmii(PDO $pdo, array $product): 
             $pdo->prepare('UPDATE product_variations SET woocommerce_variation_id = ? WHERE id = ?')
                 ->execute([$remoteVariationId, $variationId]);
             $syncedVariations++;
+            $keepWcVariationIds[] = $remoteVariationId;
         }
     }
+
+    // Full-automation pass - removes any WooCommerce variation that no longer corresponds to an
+    // active Mewmii variation (hard-deleted or archived - see variation_delete_or_archive()),
+    // so a removed variation actually stops being purchasable on the live store instead of being
+    // silently left behind. Best-effort - see wc_client_prune_orphaned_variations()'s own
+    // docblock for why this never throws back into this sync.
+    wc_client_prune_orphaned_variations($pdo, $productId, $remoteProductId, $keepWcVariationIds);
 
     // date_modified is WooCommerce's own timestamp for the PARENT product as of this push -
     // same reasoning as wc_client_sync_product_from_mewmii()'s return value.
@@ -926,12 +1092,21 @@ function wc_client_product_sync_fingerprint(PDO $pdo, array $product): string
         $product['availability_override'] ?? '',
         $product['estimated_release_month'] ?? '',
         $catalogType,
+        // Full-automation pass - these were never fingerprinted before, so a product whose
+        // ONLY change was its category/tags/weight was silently skipped by
+        // wc_client_sync_if_changed() forever (nothing else in this list would ever differ).
+        $product['weight_grams'] ?? '',
     ];
 
     if ($catalogType === 'simple') {
         $stock = product_effective_stock($pdo, $productId);
         $parts[] = (int) $stock['available_quantity'];
     }
+
+    $parts[] = catalog_get_product_category_id($pdo, $productId) ?? 0;
+    $tagIds = catalog_get_product_tag_ids($pdo, $productId);
+    sort($tagIds);
+    $parts[] = implode(',', $tagIds);
 
     // Images (main + gallery) - path and order, since either changing should trigger a re-sync.
     foreach (wc_client_build_gallery_images($pdo, $productId) as $image) {
@@ -1086,7 +1261,7 @@ function wc_client_load_product_for_sync(PDO $pdo, int $productId): ?array
         SELECT id, sku, name, short_description, description, catalog_type, selling_price, product_type,
                status, availability_override, preorder_closing_date, preorder_reopened_at,
                estimated_arrival_date, estimated_release_month, sale_enabled, sale_price, sale_start_date,
-               woocommerce_product_id, woocommerce_sync_hash, woocommerce_last_seen_modified_at
+               weight_grams, woocommerce_product_id, woocommerce_sync_hash, woocommerce_last_seen_modified_at
         FROM products WHERE id = ? LIMIT 1
     ");
     $stmt->execute([$productId]);
@@ -1166,6 +1341,179 @@ function wc_client_auto_sync_product(PDO $pdo, int $productId): array
         }
 
         return ['status' => 'failed', 'error' => $message];
+    }
+}
+
+/**
+ * Full-automation pass - product deletion was never pushed to WooCommerce before (deleting in
+ * Mewmii OS left the WooCommerce copy behind indefinitely). Called from
+ * modules/products/delete.php right after a successful local delete (product_delete_if_unused()
+ * already only allows deleting a product with zero transaction history, so there is nothing left
+ * to reconcile on the Mewmii side by the time this runs). Same "never throws" contract as
+ * wc_client_auto_sync_product() - a WooCommerce-side failure must never surface as a failed
+ * product deletion in Mewmii OS, since the local row is already gone and there is no "undo" to
+ * offer; it is only ever reported via sync_logs for follow-up.
+ *
+ * Idempotent: a WooCommerce 404 (already deleted, or never linked in the first place) is treated
+ * as success, not a failure - the end state ("no such product on WooCommerce") is exactly what
+ * was asked for either way. force=true permanently deletes rather than trashing, mirroring
+ * product_delete_if_unused()'s own permanent-delete semantics (this path is only reachable for a
+ * product with no order/inventory history, so there is nothing on the WooCommerce side worth
+ * keeping in trash for recovery either).
+ *
+ * @param int|null $wooCommerceProductId the deleted product's own woocommerce_product_id, read
+ * by the caller BEFORE deleting the local row (it no longer exists to look up afterward).
+ */
+function wc_client_delete_product(PDO $pdo, int $productId, ?int $wooCommerceProductId): array
+{
+    if ($wooCommerceProductId === null || $wooCommerceProductId < 1) {
+        return ['status' => 'skipped', 'error' => null];
+    }
+
+    try {
+        wc_client_delete('products/' . $wooCommerceProductId, ['force' => 'true']);
+        sync_log_success($pdo, 'woocommerce_product_sync', $productId);
+
+        return ['status' => 'deleted', 'error' => null];
+    } catch (Throwable $e) {
+        $message = $e->getMessage();
+
+        if (stripos($message, '(404)') !== false) {
+            // Already gone on the WooCommerce side - the goal state is already reached.
+            sync_log_success($pdo, 'woocommerce_product_sync', $productId);
+
+            return ['status' => 'deleted', 'error' => null];
+        }
+
+        try {
+            sync_log_failure($pdo, 'woocommerce_product_sync', 'Delete failed: ' . $message, $productId);
+        } catch (Throwable $loggingFailure) {
+        }
+
+        return ['status' => 'failed', 'error' => $message];
+    }
+}
+
+// MySQL advisory lock name for the bulk product push - same GET_LOCK(name, 0)/non-blocking
+// reasoning as WC_ORDER_IMPORT_LOCK_NAME/WC_WEBHOOK_LOCK_NAME, so an overlapping cron tick and
+// the manual "Sync to WooCommerce" button (modules/products/sync.php) can never process the
+// same batch of products at once.
+const WC_CLIENT_PRODUCT_SYNC_LOCK_NAME = 'mewmii_wc_product_sync';
+const WC_CLIENT_PRODUCT_SYNC_LOCK_BUSY_CODE = 42304;
+
+/**
+ * The bulk "push every product with a SKU" loop - originally only lived inline in
+ * modules/products/sync.php (the manual "Sync to WooCommerce" button); extracted here,
+ * unchanged in behavior, so cli/wc_product_sync.php (the new cron entrypoint - Full-automation
+ * pass) can call the exact same logic instead of a second, duplicated implementation. Every
+ * product is still synced through wc_client_sync_if_changed() (fingerprint-gated, skips
+ * anything unchanged) with its own try/catch, so one bad product never stops the batch, and a
+ * product whose last push failed (or was never attempted) is retried on every call - this is
+ * the "retry failed syncs" mechanism for the push direction, matching the pull-side webhook
+ * queue's retry intent without needing a second queue table (there is nothing to queue - the
+ * `products` table itself, filtered by fingerprint, already tells this loop what still needs
+ * pushing).
+ *
+ * @return array{updated: int, skipped: int, stale: int, failed: int, failure_reasons: array<string, int>, missing_images: int, errors: array<int, string>}
+ */
+function wc_client_sync_all_products_body(PDO $pdo): array
+{
+    $updatedCount = 0;
+    $skippedCount = 0;
+    $staleCount = 0;
+    $failedCount = 0;
+    $errors = [];
+    $failureReasons = [];
+    $missingImageCount = 0;
+
+    try {
+        // woocommerce_last_seen_modified_at - without it, wc_client_sync_if_changed()'s
+        // staleness check always sees a null baseline (Production Hardening Phase 2).
+        // weight_grams - Full-automation pass, needed by wc_client_build_product_payload()/the
+        // fingerprint now that both read it.
+        $stmt = $pdo->prepare("
+            SELECT id, sku, name, short_description, description, catalog_type, selling_price, product_type,
+                   status, availability_override, preorder_closing_date, preorder_reopened_at,
+                   estimated_arrival_date, estimated_release_month, sale_enabled, sale_price, sale_start_date,
+                   weight_grams, woocommerce_product_id, woocommerce_sync_hash, woocommerce_last_seen_modified_at
+            FROM products WHERE sku IS NOT NULL AND TRIM(sku) <> '' ORDER BY id ASC
+        ");
+        $stmt->execute();
+        $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($products as $product) {
+            try {
+                $result = wc_client_sync_if_changed($pdo, $product);
+
+                if ($result['action'] === 'skipped') {
+                    $skippedCount++;
+                } elseif ($result['action'] === 'stale') {
+                    $staleCount++;
+                    sync_log_write($pdo, 'woocommerce_product_sync', 'warning', (int) ($product['id'] ?? 0), $result['warning'] ?? null);
+                } else {
+                    sync_log_success($pdo, 'woocommerce_product_sync', (int) ($product['id'] ?? 0));
+                    $updatedCount++;
+
+                    $missingImages = $result['missing_images'] ?? [];
+                    if ($missingImages !== []) {
+                        $missingImageCount++;
+                        sync_log_write($pdo, 'woocommerce_product_sync', 'warning', (int) ($product['id'] ?? 0), 'Synced, but skipped missing image file(s) for: ' . implode(', ', $missingImages) . '. Re-upload the affected image(s).');
+                    }
+                }
+            } catch (Throwable $e) {
+                $failedCount++;
+                $errors[] = $e->getMessage();
+                $reason = wc_client_classify_sync_error($e);
+                $failureReasons[$reason] = ($failureReasons[$reason] ?? 0) + 1;
+                sync_log_failure($pdo, 'woocommerce_product_sync', $e->getMessage(), (int) ($product['id'] ?? 0));
+            }
+        }
+    } catch (Throwable $e) {
+        // The SELECT above itself failed (e.g. a missing-column incident) - every product
+        // counts as failed under one reason, since none of them were even attempted.
+        $failedCount = isset($products) ? count($products) : 0;
+        $reason = wc_client_classify_sync_error($e);
+        $failureReasons = [$reason => max($failedCount, 1)];
+        sync_log_failure($pdo, 'woocommerce_product_sync', $e->getMessage());
+        $errors[] = $e->getMessage();
+    }
+
+    return [
+        'updated' => $updatedCount,
+        'skipped' => $skippedCount,
+        'stale' => $staleCount,
+        'failed' => $failedCount,
+        'failure_reasons' => $failureReasons,
+        'missing_images' => $missingImageCount,
+        'errors' => $errors,
+    ];
+}
+
+/**
+ * Locked entrypoint for wc_client_sync_all_products_body() - same GET_LOCK(name, 0)-then-finally-
+ * RELEASE_LOCK shape as wc_webhook_process_pending_events()/wc_order_import_run(), reused by both
+ * modules/products/sync.php (manual button) and cli/wc_product_sync.php (cron), so the two can
+ * never run this loop concurrently against each other.
+ *
+ * @throws RuntimeException with code WC_CLIENT_PRODUCT_SYNC_LOCK_BUSY_CODE if another run already
+ * holds the lock - callers should treat this as benign/expected, not a real failure.
+ */
+function wc_client_sync_all_products(PDO $pdo): array
+{
+    $lockStmt = $pdo->prepare('SELECT GET_LOCK(?, 0)');
+    $lockStmt->execute([WC_CLIENT_PRODUCT_SYNC_LOCK_NAME]);
+
+    if ((int) $lockStmt->fetchColumn() !== 1) {
+        throw new RuntimeException(
+            'Another WooCommerce product sync is already in progress - skipped this run.',
+            WC_CLIENT_PRODUCT_SYNC_LOCK_BUSY_CODE
+        );
+    }
+
+    try {
+        return wc_client_sync_all_products_body($pdo);
+    } finally {
+        $pdo->prepare('SELECT RELEASE_LOCK(?)')->execute([WC_CLIENT_PRODUCT_SYNC_LOCK_NAME]);
     }
 }
 

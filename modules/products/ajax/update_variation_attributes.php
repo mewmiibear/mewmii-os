@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../../../includes/bootstrap.php';
 require_once __DIR__ . '/../../../includes/ajax_helpers.php';
 require_once __DIR__ . '/../../../includes/product_variations.php';
+require_once __DIR__ . '/../../../includes/wc_client.php';
 
 ajax_require_permission('products.manage');
 ajax_require_csrf();
@@ -47,6 +48,9 @@ try {
 
     variation_set_attribute_values($pdo, $productId, $variationId, $attributeValueMap);
     $pdo->commit();
+
+    // Full-automation pass - see add_variation_manual.php's own comment; same reasoning.
+    wc_client_auto_sync_product($pdo, $productId);
 
     ajax_json([
         'ok' => true,

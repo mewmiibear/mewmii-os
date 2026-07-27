@@ -3,6 +3,7 @@ require_once __DIR__ . '/../../../includes/bootstrap.php';
 require_once __DIR__ . '/../../../includes/ajax_helpers.php';
 require_once __DIR__ . '/../../../includes/product_variations.php';
 require_once __DIR__ . '/../../../includes/product_images.php';
+require_once __DIR__ . '/../../../includes/wc_client.php';
 
 ajax_require_permission('products.manage');
 ajax_require_csrf();
@@ -42,6 +43,9 @@ try {
     }
 
     $pdo->commit();
+
+    // Full-automation pass - see modules/products/ajax/add_variation_manual.php's own comment.
+    wc_client_auto_sync_product($pdo, $productId);
 
     ajax_json(['ok' => true]);
 } catch (RuntimeException $exception) {
