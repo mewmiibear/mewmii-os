@@ -574,14 +574,20 @@ $productFormCssVersion = is_file($productFormCssPath) ? filemtime($productFormCs
         <div class="d-flex flex-wrap gap-2 mt-2">
             <button type="button" class="btn btn-outline-secondary" id="add-attribute-block-btn">+ Add Attribute</button>
             <button type="button" class="btn btn-primary" id="generate-variations-btn">Generate Variations</button>
+            <?php if ($isEdit): ?>
+                <button type="button" class="btn btn-outline-primary" id="add-variation-manual-btn">+ Add Variation Manually</button>
+            <?php endif; ?>
         </div>
+        <?php if ($isEdit): ?>
+            <p class="pf-card-hint mt-2 mb-0">"Generate Variations" creates every combination of the attributes above. Use "+ Add Variation Manually" instead when only some combinations actually exist as real products (e.g. Kuromi 20cm exists but My Melody 20cm doesn't).</p>
+        <?php endif; ?>
     </div>
 
     <div class="card pf-card js-variable-section" id="variation-table-wrapper">
         <div class="pf-variation-toolbar">
             <div>
                 <div class="pf-card-title mb-1">Generated Variations</div>
-                <p class="pf-card-hint mb-0">Deleting a variation removes it completely - only possible if it has no order/inventory/supplier history.</p>
+                <p class="pf-card-hint mb-0">Deleting a variation removes it completely if it has no order/inventory/supplier/customer-storage history - otherwise it's archived (deactivated) instead, so historical records keep showing exactly what they always have.</p>
             </div>
         </div>
 
@@ -764,6 +770,70 @@ $productFormCssVersion = is_file($productFormCssPath) ? filemtime($productFormCs
         </div>
     </div>
 </div>
+
+<div class="modal fade" id="addVariationManualModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Variation Manually</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small">Pick only the attribute values this specific variation actually has - you don't have to create every possible combination.</p>
+                <div id="add-variation-attribute-selects"></div>
+                <div class="row g-3 mt-1">
+                    <div class="col-md-6">
+                        <label class="form-label small mb-1">Barcode</label>
+                        <input type="text" class="form-control form-control-sm" id="add-variation-barcode">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small mb-1">Supplier SKU</label>
+                        <input type="text" class="form-control form-control-sm" id="add-variation-supplier-sku" placeholder="Blank = use parent SKU">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small mb-1">Weight</label>
+                        <select class="form-select form-select-sm" id="add-variation-weight-mode">
+                            <option value="inherit">Follow Main Product Weight</option>
+                            <option value="custom">Custom Weight</option>
+                        </select>
+                        <input type="number" step="0.001" min="0" class="form-control form-control-sm mt-1 d-none" id="add-variation-weight" placeholder="grams">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small mb-1">Status</label>
+                        <select class="form-select form-select-sm" id="add-variation-status">
+                            <option value="active" selected>Active</option>
+                            <option value="draft">Draft</option>
+                            <option value="inactive">Inactive</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="add-variation-manual-submit-btn">Add Variation</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="editVariationAttributesModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Variation Attributes</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small">Change which attribute values define this variation, or set one to "&mdash; None &mdash;" to remove it from the variation entirely. SKU, pricing, weight, and history are untouched.</p>
+                <div id="edit-variation-attribute-selects"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="edit-variation-attributes-submit-btn">Save Attributes</button>
+            </div>
+        </div>
+    </div>
+</div>
 <?php endif; ?>
 
 </div><!-- /.pf-page -->
@@ -809,6 +879,8 @@ $productFormCssVersion = is_file($productFormCssPath) ? filemtime($productFormCs
         'generateVariations' => '/modules/products/ajax/generate_variations.php',
         'saveVariation' => '/modules/products/ajax/save_variation.php',
         'deleteVariation' => '/modules/products/ajax/delete_variation.php',
+        'addVariationManual' => '/modules/products/ajax/add_variation_manual.php',
+        'updateVariationAttributes' => '/modules/products/ajax/update_variation_attributes.php',
         'bulkVariationAction' => '/modules/products/ajax/bulk_variation_action.php',
         'uploadMainImage' => '/modules/products/ajax/upload_main_image.php',
         'addGalleryImages' => '/modules/products/ajax/add_gallery_images.php',

@@ -369,6 +369,136 @@ function variation_apply_preview_edits(PDO $pdo, int $productId, array $createdV
     }
 }
 
+/**
+ * Phase 9I (Manual Variation Management) - replaces a variation's attribute-value
+ * assignments with exactly the given set (attribute_id => attribute_value_id). Used by both
+ * variation_create_manual() below and post-creation attribute editing - the single place a
+ * variation's combination signature can change, so both call sites always agree on the same
+ * de-duplication rule. An empty array clears every assignment, leaving the variation
+ * attribute-less (variation_build_label() already returns '' for that case, rendered as
+ * "(no attributes)" by modules/products/_form.php - not a new state to handle). Rejects the
+ * change if it would collide with another non-archived variation of the same product that
+ * already has the identical combination - the same rule variation_generate_combinations()
+ * already enforces at generation time, just checked here at write time instead.
+ */
+function variation_set_attribute_values(PDO $pdo, int $productId, int $variationId, array $attributeValueMap): void
+{
+    $parts = [];
+    foreach ($attributeValueMap as $attributeId => $valueId) {
+        $parts[] = ((int) $attributeId) . ':' . ((int) $valueId);
+    }
+    sort($parts);
+    $signature = implode('|', $parts);
+
+    if ($signature !== '') {
+        $existingStmt = $pdo->prepare("
+            SELECT pv.id, pvav.attribute_id, pvav.attribute_value_id
+            FROM product_variations pv
+            INNER JOIN product_variation_attribute_values pvav ON pvav.variation_id = pv.id
+            WHERE pv.product_id = ? AND pv.id != ? AND pv.status <> 'archived'
+        ");
+        $existingStmt->execute([$productId, $variationId]);
+
+        $partsByVariation = [];
+        foreach ($existingStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $partsByVariation[(int) $row['id']][] = $row['attribute_id'] . ':' . $row['attribute_value_id'];
+        }
+        foreach ($partsByVariation as $otherParts) {
+            sort($otherParts);
+            if (implode('|', $otherParts) === $signature) {
+                throw new RuntimeException('Another variation already uses this exact combination of attributes.');
+            }
+        }
+    }
+
+    $pdo->prepare('DELETE FROM product_variation_attribute_values WHERE variation_id = ?')->execute([$variationId]);
+
+    if ($attributeValueMap !== []) {
+        $insertStmt = $pdo->prepare('INSERT INTO product_variation_attribute_values (variation_id, attribute_id, attribute_value_id) VALUES (?, ?, ?)');
+        foreach ($attributeValueMap as $attributeId => $valueId) {
+            $insertStmt->execute([$variationId, (int) $attributeId, (int) $valueId]);
+        }
+    }
+}
+
+/**
+ * Phase 9I (Manual Variation Management) - creates exactly ONE variation for the picked
+ * attribute-value combination, without generating or touching every other possible
+ * combination the way variation_generate_combinations() does (e.g. Character=Kuromi +
+ * Size=20cm without forcing Kuromi+30cm or My Melody+20cm into existence too).
+ * $attributeValueMap is attribute_id => attribute_value_id for only the axes the admin
+ * actually picked a value for - an axis can be omitted, same as a variation edited down to a
+ * partial set via variation_set_attribute_values() above. $fields carries the same optional
+ * overrides the generated-combination preview table already supports: barcode, supplier_sku,
+ * weight_mode/weight, status.
+ */
+function variation_create_manual(PDO $pdo, int $productId, array $attributeValueMap, array $fields = []): array
+{
+    $productStmt = $pdo->prepare('SELECT id, sku, catalog_type FROM products WHERE id = ?');
+    $productStmt->execute([$productId]);
+    $product = $productStmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$product) {
+        throw new RuntimeException('Product not found.');
+    }
+    if ($product['catalog_type'] !== 'variable') {
+        throw new RuntimeException('Only variable products can have variations.');
+    }
+    if ($attributeValueMap === []) {
+        throw new RuntimeException('Select at least one attribute value for the new variation.');
+    }
+
+    // Resolve each picked value's label/code (for the auto-generated SKU) and confirm the
+    // posted ids actually belong to this attribute - never trust posted ids blindly.
+    $codes = [];
+    foreach ($attributeValueMap as $attributeId => $valueId) {
+        $valueStmt = $pdo->prepare('SELECT id, value, code FROM product_attribute_values WHERE id = ? AND attribute_id = ?');
+        $valueStmt->execute([(int) $valueId, (int) $attributeId]);
+        $value = $valueStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$value) {
+            throw new RuntimeException('Invalid attribute value selected.');
+        }
+        $codes[] = catalog_attribute_value_sku_code($value);
+    }
+
+    $weightMode = (string) ($fields['weight_mode'] ?? 'inherit');
+    if (!in_array($weightMode, ['inherit', 'custom'], true)) {
+        $weightMode = 'inherit';
+    }
+    $weight = $fields['weight'] ?? null;
+    $status = (string) ($fields['status'] ?? 'active');
+    if (!in_array($status, ['draft', 'active', 'inactive'], true)) {
+        $status = 'active';
+    }
+    $barcode = trim((string) ($fields['barcode'] ?? ''));
+    $supplierSku = trim((string) ($fields['supplier_sku'] ?? ''));
+
+    $baseSku = variation_generate_sku((string) $product['sku'], $codes);
+    $sku = variation_unique_sku($pdo, $baseSku);
+
+    $pdo->prepare("
+        INSERT INTO product_variations (product_id, sku, barcode, supplier_sku, weight, weight_mode, price_mode, status, is_system_generated)
+        VALUES (?, ?, ?, ?, ?, ?, 'inherit', ?, 0)
+    ")->execute([
+        $productId,
+        $sku,
+        $barcode !== '' ? $barcode : null,
+        $supplierSku !== '' ? $supplierSku : null,
+        ($weightMode === 'custom' && $weight !== null && $weight !== '' && is_numeric($weight)) ? round((float) $weight, 3) : null,
+        $weightMode,
+        $status,
+    ]);
+    $variationId = (int) $pdo->lastInsertId();
+
+    // Reuses the exact same assignment/de-duplication logic edits go through - a manually
+    // created variation and a manually re-attributed one are never two different code paths.
+    variation_set_attribute_values($pdo, $productId, $variationId, $attributeValueMap);
+
+    $pdo->prepare('INSERT INTO mewmii_inventory (product_id, variation_id) VALUES (?, ?)')->execute([$productId, $variationId]);
+
+    return ['id' => $variationId, 'sku' => $sku];
+}
+
 // --- Reading variations back out ---------------------------------------------------------
 
 function variation_build_label(PDO $pdo, int $variationId): string
@@ -403,8 +533,28 @@ function variation_list_for_product(PDO $pdo, int $productId): array
     $stmt->execute([$productId]);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+    // Phase 9I (Manual Variation Management) - one batched query for every row's raw
+    // attribute_id => attribute_value_id map (not one query per variation), for
+    // modules/products/_form.php's Edit Attributes modal to pre-fill from. Purely additive -
+    // every existing consumer of this function already ignores unknown array keys.
+    $attributeValuesByVariation = [];
+    if ($rows !== []) {
+        $variationIds = array_map(static fn (array $row): int => (int) $row['id'], $rows);
+        $placeholders = implode(',', array_fill(0, count($variationIds), '?'));
+        $attrValuesStmt = $pdo->prepare("
+            SELECT variation_id, attribute_id, attribute_value_id
+            FROM product_variation_attribute_values
+            WHERE variation_id IN ({$placeholders})
+        ");
+        $attrValuesStmt->execute($variationIds);
+        foreach ($attrValuesStmt->fetchAll(PDO::FETCH_ASSOC) as $link) {
+            $attributeValuesByVariation[(int) $link['variation_id']][(int) $link['attribute_id']] = (int) $link['attribute_value_id'];
+        }
+    }
+
     foreach ($rows as &$row) {
         $row['label'] = variation_build_label($pdo, (int) $row['id']);
+        $row['attribute_values'] = $attributeValuesByVariation[(int) $row['id']] ?? [];
     }
     unset($row);
 
@@ -510,6 +660,42 @@ function variation_delete_if_unused(PDO $pdo, int $variationId): void
     }
 
     $pdo->prepare('DELETE FROM product_variations WHERE id = ?')->execute([$variationId]);
+}
+
+/**
+ * Phase 9I (Manual Variation Management) - archives ONE variation (never deletes). Same
+ * status/archived_at convention as variation_archive_all_for_product() below - every read
+ * site that already excludes archived variations (inventory.php, purchase_planning.php,
+ * supplier_orders.php, customer_storage.php, orders.php, demand_forecast.php, wc_client.php)
+ * picks this up with no further changes needed anywhere.
+ */
+function variation_archive(PDO $pdo, int $variationId): void
+{
+    $pdo->prepare("UPDATE product_variations SET status = 'archived', archived_at = NOW() WHERE id = ? AND status <> 'archived'")->execute([$variationId]);
+}
+
+/**
+ * Phase 9I (Manual Variation Management) - "Delete" no longer means "blocked with an error
+ * if history exists". Tries the existing hard-delete-if-unused path first (unchanged - see
+ * variation_delete_if_unused()'s own docblock for exactly which tables it checks); if that
+ * throws because real order/inventory/supplier/customer-storage history exists, archives the
+ * variation instead of surfacing a block to the admin. variation_delete_if_unused() only
+ * throws BEFORE it ever runs its DELETE statement (all four checks happen first), so
+ * catching it here and archiving instead is always safe - nothing was half-deleted. Returns
+ * 'deleted' or 'archived' so the caller can show the right message and update the UI
+ * accordingly (a deleted row disappears; an archived one stays, read-only).
+ */
+function variation_delete_or_archive(PDO $pdo, int $variationId): string
+{
+    try {
+        variation_delete_if_unused($pdo, $variationId);
+
+        return 'deleted';
+    } catch (RuntimeException $exception) {
+        variation_archive($pdo, $variationId);
+
+        return 'archived';
+    }
 }
 
 /**

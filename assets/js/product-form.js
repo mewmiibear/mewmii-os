@@ -615,7 +615,7 @@
             }).join('') +
             '</select>' +
             '</td>' +
-            (options.canManage && options.showRowActions ? '<td class="text-end">' + (options.archived ? '<span class="badge bg-secondary">Archived</span>' : '<button type="button" class="btn btn-sm btn-outline-primary save-variation-row me-1">Save</button><button type="button" class="btn btn-sm btn-outline-danger delete-variation-row">Delete</button>') + '</td>' : '');
+            (options.canManage && options.showRowActions ? '<td class="text-end">' + (options.archived ? '<span class="badge bg-secondary">Archived</span>' : '<button type="button" class="btn btn-sm btn-outline-primary save-variation-row me-1">Save</button><button type="button" class="btn btn-sm btn-outline-secondary edit-variation-attributes-btn me-1" data-variation-id="' + options.variationId + '">Edit Attrs</button><button type="button" class="btn btn-sm btn-outline-danger delete-variation-row">Delete</button>') + '</td>' : '');
     }
 
     function priceModeChangeHandler(row) {
@@ -770,6 +770,11 @@
         var row = document.createElement('tr');
         row.className = 'variation-row';
         row.dataset.variationId = variation.id;
+        // Phase 9I (Manual Variation Management) - stashed here so the Edit Attrs modal can
+        // pre-fill without a second server round-trip; variation.attribute_values comes from
+        // includes/product_variations.php's variation_list_for_product() (one batched query
+        // for the whole table, not one per row).
+        row.dataset.attributeValues = JSON.stringify(variation.attribute_values || {});
         var archived = variation.status === 'archived';
         row.innerHTML = variationRowHtml({
             canManage: true,
@@ -862,7 +867,11 @@
             }
             button.dataset.bound = '1';
             button.addEventListener('click', function () {
-                if (!window.confirm('Delete this variation? This cannot be undone.')) {
+                // Phase 9I (Manual Variation Management) - the server decides deleted vs
+                // archived depending on whether real history exists (see
+                // variation_delete_or_archive()) - this is no longer a "might get blocked"
+                // action, so the confirm just describes both possible outcomes upfront.
+                if (!window.confirm('Delete this variation? If it has no order/inventory/supplier history it will be removed completely; if it does, it will be archived (deactivated) instead so historical records are preserved.')) {
                     return;
                 }
                 var row = button.closest('.variation-row');
@@ -881,6 +890,23 @@
             button.dataset.bound = '1';
             button.addEventListener('click', function () {
                 openVariationGalleryModal(parseInt(button.dataset.variationId, 10));
+            });
+        });
+
+        document.querySelectorAll('.edit-variation-attributes-btn').forEach(function (button) {
+            if (button.dataset.bound) {
+                return;
+            }
+            button.dataset.bound = '1';
+            button.addEventListener('click', function () {
+                var row = button.closest('.variation-row');
+                var currentValues = {};
+                try {
+                    currentValues = JSON.parse(row.dataset.attributeValues || '{}');
+                } catch (e) {
+                    currentValues = {};
+                }
+                openEditVariationAttributesModal(parseInt(row.dataset.variationId, 10), currentValues);
             });
         });
     }
@@ -1375,6 +1401,164 @@
     }
 
     // ---------------------------------------------------------------------------------
+    // Phase 9I (Manual Variation Management) - "Add Variation Manually" and "Edit
+    // Attributes" both need the same one-select-per-attribute picker (pick exactly one
+    // value per variation-defining attribute, or "— None —" to leave that attribute unset),
+    // so it's built once here and reused by both modals rather than duplicated.
+    // ---------------------------------------------------------------------------------
+    function variationDefiningAttributes() {
+        var variationAttributeIds = {};
+        (config.existingAssignments || []).forEach(function (assignment) {
+            if (assignment.isVariation) {
+                variationAttributeIds[assignment.attributeId] = true;
+            }
+        });
+        return (config.attributes || []).filter(function (attr) {
+            return !!variationAttributeIds[attr.id];
+        });
+    }
+
+    function buildAttributeValueSelects(container, currentValues) {
+        if (!container) {
+            return;
+        }
+        container.innerHTML = '';
+        var attrs = variationDefiningAttributes();
+        if (attrs.length === 0) {
+            container.innerHTML = '<p class="text-muted small mb-0">Add at least one attribute (marked "Defines variations") above first.</p>';
+            return;
+        }
+        attrs.forEach(function (attr) {
+            var wrapper = document.createElement('div');
+            wrapper.className = 'mb-2';
+            var label = document.createElement('label');
+            label.className = 'form-label small mb-1';
+            label.textContent = attr.name;
+            var select = document.createElement('select');
+            select.className = 'form-select form-select-sm manual-variation-attribute-select';
+            select.dataset.attributeId = attr.id;
+            var noneOption = document.createElement('option');
+            noneOption.value = '';
+            noneOption.textContent = '— None —';
+            select.appendChild(noneOption);
+            (attr.values || []).forEach(function (value) {
+                var option = document.createElement('option');
+                option.value = value.id;
+                option.textContent = value.value;
+                if (currentValues && currentValues[attr.id] !== undefined && String(currentValues[attr.id]) === String(value.id)) {
+                    option.selected = true;
+                }
+                select.appendChild(option);
+            });
+            wrapper.appendChild(label);
+            wrapper.appendChild(select);
+            container.appendChild(wrapper);
+        });
+    }
+
+    function collectAttributeValueSelects(container) {
+        var map = {};
+        if (!container) {
+            return map;
+        }
+        container.querySelectorAll('.manual-variation-attribute-select').forEach(function (select) {
+            if (select.value) {
+                map[select.dataset.attributeId] = select.value;
+            }
+        });
+        return map;
+    }
+
+    function initAddVariationManual() {
+        var openBtn = document.getElementById('add-variation-manual-btn');
+        var modalEl = document.getElementById('addVariationManualModal');
+        if (!openBtn || !modalEl) {
+            return;
+        }
+        var container = document.getElementById('add-variation-attribute-selects');
+        var weightModeSelect = document.getElementById('add-variation-weight-mode');
+        var weightInput = document.getElementById('add-variation-weight');
+        if (weightModeSelect && weightInput) {
+            weightModeSelect.addEventListener('change', function () {
+                weightInput.classList.toggle('d-none', weightModeSelect.value !== 'custom');
+            });
+        }
+
+        openBtn.addEventListener('click', function () {
+            buildAttributeValueSelects(container, {});
+            document.getElementById('add-variation-barcode').value = '';
+            document.getElementById('add-variation-supplier-sku').value = '';
+            if (weightModeSelect) {
+                weightModeSelect.value = 'inherit';
+            }
+            if (weightInput) {
+                weightInput.value = '';
+                weightInput.classList.add('d-none');
+            }
+            document.getElementById('add-variation-status').value = 'active';
+            if (window.bootstrap) {
+                window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
+            }
+        });
+
+        var submitBtn = document.getElementById('add-variation-manual-submit-btn');
+        if (submitBtn) {
+            submitBtn.addEventListener('click', function () {
+                var attributeValues = collectAttributeValueSelects(container);
+                if (Object.keys(attributeValues).length === 0) {
+                    showError('Select at least one attribute value for the new variation.');
+                    return;
+                }
+                postJson(config.urls.addVariationManual, {
+                    product_id: config.productId,
+                    attribute_values: JSON.stringify(attributeValues),
+                    barcode: document.getElementById('add-variation-barcode').value,
+                    supplier_sku: document.getElementById('add-variation-supplier-sku').value,
+                    weight_mode: weightModeSelect ? weightModeSelect.value : 'inherit',
+                    weight: weightInput ? weightInput.value : '',
+                    status: document.getElementById('add-variation-status').value
+                }).then(function () {
+                    window.location.reload();
+                }).catch(function (error) {
+                    showError(error.message);
+                });
+            });
+        }
+    }
+
+    var editAttributesModalState = { variationId: null };
+
+    function openEditVariationAttributesModal(variationId, currentValues) {
+        editAttributesModalState.variationId = variationId;
+        var container = document.getElementById('edit-variation-attribute-selects');
+        buildAttributeValueSelects(container, currentValues || {});
+        var modalEl = document.getElementById('editVariationAttributesModal');
+        if (modalEl && window.bootstrap) {
+            window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        }
+    }
+
+    function initEditVariationAttributesModal() {
+        var submitBtn = document.getElementById('edit-variation-attributes-submit-btn');
+        if (!submitBtn) {
+            return;
+        }
+        submitBtn.addEventListener('click', function () {
+            var container = document.getElementById('edit-variation-attribute-selects');
+            var attributeValues = collectAttributeValueSelects(container);
+            postJson(config.urls.updateVariationAttributes, {
+                product_id: config.productId,
+                variation_id: editAttributesModalState.variationId,
+                attribute_values: JSON.stringify(attributeValues)
+            }).then(function () {
+                window.location.reload();
+            }).catch(function (error) {
+                showError(error.message);
+            });
+        });
+    }
+
+    // ---------------------------------------------------------------------------------
     // Boot.
     // ---------------------------------------------------------------------------------
     document.addEventListener('DOMContentLoaded', function () {
@@ -1393,6 +1577,8 @@
         initGalleryDropzonePreview();
         initPublishCardSync();
         initVariationGalleryModal();
+        initAddVariationManual();
+        initEditVariationAttributesModal();
 
         if (config.isEdit && (config.variations || []).length > 0) {
             renderServerVariationTable(config.variations);

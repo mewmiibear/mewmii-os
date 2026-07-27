@@ -15,10 +15,14 @@ if ($variationId < 1) {
 
 try {
     $pdo->beginTransaction();
-    variation_delete_if_unused($pdo, $variationId);
+    // Phase 9I (Manual Variation Management) - never blocked by history anymore: hard-deletes
+    // if the variation has none, otherwise archives it instead so historical orders/inventory
+    // transactions/supplier order lines/customer storage entries keep showing the exact same
+    // variation data they always have. See variation_delete_or_archive()'s own docblock.
+    $outcome = variation_delete_or_archive($pdo, $variationId);
     $pdo->commit();
 
-    ajax_json(['ok' => true]);
+    ajax_json(['ok' => true, 'outcome' => $outcome]);
 } catch (RuntimeException $exception) {
     $pdo->rollBack();
     ajax_json(['error' => $exception->getMessage()], 400);
