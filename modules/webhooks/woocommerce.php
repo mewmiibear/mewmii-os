@@ -144,7 +144,12 @@ if (!wc_webhook_verify_signature($rawBody, $signatureHeader, $secret)) {
     // found.
     $expectedForLog = base64_encode(hash_hmac('sha256', $rawBody, $secret, true));
     error_log(sprintf(
-        '[wc_webhook][signature-diagnostic] method=%s content_length_header=%s content_type=%s topic=%s delivery_id=%s body_bytes=%d body_sha256=%s received_signature=%s (len=%d) expected_signature=%s (len=%d) secret_sha256_fingerprint=%s',
+        '[wc_webhook][signature-diagnostic] remote_addr=%s method=%s content_length_header=%s content_type=%s topic=%s delivery_id=%s body_bytes=%d body_sha256=%s received_signature=%s (len=%d) expected_signature=%s (len=%d) secret_sha256_fingerprint=%s',
+        // Not an HTTP_* header, so the inbound_headers dump below misses it - this is the
+        // actual TCP connection source PHP sees. If Cloudflare is proxying, this will be a
+        // Cloudflare edge IP, never WooCommerce's own server - the clearest single proof of
+        // whether a proxy is terminating the connection in front of this script at all.
+        $_SERVER['REMOTE_ADDR'] ?? '(unknown)',
         // The one unambiguous signal: WooCommerce always delivers via POST; a browser
         // visiting the URL directly is always GET. Distinguishes "this was just someone
         // loading the URL" from "this was a real delivery whose body/headers went missing"
