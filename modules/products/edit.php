@@ -472,18 +472,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             // Strictly after commit, never inside the transaction above - a WooCommerce push
             // can't be undone by a later rollback, so it must only ever happen once the local
-            // save is truly final. See wc_client_auto_sync_product()'s own docblock for why
-            // this can never fail the request itself - 'skipped' (no SKU, or nothing
-            // WooCommerce-relevant changed) intentionally shows no extra notice at all.
+            // save is truly final.
+            //
+            // Phase 11A (Unified Outbound Job Queue) - queues the push instead of running it
+            // inline (see the identical comment in modules/products/create.php). The fingerprint
+            // gate inside wc_client_sync_if_changed() still means a save with nothing
+            // WooCommerce-relevant changed costs the worker nothing beyond one cheap check.
             $wcSyncStatus = '';
             if (wc_client_auto_sync_enabled($pdo)) {
-                $autoSyncResult = wc_client_auto_sync_product($pdo, $productId);
-                if ($autoSyncResult['status'] !== 'skipped') {
-                    $wcSyncStatus = '&wc_sync=' . $autoSyncResult['status'];
-                    if (($autoSyncResult['missing_images'] ?? []) !== []) {
-                        $wcSyncStatus .= '&wc_sync_missing_images=1';
-                    }
-                }
+                wc_client_enqueue_product_sync($pdo, $productId);
+                $wcSyncStatus = '&wc_sync=queued';
             }
 
             app_redirect('/modules/products/edit.php?id=' . $productId . '&updated=1' . $wcSyncStatus);

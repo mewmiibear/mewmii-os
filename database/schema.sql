@@ -614,6 +614,48 @@ CREATE TABLE IF NOT EXISTS webhook_events (
   INDEX idx_webhook_events_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Phase 11A (Unified Outbound Job Queue) - generic background job queue for outbound
+-- integration work (WooCommerce push today; email/notifications/supplier sync/purchase order
+-- generation/AI tasks are future job `type` values - see includes/job_queue.php). Same
+-- reliability shape as webhook_events above (row-locked claim, stale-processing recovery,
+-- exponential backoff, cleanup), generalized so no future job type ever needs a schema change -
+-- `type` is a plain string, `payload_json` carries whatever that type's handler needs.
+CREATE TABLE IF NOT EXISTS outbound_jobs (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  -- Dotted namespace, e.g. 'woocommerce.product.sync' - a handler is registered for each type
+  -- by the worker (cli/job_worker.php), never by this table/library.
+  type VARCHAR(100) NOT NULL,
+  -- entity_type/entity_id identify the LOCAL Mewmii OS record this job is about (e.g.
+  -- 'product'/123) - optional, since not every future job type is about one specific record
+  -- (e.g. a cleanup or digest job).
+  entity_type VARCHAR(50) NULL,
+  entity_id INT UNSIGNED NULL,
+  payload_json LONGTEXT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  -- Lower runs first (same convention as Unix `nice`) - default 100 is the neutral middle,
+  -- leaving room both above and below for future callers to de/prioritize without a rescale.
+  priority INT NOT NULL DEFAULT 100,
+  attempts INT UNSIGNED NOT NULL DEFAULT 0,
+  max_attempts INT UNSIGNED NOT NULL DEFAULT 5,
+  -- NULL or a past timestamp = claimable now; a future timestamp = not until then (initial
+  -- scheduling AND exponential backoff after a failed attempt both use this one column).
+  run_after TIMESTAMP NULL,
+  locked_at TIMESTAMP NULL,
+  -- Worker identifier (e.g. hostname:pid) - diagnostic only, so a stuck/crashed job's last
+  -- claimant is visible; job_recover_stale_processing() uses locked_at, not this, to decide
+  -- what is abandoned.
+  locked_by VARCHAR(100) NULL,
+  completed_at TIMESTAMP NULL,
+  failed_at TIMESTAMP NULL,
+  last_error TEXT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_outbound_jobs_status_priority_run_after (status, priority, run_after),
+  INDEX idx_outbound_jobs_type (type),
+  INDEX idx_outbound_jobs_entity (entity_type, entity_id),
+  INDEX idx_outbound_jobs_locked_at (locked_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS saved_views (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   module VARCHAR(40) NOT NULL,

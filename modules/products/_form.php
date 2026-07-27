@@ -142,7 +142,14 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
 <?php if (isset($_GET['created'])): ?>
     <div class="alert alert-success">Product created.</div>
 <?php endif; ?>
-<?php if (($_GET['wc_sync'] ?? '') === 'synced'): ?>
+<?php if (($_GET['wc_sync'] ?? '') === 'queued'): ?>
+    <div class="alert alert-info py-2">
+        Saved. WooCommerce sync has been queued and will run shortly.
+        <?php if (app_has_permission('settings.manage')): ?>
+            <a href="/modules/operations/job_queue.php">View Job Queue</a>.
+        <?php endif; ?>
+    </div>
+<?php elseif (($_GET['wc_sync'] ?? '') === 'synced'): ?>
     <?php if (($_GET['wc_sync_missing_images'] ?? '') === '1'): ?>
         <div class="alert alert-warning py-2">
             Saved and synced to WooCommerce, but one or more images were skipped because the stored file is missing on disk.

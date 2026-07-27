@@ -1382,6 +1382,27 @@ function wc_client_auto_sync_product(PDO $pdo, int $productId): array
     }
 }
 
+// Phase 11A (Unified Outbound Job Queue) - the job `type` string for a queued product push.
+// Defined here (not in includes/job_queue.php, which stays type-agnostic) since this is the
+// one place that already owns everything about pushing a product to WooCommerce.
+const WC_CLIENT_PRODUCT_SYNC_JOB_TYPE = 'woocommerce.product.sync';
+
+/**
+ * Phase 11A - queues a product push instead of running it inline. Callers that used to call
+ * wc_client_auto_sync_product($pdo, $productId) directly during a request (see
+ * modules/products/create.php/edit.php) call this instead; cli/job_worker.php's handler for
+ * WC_CLIENT_PRODUCT_SYNC_JOB_TYPE calls wc_client_auto_sync_product() itself, unchanged - this
+ * function never duplicates what that one already does, it only defers WHEN it runs.
+ *
+ * @return int the new job's id (see includes/job_queue.php's job_enqueue()).
+ */
+function wc_client_enqueue_product_sync(PDO $pdo, int $productId): int
+{
+    require_once __DIR__ . '/job_queue.php';
+
+    return job_enqueue($pdo, WC_CLIENT_PRODUCT_SYNC_JOB_TYPE, 'product', $productId);
+}
+
 /**
  * Full-automation pass - product deletion was never pushed to WooCommerce before (deleting in
  * Mewmii OS left the WooCommerce copy behind indefinitely). Called from

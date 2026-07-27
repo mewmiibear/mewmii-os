@@ -375,15 +375,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             // Strictly after commit, never inside the transaction above - see the identical
             // comment in modules/products/edit.php.
+            //
+            // Phase 11A (Unified Outbound Job Queue) - queues the push instead of running it
+            // inline. wc_client_auto_sync_product() itself is unchanged and still does the
+            // actual work; cli/job_worker.php's handler calls it, just on the next worker tick
+            // rather than synchronously in this request. See that file's own docblock.
             $wcSyncStatus = '';
             if (wc_client_auto_sync_enabled($pdo)) {
-                $autoSyncResult = wc_client_auto_sync_product($pdo, $productId);
-                if ($autoSyncResult['status'] !== 'skipped') {
-                    $wcSyncStatus = '&wc_sync=' . $autoSyncResult['status'];
-                    if (($autoSyncResult['missing_images'] ?? []) !== []) {
-                        $wcSyncStatus .= '&wc_sync_missing_images=1';
-                    }
-                }
+                wc_client_enqueue_product_sync($pdo, $productId);
+                $wcSyncStatus = '&wc_sync=queued';
             }
 
             app_redirect('/modules/products/edit.php?id=' . $productId . '&created=1' . $wcSyncStatus);
