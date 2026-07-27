@@ -659,7 +659,7 @@ require_once __DIR__ . '/../../includes/header.php';
 </div>
 <div class="card p-4">
     <h6 class="mb-2">Receiver URL</h6>
-    <p class="text-muted small mb-2">Register this URL in WooCommerce (Settings &gt; Advanced &gt; Webhooks) once per topic: product.created, product.updated, order.created, order.updated, customer.created, customer.updated - all can point at this same URL.</p>
+    <p class="text-muted small mb-2">Register this URL in WooCommerce (Settings &gt; Advanced &gt; Webhooks) once per topic: product.created, product.updated, product.deleted, order.created, order.updated, order.deleted, customer.created, customer.updated, customer.deleted - all can point at this same URL. Deleted-topic deliveries archive/cancel the matching Mewmii OS record rather than deleting anything.</p>
     <code><?php echo app_escape($webhookReceiverUrl); ?></code>
 </div>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

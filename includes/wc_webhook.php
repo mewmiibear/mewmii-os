@@ -194,6 +194,13 @@ function wc_webhook_calculate_next_retry(int $attempts): string
  * genuinely-new customer path. Throws on any failure - the caller
  * (wc_webhook_process_pending_events_body()) is what turns that into the retry/failed
  * bookkeeping, this function only does the dispatch + reuse.
+ *
+ * WooCommerce delete-webhook support - routed by TOPIC within each resource case, not just
+ * resource, since a *.deleted payload needs archive/cancel handling instead of the
+ * create/update upsert every other topic for that same resource uses. product.deleted/
+ * order.deleted/customer.deleted never hard-delete anything on the Mewmii OS side - see
+ * wc_webhook_dispatch_product_deleted()/wc_webhook_dispatch_order_deleted()/
+ * wc_webhook_dispatch_customer_deleted() below for what each one actually does instead.
  */
 function wc_webhook_process_one_event(PDO $pdo, array $event): ?int
 {
@@ -204,20 +211,23 @@ function wc_webhook_process_one_event(PDO $pdo, array $event): ?int
 
     switch ($event['resource']) {
         case 'product':
-            return wc_webhook_dispatch_product($pdo, $payload);
+            return $event['topic'] === 'product.deleted'
+                ? wc_webhook_dispatch_product_deleted($pdo, $payload)
+                : wc_webhook_dispatch_product($pdo, $payload);
         case 'order':
-            return wc_webhook_dispatch_order($pdo, $payload);
+            return $event['topic'] === 'order.deleted'
+                ? wc_webhook_dispatch_order_deleted($pdo, $payload)
+                : wc_webhook_dispatch_order($pdo, $payload);
         case 'customer':
-            return wc_webhook_dispatch_customer($pdo, $payload);
+            return $event['topic'] === 'customer.deleted'
+                ? wc_webhook_dispatch_customer_deleted($pdo, $payload)
+                : wc_webhook_dispatch_customer($pdo, $payload);
         default:
             // Any topic/resource WooCommerce sends still gets queued by the receiver (it
             // isn't the receiver's job to judge topics - see modules/webhooks/woocommerce.php),
             // but only product/order/customer have a processing path today (matches this
-            // phase's explicit scope - product.created/updated, order.created/updated,
-            // customer.created/updated). Anything else (e.g. a *.deleted topic, if a webhook
-            // were ever configured for one) fails clearly here rather than being silently
-            // dropped or guessed at - deletion semantics were explicitly out of scope for
-            // this phase.
+            // phase's explicit scope - created/updated/deleted for all three). Anything else
+            // fails clearly here rather than being silently dropped or guessed at.
             throw new RuntimeException('No processing handler for resource type "' . $event['resource'] . '".');
     }
 }
@@ -258,6 +268,48 @@ function wc_webhook_dispatch_product(PDO $pdo, array $wcProduct): ?int
 }
 
 /**
+ * WooCommerce product.deleted webhook handling. Reuses product_deactivate()
+ * (includes/catalog.php - status = 'archived') unmodified - the exact function
+ * modules/products/bulk_action.php's own Archive action already calls, so a product deleted on
+ * WooCommerce ends up in exactly the same state as one an admin archived manually in Mewmii OS.
+ * Never a hard delete: SKU, variations, cost/order/inventory history, and every other row that
+ * references this product are all untouched - a pure status-column change, same as every other
+ * archive action in this app.
+ *
+ * A deleted-webhook payload from WooCommerce is minimal (typically just {"id": <wc_id>}, not
+ * the full product representation created/updated topics carry) - this only ever reads 'id'.
+ *
+ * Idempotent: no-ops (returns null) if no local product is linked to this WooCommerce id, or if
+ * it's already archived - a redelivered/retried webhook never re-archives or double-logs.
+ *
+ * @return int|null the LOCAL product id archived, or null if nothing matched or there was
+ * nothing to do (not an error - same "no SKU yet"-style skip convention as
+ * wc_webhook_dispatch_product() above).
+ */
+function wc_webhook_dispatch_product_deleted(PDO $pdo, array $payload): ?int
+{
+    require_once __DIR__ . '/catalog.php';
+
+    $wcProductId = (int) ($payload['id'] ?? 0);
+    if ($wcProductId < 1) {
+        return null;
+    }
+
+    $stmt = $pdo->prepare("SELECT id FROM products WHERE woocommerce_product_id = ? AND status <> 'archived'");
+    $stmt->execute([$wcProductId]);
+    $productId = $stmt->fetchColumn();
+
+    if ($productId === false) {
+        return null;
+    }
+
+    $productId = (int) $productId;
+    product_deactivate($pdo, $productId);
+
+    return $productId;
+}
+
+/**
  * Reuses wc_order_import_single() (includes/wc_order_import.php) completely unmodified.
  * Unlike the product function, wc_order_import_single() does NOT manage its own transaction
  * (its existing caller, wc_order_import_run_body(), wraps each call itself) - this dispatch
@@ -290,6 +342,43 @@ function wc_webhook_dispatch_order(PDO $pdo, array $wcOrder): ?int
 }
 
 /**
+ * WooCommerce order.deleted webhook handling. Reuses
+ * wc_order_import_cancel_from_woocommerce_delete() (includes/wc_order_import.php) unmodified -
+ * same transaction + resync-flush wrapping as wc_webhook_dispatch_order() above, since that
+ * function (like wc_order_import_single()) does not manage either itself.
+ *
+ * Never a hard delete: sets order_status = 'cancelled' (this app's own existing terminal
+ * status), preserving every financial field and every order_items/mewmii_order_events row -
+ * see wc_order_import_cancel_from_woocommerce_delete()'s own docblock for the full reasoning.
+ *
+ * A deleted-webhook payload from WooCommerce is minimal (typically just {"id": <wc_id>}) - this
+ * only ever reads 'id'.
+ *
+ * @return int|null the LOCAL mewmii_orders.id cancelled, or null if nothing matched or the
+ * order was already completed/cancelled (nothing to do, not an error).
+ */
+function wc_webhook_dispatch_order_deleted(PDO $pdo, array $payload): ?int
+{
+    require_once __DIR__ . '/wc_order_import.php';
+    require_once __DIR__ . '/inventory.php';
+
+    $wcOrderId = (int) ($payload['id'] ?? 0);
+
+    $pdo->beginTransaction();
+    try {
+        $orderId = wc_order_import_cancel_from_woocommerce_delete($pdo, $wcOrderId);
+        $pdo->commit();
+        inventory_flush_woocommerce_resync($pdo);
+
+        return $orderId;
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        inventory_discard_pending_woocommerce_resync();
+        throw $e;
+    }
+}
+
+/**
  * New functionality (see includes/wc_customer_import.php's own docblock - no customer sync
  * existed before this phase). Wrapped in its own transaction for the same atomicity reasons
  * as the order dispatch above, even though today it's a single statement.
@@ -306,6 +395,42 @@ function wc_webhook_dispatch_customer(PDO $pdo, array $wcCustomer): ?int
         $pdo->commit();
 
         return $result['id'];
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+}
+
+/**
+ * WooCommerce customer.deleted webhook handling. Reuses
+ * wc_customer_import_archive_deleted() (includes/wc_customer_import.php) unmodified - genuinely
+ * new functionality, since no archive/anonymise lifecycle existed for customers before this
+ * (unlike products/orders, which both already had one to reuse - see that function's own
+ * docblock). Wrapped in its own transaction for the same atomicity reasons as
+ * wc_webhook_dispatch_customer() above.
+ *
+ * Never a hard delete: the customers row and its id are always kept (so mewmii_orders.
+ * customer_id, customer_storage, and every other reference never dangles) - only its own PII
+ * is cleared in place.
+ *
+ * A deleted-webhook payload from WooCommerce is minimal (typically just {"id": <wc_id>}) - this
+ * only ever reads 'id'.
+ *
+ * @return int|null the LOCAL customers.id archived, or null if nothing matched or the customer
+ * was already archived (nothing to do, not an error).
+ */
+function wc_webhook_dispatch_customer_deleted(PDO $pdo, array $payload): ?int
+{
+    require_once __DIR__ . '/wc_customer_import.php';
+
+    $wcCustomerId = (int) ($payload['id'] ?? 0);
+
+    $pdo->beginTransaction();
+    try {
+        $customerId = wc_customer_import_archive_deleted($pdo, $wcCustomerId);
+        $pdo->commit();
+
+        return $customerId;
     } catch (Throwable $e) {
         $pdo->rollBack();
         throw $e;
@@ -459,6 +584,31 @@ function wc_webhook_process_pending_events(PDO $pdo, int $batchSize = WC_WEBHOOK
  * WC_WEBHOOK_SYNC_TYPE, so webhook activity shows up in modules/sync-logs/index.php using
  * the same table/index/pagination every other sync type already does.
  */
+
+/**
+ * WooCommerce delete-webhook support - a successful webhook's sync_logs row previously carried
+ * only the local reference_id, with no visible topic/WooCommerce-id/outcome (unlike a FAILED
+ * event, which already embeds resource/topic/WC-id in its error message - see the catch blocks
+ * below). Reused by both the batch processor and the manual retry so the two never drift on
+ * what a "success" line actually says. No schema change - sync_logs.error_message already
+ * doubles as a general message column for non-error statuses (see the existing 'warning' usage
+ * elsewhere in this file), this just populates it on 'success' too instead of leaving it NULL.
+ */
+function wc_webhook_describe_outcome(array $event, ?int $localId): string
+{
+    $action = $localId !== null
+        ? 'processed (local record #' . $localId . ')'
+        : 'skipped (no matching local record, or nothing to do)';
+
+    return sprintf(
+        '%s (WC #%s, topic=%s): %s',
+        $event['resource'],
+        $event['resource_id'] ?? '?',
+        $event['topic'],
+        $action
+    );
+}
+
 function wc_webhook_process_pending_events_body(PDO $pdo, int $batchSize): array
 {
     $summary = ['recovered' => 0, 'processed' => 0, 'completed' => 0, 'retrying' => 0, 'failed' => 0];
@@ -513,7 +663,7 @@ function wc_webhook_process_pending_events_body(PDO $pdo, int $batchSize): array
 
             $pdo->prepare("UPDATE webhook_events SET status = 'completed', processed_at = UTC_TIMESTAMP(), last_error = NULL, next_retry_at = NULL WHERE id = ?")
                 ->execute([$eventId]);
-            sync_log_success($pdo, WC_WEBHOOK_SYNC_TYPE, $localId);
+            sync_log_write($pdo, WC_WEBHOOK_SYNC_TYPE, 'success', $localId, wc_webhook_describe_outcome($event, $localId));
             $summary['completed']++;
         } catch (Throwable $e) {
             $nextRetryAt = $newAttempts < WC_WEBHOOK_MAX_ATTEMPTS ? wc_webhook_calculate_next_retry($newAttempts) : null;
@@ -576,7 +726,7 @@ function wc_webhook_retry_event_now(PDO $pdo, int $eventId): void
 
         $pdo->prepare("UPDATE webhook_events SET status = 'completed', processed_at = UTC_TIMESTAMP(), last_error = NULL, next_retry_at = NULL WHERE id = ?")
             ->execute([$eventId]);
-        sync_log_success($pdo, WC_WEBHOOK_SYNC_TYPE, $localId);
+        sync_log_write($pdo, WC_WEBHOOK_SYNC_TYPE, 'success', $localId, wc_webhook_describe_outcome($event, $localId));
     } catch (Throwable $e) {
         $pdo->prepare("UPDATE webhook_events SET status = 'failed', last_error = ?, next_retry_at = NULL WHERE id = ?")
             ->execute([$e->getMessage(), $eventId]);

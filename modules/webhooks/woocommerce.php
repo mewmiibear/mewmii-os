@@ -16,10 +16,17 @@
  * execution-time limits) - so none of that runs synchronously here.
  *
  * Register this URL in WooCommerce (Settings > Advanced > Webhooks) once per topic that
- * should flow in: product.created, product.updated, order.created, order.updated,
- * customer.created, customer.updated - all can point at this SAME URL, since WooCommerce
- * includes the topic/resource in its own request headers (read below) rather than needing a
- * separate endpoint per topic.
+ * should flow in: product.created, product.updated, product.deleted, order.created,
+ * order.updated, order.deleted, customer.created, customer.updated, customer.deleted - all can
+ * point at this SAME URL, since WooCommerce includes the topic/resource in its own request
+ * headers (read below) rather than needing a separate endpoint per topic.
+ *
+ * WooCommerce delete-webhook support - the *.deleted topics never cause a hard delete on the
+ * Mewmii OS side (see includes/wc_webhook.php's wc_webhook_dispatch_product_deleted()/
+ * wc_webhook_dispatch_order_deleted()/wc_webhook_dispatch_customer_deleted()): a deleted
+ * product is archived (status = 'archived'), a deleted order is cancelled (order_status =
+ * 'cancelled'), and a deleted customer has its PII cleared but its row kept (archived_at set) -
+ * every case preserves history instead of removing anything.
  */
 
 require_once __DIR__ . '/../../includes/bootstrap.php';

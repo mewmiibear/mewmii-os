@@ -87,6 +87,12 @@ CREATE TABLE IF NOT EXISTS customers (
   birthday DATE NULL,
   address TEXT NULL,
   notes TEXT NULL,
+  -- WooCommerce customer.deleted webhook support - reuses the same nullable-timestamp
+  -- "archived" convention as product_variations.archived_at (NULL = active, set = archived).
+  -- See includes/wc_customer_import.php's wc_customer_import_archive_deleted(). The row and
+  -- its id are always kept (never hard-deleted) so mewmii_orders.customer_id never dangles -
+  -- name/email/phone/address/instagram_username/birthday/notes are anonymised in place instead.
+  archived_at TIMESTAMP NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_customers_email (email),

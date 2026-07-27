@@ -421,6 +421,63 @@ function wc_order_import_apply_payment_upgrade(PDO $pdo, int $orderId, string $c
 }
 
 /**
+ * WooCommerce order.deleted webhook handling - reproduces modules/orders/view.php's Cancel
+ * Order action exactly (same guard, same order_status write, same event log, same inventory
+ * release), since that page-scoped action can't be included directly - same reasoning as
+ * wc_order_import_apply_payment_upgrade() above reproducing Approve Payment's sequence rather
+ * than requiring the whole page. The caller (wc_webhook_dispatch_order_deleted(), includes/
+ * wc_webhook.php) is responsible for the surrounding transaction and the WooCommerce resync
+ * flush afterward, matching wc_order_import_single()'s own contract - this function does not
+ * manage either itself.
+ *
+ * Never a hard delete: order_status = 'cancelled' is this app's own existing terminal status
+ * (order_recompute_status() already treats a cancelled order as frozen, never recomputed past -
+ * see its own guard). Every financial field (subtotal/discount/shipping_fee/total_amount/
+ * payment_status/receipt_*), every order_items row, and every prior mewmii_order_events row
+ * stay exactly as they were - only order_status changes, plus one new event row.
+ *
+ * Idempotent: an order already 'completed' or 'cancelled' is left untouched (the same guard
+ * the UI button uses), so a redelivered/retried webhook is a clean no-op, not a double-cancel
+ * or a duplicate event log entry.
+ *
+ * @return int|null the local mewmii_orders.id cancelled, or null if no local order is linked to
+ * this WooCommerce order id, or it was already completed/cancelled (nothing to do - not an
+ * error, same convention as wc_webhook_dispatch_product()'s "no SKU yet" skip).
+ */
+function wc_order_import_cancel_from_woocommerce_delete(PDO $pdo, int $wcOrderId): ?int
+{
+    if ($wcOrderId < 1) {
+        return null;
+    }
+
+    $stmt = $pdo->prepare('SELECT id, order_status FROM mewmii_orders WHERE woocommerce_order_id = ?');
+    $stmt->execute([$wcOrderId]);
+    $order = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($order === false) {
+        return null;
+    }
+
+    $orderId = (int) $order['id'];
+    $oldStatus = (string) $order['order_status'];
+
+    if (in_array($oldStatus, ['completed', 'cancelled'], true)) {
+        return null;
+    }
+
+    $pdo->prepare("UPDATE mewmii_orders SET order_status = 'cancelled' WHERE id = ?")->execute([$orderId]);
+
+    $pdo->prepare('
+        INSERT INTO mewmii_order_events (order_id, event_type, description)
+        VALUES (?, ?, ?)
+    ')->execute([$orderId, 'order_status_change', "Order Status changed from '{$oldStatus}' to 'cancelled' (WooCommerce order deleted)."]);
+
+    inventory_release_for_order($pdo, $orderId);
+
+    return $orderId;
+}
+
+/**
  * Imports or updates one WooCommerce order. Returns ['action' => 'created'|'updated'|'skipped',
  * 'order_id' => int|null, 'reason' => string|null].
  *

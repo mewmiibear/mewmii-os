@@ -3,8 +3,8 @@
 /**
  * WooCommerce -> Mewmii OS customer import (Phase 6E - genuinely new functionality; no
  * customer sync existed before this phase). Reachable only via the webhook path today
- * (customer.created/customer.updated - see includes/wc_webhook.php's dispatch), since
- * customers were never in scope for the existing poll-based importers.
+ * (customer.created/customer.updated/customer.deleted - see includes/wc_webhook.php's
+ * dispatch), since customers were never in scope for the existing poll-based importers.
  *
  * Matching is the same 3-tier strategy already established by
  * wc_order_import_match_customer() (includes/wc_order_import.php), which matches a customer
@@ -120,4 +120,51 @@ function wc_customer_import_upsert(PDO $pdo, array $wcCustomer): array
     ]);
 
     return ['id' => (int) $pdo->lastInsertId(), 'created' => true];
+}
+
+/**
+ * WooCommerce customer.deleted webhook handling - genuinely new; no archive/anonymise
+ * lifecycle existed anywhere for customers before this (unlike products - status='archived',
+ * see includes/catalog.php's product_deactivate() - and orders - order_status='cancelled',
+ * see modules/orders/view.php's Cancel Order action - which both already had one). Never a
+ * hard delete: mewmii_orders.customer_id, customer_storage, and every other table that
+ * references customers.id keep working unchanged - only this row's own PII is cleared.
+ *
+ * Idempotent: guarded by archived_at IS NULL, so a redelivered/retried webhook for an
+ * already-archived customer is a clean no-op rather than re-clearing already-cleared fields
+ * or double-logging.
+ *
+ * name is intentionally NOT nulled (customers.name is NOT NULL - see database/schema.sql) -
+ * replaced with a clearly-labelled placeholder instead, so anything that already displays a
+ * customer's name (order lists, shipment labels, customer_storage) keeps rendering correctly
+ * without silently showing stale PII.
+ *
+ * @return int|null the local customers.id archived, or null if no local customer is linked to
+ * this WooCommerce customer id (nothing to do - not an error, same convention as
+ * wc_webhook_dispatch_product()'s "no SKU yet" skip).
+ */
+function wc_customer_import_archive_deleted(PDO $pdo, int $wcCustomerId): ?int
+{
+    if ($wcCustomerId < 1) {
+        return null;
+    }
+
+    $stmt = $pdo->prepare('SELECT id FROM customers WHERE woocommerce_customer_id = ? AND archived_at IS NULL');
+    $stmt->execute([$wcCustomerId]);
+    $customerId = $stmt->fetchColumn();
+
+    if ($customerId === false) {
+        return null;
+    }
+
+    $customerId = (int) $customerId;
+
+    $pdo->prepare('
+        UPDATE customers
+        SET name = ?, email = NULL, phone = NULL, address = NULL, instagram_username = NULL,
+            birthday = NULL, notes = NULL, archived_at = NOW()
+        WHERE id = ?
+    ')->execute(['Deleted WooCommerce Customer #' . $wcCustomerId, $customerId]);
+
+    return $customerId;
 }
