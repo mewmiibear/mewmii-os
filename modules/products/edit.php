@@ -38,6 +38,47 @@ if (!$product) {
     exit;
 }
 
+// --- TEMPORARY DEBUG INSTRUMENTATION (stale "Waiting Release" badge trace) -------------
+// Gated behind ?debug_lifecycle=1, which reopen_preorder.php's redirect now sets automatically.
+// Shows, side by side: (1) the values reopen_preorder.php verified immediately after its own
+// UPDATE, carried here via the redirect query string (dbg_* params), and (2) this page's own,
+// completely independent SELECT above (line ~29-31) for the exact same product/fields, plus
+// (3) the lifecycle stage catalog_product_lifecycle_stage() computes from that fresh row right
+// now. If (1) and (2) disagree, the UPDATE isn't persisting/reopen_preorder.php's WHERE clause
+// isn't matching. If (1) and (2) agree but (3) is still "waiting_release", the bug is inside
+// catalog_product_lifecycle_stage() itself, not the data. Remove this block (and the matching
+// ones in reopen_preorder.php/_form.php/view.php) once the mismatch is found.
+if (isset($_GET['debug_lifecycle'])) {
+    $debugComputedStage = catalog_product_lifecycle_stage($product);
+    error_log(sprintf(
+        '[LIFECYCLE-DEBUG edit.php] product_id=%d fresh_select: product_type=%s preorder_closing_date=%s preorder_reopened_at=%s status=%s availability_override=%s computed_stage=%s',
+        $productId,
+        $product['product_type'] ?? 'NULL',
+        $product['preorder_closing_date'] ?? 'NULL',
+        $product['preorder_reopened_at'] ?? 'NULL',
+        $product['status'] ?? 'NULL',
+        $product['availability_override'] ?? 'NULL',
+        $debugComputedStage
+    ));
+    echo '<pre style="background:#111;color:#0f0;padding:1rem;white-space:pre-wrap;font-size:.85rem;">';
+    echo "[LIFECYCLE-DEBUG] product_id={$productId}\n\n";
+    echo "-- carried from reopen_preorder.php's post-UPDATE verify SELECT (same request as the UPDATE) --\n";
+    echo 'dbg_rows (UPDATE affected_rows): ' . var_export($_GET['dbg_rows'] ?? '(not set - page not reached via Open Preorder redirect)', true) . "\n";
+    echo 'dbg_type: ' . var_export($_GET['dbg_type'] ?? null, true) . "\n";
+    echo 'dbg_closing: ' . var_export($_GET['dbg_closing'] ?? null, true) . "\n";
+    echo 'dbg_reopened_at: ' . var_export($_GET['dbg_reopened_at'] ?? null, true) . "\n";
+    echo "\n-- this page's own fresh SELECT * FROM products WHERE id = ? (independent request) --\n";
+    echo 'status: ' . var_export($product['status'] ?? null, true) . "\n";
+    echo 'availability_override: ' . var_export($product['availability_override'] ?? null, true) . "\n";
+    echo 'product_type: ' . var_export($product['product_type'] ?? null, true) . "\n";
+    echo 'preorder_closing_date: ' . var_export($product['preorder_closing_date'] ?? null, true) . "\n";
+    echo 'preorder_reopened_at: ' . var_export($product['preorder_reopened_at'] ?? null, true) . "\n";
+    echo 'estimated_release_month (NOT read by catalog_product_lifecycle_stage()): ' . var_export($product['estimated_release_month'] ?? null, true) . "\n";
+    echo "\ncomputed stage (catalog_product_lifecycle_stage() called on this exact fresh row): " . var_export($debugComputedStage, true) . "\n";
+    echo '</pre>';
+}
+// --- END TEMPORARY DEBUG INSTRUMENTATION ------------------------------------------------
+
 // Older rows predating these columns won't have the keys at all (not just NULL values),
 // so ?? is required here rather than a plain null check.
 $product['sale_enabled'] = $product['sale_enabled'] ?? 0;

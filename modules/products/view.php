@@ -102,6 +102,30 @@ require_once __DIR__ . '/../../includes/header.php';
     <div>
         <h2 class="mb-1">
             <?php echo app_escape($product['name']); ?>
+            <?php if (isset($_GET['debug_lifecycle'])): ?>
+                <?php
+                // --- TEMPORARY DEBUG INSTRUMENTATION (stale "Waiting Release" badge trace) ---
+                // Same dump as _form.php's, for this page's own independent fetch/render of the
+                // badge. Reach it manually via ?debug_lifecycle=1 (not carried by the "Open
+                // Preorder" redirect, which lands on edit.php, not this page). Remove this block
+                // (and the matching ones in reopen_preorder.php/edit.php/_form.php) once the
+                // mismatch is found.
+                $debugViewStage = catalog_product_lifecycle_stage($product);
+                ?>
+                <pre style="background:#111;color:#0f0;padding:1rem;white-space:pre-wrap;font-size:.85rem;">[LIFECYCLE-DEBUG view.php] right before catalog_lifecycle_badge($product) renders
+product_type: <?php echo var_export($product['product_type'] ?? null, true); ?>
+
+preorder_closing_date: <?php echo var_export($product['preorder_closing_date'] ?? null, true); ?>
+
+preorder_reopened_at: <?php echo var_export($product['preorder_reopened_at'] ?? null, true); ?>
+
+status: <?php echo var_export($product['status'] ?? null, true); ?>
+
+availability_override: <?php echo var_export($product['availability_override'] ?? null, true); ?>
+
+computed stage: <?php echo var_export($debugViewStage, true); ?>
+</pre>
+            <?php endif; ?>
             <?php echo catalog_lifecycle_badge($product); ?>
         </h2>
         <p class="text-muted mb-0">

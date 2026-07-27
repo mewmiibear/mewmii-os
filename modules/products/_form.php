@@ -33,6 +33,30 @@ $productFormCssVersion = is_file($productFormCssPath) ? filemtime($productFormCs
         <h2 class="mb-1">
             <?php echo $isEdit ? 'Edit Product' : 'Add Product'; ?>
             <?php if ($isEdit): ?>
+                <?php if (isset($_GET['debug_lifecycle'])): ?>
+                    <?php
+                    // --- TEMPORARY DEBUG INSTRUMENTATION (stale "Waiting Release" badge trace) ---
+                    // Dumps state at the EXACT point/moment catalog_lifecycle_badge() is called to
+                    // render the badge below - closes the loop on whether anything mutates $product
+                    // between edit.php's fetch (top of file) and this render point. Remove this
+                    // block (and the matching ones in reopen_preorder.php/edit.php/view.php) once
+                    // the mismatch is found.
+                    $debugFormStage = catalog_product_lifecycle_stage($product);
+                    ?>
+                    <pre style="background:#111;color:#0f0;padding:1rem;white-space:pre-wrap;font-size:.85rem;">[LIFECYCLE-DEBUG _form.php] right before catalog_lifecycle_badge($product) renders
+product_type: <?php echo var_export($product['product_type'] ?? null, true); ?>
+
+preorder_closing_date: <?php echo var_export($product['preorder_closing_date'] ?? null, true); ?>
+
+preorder_reopened_at: <?php echo var_export($product['preorder_reopened_at'] ?? null, true); ?>
+
+status: <?php echo var_export($product['status'] ?? null, true); ?>
+
+availability_override: <?php echo var_export($product['availability_override'] ?? null, true); ?>
+
+computed stage: <?php echo var_export($debugFormStage, true); ?>
+</pre>
+                <?php endif; ?>
                 <?php echo catalog_lifecycle_badge($product); ?>
             <?php endif; ?>
         </h2>
