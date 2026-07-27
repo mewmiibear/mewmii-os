@@ -144,8 +144,21 @@ if (!wc_webhook_verify_signature($rawBody, $signatureHeader, $secret)) {
     // found.
     $expectedForLog = base64_encode(hash_hmac('sha256', $rawBody, $secret, true));
     error_log(sprintf(
-        '[wc_webhook][signature-diagnostic] topic=%s delivery_id=%s body_bytes=%d body_sha256=%s received_signature=%s (len=%d) expected_signature=%s (len=%d) secret_sha256_fingerprint=%s',
-        $topic !== '' ? $topic : '(none - see headers below)',
+        '[wc_webhook][signature-diagnostic] method=%s content_length_header=%s content_type=%s topic=%s delivery_id=%s body_bytes=%d body_sha256=%s received_signature=%s (len=%d) expected_signature=%s (len=%d) secret_sha256_fingerprint=%s',
+        // The one unambiguous signal: WooCommerce always delivers via POST; a browser
+        // visiting the URL directly is always GET. Distinguishes "this was just someone
+        // loading the URL" from "this was a real delivery whose body/headers went missing"
+        // - topic/delivery_id below can't do this alone, since LiteSpeed stripping
+        // WooCommerce's custom X-WC-Webhook-* headers on a genuine POST would ALSO leave
+        // them blank, identical to a GET.
+        $_SERVER['REQUEST_METHOD'] ?? '(unknown)',
+        // What the server itself says the incoming body size was, independent of whether
+        // PHP's php://input actually delivered it - if this is >0 but body_bytes above is 0,
+        // the body was lost somewhere between the web server and PHP (LiteSpeed/php://input
+        // territory), not by WooCommerce failing to send one.
+        $_SERVER['CONTENT_LENGTH'] ?? '(not set)',
+        $_SERVER['CONTENT_TYPE'] ?? '(not set)',
+        $topic !== '' ? $topic : '(none)',
         $deliveryId !== '' ? $deliveryId : '(none)',
         strlen($rawBody),
         hash('sha256', $rawBody),
@@ -159,6 +172,25 @@ if (!wc_webhook_verify_signature($rawBody, $signatureHeader, $secret)) {
         // real secret anywhere.
         hash('sha256', $secret)
     ));
+
+    // Full inbound header dump - proves exactly which headers reached PHP at all. None of
+    // these are secret (they're request metadata, not credentials), so logging them in full
+    // is safe. If User-Agent/Host/etc. show up but every X-WC-Webhook-* header is missing,
+    // that's LiteSpeed (or something in front of PHP) selectively dropping WooCommerce's
+    // custom headers specifically, not a general header outage.
+    $inboundHeaders = [];
+    foreach ($_SERVER as $key => $value) {
+        if (str_starts_with($key, 'HTTP_')) {
+            $inboundHeaders[$key] = $value;
+        }
+    }
+    error_log('[wc_webhook][signature-diagnostic] inbound_headers=' . json_encode($inboundHeaders));
+    if (function_exists('getallheaders')) {
+        // Cross-check against $_SERVER's HTTP_*-derived view above - some SAPIs (LiteSpeed's
+        // LSAPI among them) have historically had discrepancies between the two, so if one
+        // shows the signature header and the other doesn't, that split itself is the finding.
+        error_log('[wc_webhook][signature-diagnostic] getallheaders=' . json_encode(getallheaders()));
+    }
     // --- END TEMPORARY DIAGNOSTIC -------------------------------------------------------
 
     http_response_code(401);
