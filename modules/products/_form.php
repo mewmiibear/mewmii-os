@@ -142,6 +142,14 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
 <?php if (isset($_GET['created'])): ?>
     <div class="alert alert-success">Product created.</div>
 <?php endif; ?>
+<?php if (($_GET['images_queued'] ?? '') === '1'): ?>
+    <div class="alert alert-info py-2">
+        Image(s) uploaded and queued for processing (compression/resize) - they'll appear below shortly.
+        <?php if (app_has_permission('settings.manage')): ?>
+            <a href="/modules/operations/job_queue.php">View Job Queue</a>.
+        <?php endif; ?>
+    </div>
+<?php endif; ?>
 <?php if (($_GET['wc_sync'] ?? '') === 'queued'): ?>
     <div class="alert alert-info py-2">
         Saved. WooCommerce sync has been queued and will run shortly.

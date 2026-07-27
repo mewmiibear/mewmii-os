@@ -4,6 +4,7 @@ require_once __DIR__ . '/../../includes/catalog.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
 require_once __DIR__ . '/../../includes/wc_client.php';
 require_once __DIR__ . '/../../includes/pricing_engine.php';
+require_once __DIR__ . '/../../includes/product_image_queue.php';
 app_require_permission('products.manage');
 
 $appTitle = 'Edit Product';
@@ -453,16 +454,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             // Images: normal AJAX handles the "instant" experience in the browser, but the
             // plain form submit still applies these directly too (progressive enhancement -
-            // works without JS, just with a full page reload).
+            // works without JS, just with a full page reload). Removal and reorder/delete are
+            // cheap DB-only operations (no GD/compression involved) and stay synchronous
+            // unchanged - only a NEW upload's heavy resize+WebP work is deferred (see
+            // image_upload_stage()'s own docblock).
             if (!empty($_POST['remove_main_image'])) {
                 product_image_remove_main($pdo, $productId);
             }
+            $pendingImages = [];
             if (!empty($_FILES['main_image']['name'])) {
-                product_image_set_main($pdo, $productId, $_FILES['main_image']);
+                $pendingImages[] = ['role' => 'main', 'staged_path' => image_upload_stage($_FILES['main_image'], 'products')];
             }
             $galleryFiles = image_upload_normalize_multi($_FILES['gallery_images'] ?? []);
-            if ($galleryFiles !== []) {
-                product_image_add_gallery($pdo, $productId, $galleryFiles);
+            foreach ($galleryFiles as $galleryFile) {
+                $pendingImages[] = ['role' => 'gallery', 'staged_path' => image_upload_stage($galleryFile, 'products')];
+            }
+            if ($pendingImages !== []) {
+                product_image_enqueue_processing($pdo, $productId, $pendingImages);
             }
             $gallerySortOrders = $_POST['gallery_sort_order'] ?? [];
             $galleryDeleteIds = $_POST['gallery_delete'] ?? [];
@@ -499,6 +507,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 wc_client_enqueue_product_sync($pdo, $productId);
                 $wcSyncStatus = '&wc_sync=queued';
             }
+            // A queued image job will enqueue its own WooCommerce sync once processing finishes
+            // (see product_image_process_pending_job()), so this flag is purely informational -
+            // it never duplicates or replaces the wc_sync flag above.
+            $imagesQueuedStatus = $pendingImages !== [] ? '&images_queued=1' : '';
             $__mark('outbound_jobs_creation'); // TEMPORARY TIMING INSTRUMENTATION (same call as wc_sync_enqueue post-Phase-11A - see includes/wc_client.php's wc_client_enqueue_product_sync())
 
             // --- TEMPORARY TIMING INSTRUMENTATION - final log line, right before redirect ---
@@ -512,7 +524,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             error_log('[product-save-timing][edit] product_id=' . $productId . ' ' . implode(' ', $__parts));
             // --- END TEMPORARY TIMING INSTRUMENTATION ---------------------------------------
 
-            app_redirect('/modules/products/edit.php?id=' . $productId . '&updated=1' . $wcSyncStatus);
+            app_redirect('/modules/products/edit.php?id=' . $productId . '&updated=1' . $wcSyncStatus . $imagesQueuedStatus);
         } catch (RuntimeException $exception) {
             $pdo->rollBack();
             $error = $exception->getMessage();

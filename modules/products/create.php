@@ -4,6 +4,7 @@ require_once __DIR__ . '/../../includes/catalog.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
 require_once __DIR__ . '/../../includes/wc_client.php';
 require_once __DIR__ . '/../../includes/pricing_engine.php';
+require_once __DIR__ . '/../../includes/product_image_queue.php';
 app_require_permission('products.manage');
 
 $appTitle = 'Add Product';
@@ -361,13 +362,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             catalog_sync_product_tag_ids($pdo, $productId, $selectedTagIds);
             $__mark('database_product_insert'); // TEMPORARY TIMING INSTRUMENTATION
 
+            // Background image processing - compression/WebP/resize was the measured save-time
+            // bottleneck (see the timing instrumentation below). Each file is validated and
+            // staged (fast, no GD - see image_upload_stage()) here, then queued for the worker
+            // to run the actual (unchanged) pipeline. A bad/corrupt/oversized file still throws
+            // here, exactly like before - only the "resize+convert+save" part moved out.
+            $pendingImages = [];
             if (!empty($_FILES['main_image']['name'])) {
-                product_image_set_main($pdo, $productId, $_FILES['main_image']);
+                $pendingImages[] = ['role' => 'main', 'staged_path' => image_upload_stage($_FILES['main_image'], 'products')];
             }
 
             $galleryFiles = image_upload_normalize_multi($_FILES['gallery_images'] ?? []);
-            if ($galleryFiles !== []) {
-                product_image_add_gallery($pdo, $productId, $galleryFiles);
+            foreach ($galleryFiles as $galleryFile) {
+                $pendingImages[] = ['role' => 'gallery', 'staged_path' => image_upload_stage($galleryFile, 'products')];
+            }
+
+            if ($pendingImages !== []) {
+                product_image_enqueue_processing($pdo, $productId, $pendingImages);
             }
 
             $__mark('image_processing'); // TEMPORARY TIMING INSTRUMENTATION (covers main+gallery image handling above; stock init below is folded into the next mark)
@@ -404,6 +415,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 wc_client_enqueue_product_sync($pdo, $productId);
                 $wcSyncStatus = '&wc_sync=queued';
             }
+            // A queued image job will enqueue its own WooCommerce sync once processing finishes
+            // (see product_image_process_pending_job()), so this flag is purely informational -
+            // it never duplicates or replaces the wc_sync flag above.
+            $imagesQueuedStatus = $pendingImages !== [] ? '&images_queued=1' : '';
             $__mark('outbound_jobs_creation'); // TEMPORARY TIMING INSTRUMENTATION (same call as wc_sync_enqueue post-Phase-11A - see includes/wc_client.php's wc_client_enqueue_product_sync())
 
             // --- TEMPORARY TIMING INSTRUMENTATION - final log line, right before redirect ---
@@ -417,7 +432,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             error_log('[product-save-timing][create] product_id=' . $productId . ' ' . implode(' ', $__parts));
             // --- END TEMPORARY TIMING INSTRUMENTATION ---------------------------------------
 
-            app_redirect('/modules/products/edit.php?id=' . $productId . '&created=1' . $wcSyncStatus);
+            app_redirect('/modules/products/edit.php?id=' . $productId . '&created=1' . $wcSyncStatus . $imagesQueuedStatus);
         } catch (RuntimeException $exception) {
             $pdo->rollBack();
             $error = $exception->getMessage();

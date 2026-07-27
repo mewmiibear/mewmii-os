@@ -39,6 +39,7 @@ if (PHP_SAPI !== 'cli') {
 require_once __DIR__ . '/../includes/bootstrap.php';
 require_once __DIR__ . '/../includes/job_queue.php';
 require_once __DIR__ . '/../includes/wc_client.php';
+require_once __DIR__ . '/../includes/product_image_queue.php';
 
 function job_worker_cli_log(string $message): void
 {
@@ -72,6 +73,16 @@ $handlers = [
         if ($result['status'] === 'failed') {
             throw new RuntimeException($result['error'] ?? 'WooCommerce product sync failed.');
         }
+    },
+    // Background product image processing (compression/WebP/resize) - moved out of the
+    // synchronous product save flow (modules/products/create.php/edit.php) since it was the
+    // measured bottleneck there. Calls product_image_process_pending_job()
+    // (includes/product_image_queue.php), which reuses the exact same, unmodified resize+WebP
+    // pipeline (image_upload_process_from_path()) and DB-write functions
+    // (product_image_set_main_from_path()/product_image_add_gallery_from_paths()) the
+    // synchronous path always used - only WHEN they run changed.
+    PRODUCT_IMAGE_PROCESS_JOB_TYPE => static function (array $job, PDO $pdo): void {
+        product_image_process_pending_job($job, $pdo);
     },
 ];
 

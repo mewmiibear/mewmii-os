@@ -82,7 +82,21 @@ function job_enqueue(PDO $pdo, string $type, ?string $entityType = null, ?int $e
         $runAfter,
     ]);
 
-    return (int) $pdo->lastInsertId();
+    $jobId = (int) $pdo->lastInsertId();
+
+    // Queue lifecycle logging (job created / processing started / completed / failed) - the
+    // latter two are already logged by job_queue_log_result() in job_queue_process_batch_body()
+    // below; this and the "processing started" log in that same function are the two points
+    // that weren't covered yet. Reuses sync_logs exactly like every other log point in this
+    // file - no second logging system.
+    sync_log_write($pdo, JOB_QUEUE_SYNC_TYPE, 'success', $entityId ?? $jobId, sprintf(
+        'job_id=%d action=%s entity=%s event=created',
+        $jobId,
+        $type,
+        $entityType !== null ? ($entityType . '#' . ($entityId ?? '?')) : '(none)'
+    ));
+
+    return $jobId;
 }
 
 /**
@@ -328,6 +342,17 @@ function job_queue_process_batch_body(PDO $pdo, array $handlers, int $batchSize,
         $summary['processed']++;
         $startedAt = microtime(true);
         $attemptNumber = (int) $job['attempts'] + 1;
+
+        // "processing started" - see job_enqueue()'s own comment on the other lifecycle points.
+        sync_log_write($pdo, JOB_QUEUE_SYNC_TYPE, 'success', $job['entity_id'] !== null ? (int) $job['entity_id'] : (int) $job['id'], sprintf(
+            'job_id=%d action=%s entity=%s attempt=%d/%d event=processing_started worker=%s',
+            (int) $job['id'],
+            $job['type'],
+            $job['entity_type'] !== null ? ($job['entity_type'] . '#' . ($job['entity_id'] ?? '?')) : '(none)',
+            $attemptNumber,
+            (int) $job['max_attempts'],
+            $workerId
+        ));
 
         $handler = $handlers[$job['type']] ?? null;
 

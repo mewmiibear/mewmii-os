@@ -125,6 +125,61 @@ function image_upload_process(array $file, string $subDir): string
     return image_upload_encode_webp($file['tmp_name'], $mime, $subDir);
 }
 
+// Deliberately outside uploads/products or uploads/variations - a staged file is a raw,
+// un-processed upload (not yet resized/WebP-converted), so it must never be mistaken for a
+// real product_images.image_path or served as one. Inherits the same "engine off" .htaccess
+// as its parent uploads/ dir (Apache .htaccess directives apply to subdirectories by default) -
+// see image_upload_ensure_htaccess().
+const IMAGE_UPLOAD_STAGING_SUBDIR = '_pending';
+
+/**
+ * Product image compression queue (background image processing) - the fast half of what
+ * image_upload_process() used to do synchronously in one call. Runs image_upload_validate()
+ * unchanged (so a corrupt/oversized/wrong-type file is still rejected immediately, exactly as
+ * before - this is what keeps "reject bad uploads immediately" working with no behavior
+ * change), then just MOVES the already-uploaded tmp file to a stable staging path - no GD
+ * decode, no resize, no WebP encode, no disk write of a processed image. That heavy work
+ * (identical pipeline, unchanged) happens later in the background worker via
+ * image_upload_process_from_path() on the staged file - see
+ * includes/product_image_queue.php's product_image_process_pending_job().
+ *
+ * PHP deletes $file['tmp_name'] at the end of THIS request regardless of what runs later, which
+ * is exactly why the heavy processing can't simply be deferred against the original upload -
+ * the file has to be moved somewhere durable before this request ends.
+ *
+ * @return string the staged file's path relative to the app root (e.g.
+ * "uploads/_pending/ab12cd34ef56.jpg") - stored in the outbound_jobs payload, never in
+ * product_images (that column is reserved for a real, already-processed .webp path).
+ */
+function image_upload_stage(array $file, string $subDir): string
+{
+    $info = image_upload_validate($file);
+    $mime = (string) ($info['mime'] ?? '');
+
+    $extension = [
+        'image/jpeg' => 'jpg',
+        'image/png' => 'png',
+        'image/gif' => 'gif',
+        'image/webp' => 'webp',
+    ][$mime] ?? 'bin';
+
+    $baseDir = image_upload_base_dir();
+    image_upload_ensure_dir($baseDir);
+    image_upload_ensure_htaccess($baseDir);
+
+    $stagingDir = $baseDir . '/' . IMAGE_UPLOAD_STAGING_SUBDIR;
+    image_upload_ensure_dir($stagingDir);
+
+    $filename = bin2hex(random_bytes(12)) . '.' . $extension;
+    $fullPath = $stagingDir . '/' . $filename;
+
+    if (!move_uploaded_file($file['tmp_name'], $fullPath)) {
+        throw new RuntimeException('Failed to stage the uploaded image for background processing.');
+    }
+
+    return 'uploads/' . IMAGE_UPLOAD_STAGING_SUBDIR . '/' . $filename;
+}
+
 /**
  * Shared resize + WebP-encode + save pipeline behind image_upload_process() (a validated
  * $_FILES upload) and image_upload_process_from_path() below (a file already on local disk,

@@ -67,6 +67,20 @@ function variation_effective_image(PDO $pdo, int $productId, int $variationId): 
 function product_image_set_main(PDO $pdo, int $productId, array $uploadedFile): void
 {
     $imagePath = image_upload_process($uploadedFile, 'products');
+    product_image_set_main_from_path($pdo, $productId, $imagePath);
+}
+
+/**
+ * Background image queue support - the DB-write half of product_image_set_main() above,
+ * extracted so the queue worker (an already-processed .webp path in hand, from
+ * image_upload_process_from_path() on a staged file - see includes/product_image_queue.php)
+ * can reuse the exact same insert/replace logic without re-running image_upload_process() on a
+ * file that was never a live $_FILES upload in the worker's own request. product_image_set_main()
+ * above is now a thin wrapper over this for every existing synchronous caller - no behavior
+ * change for any of them.
+ */
+function product_image_set_main_from_path(PDO $pdo, int $productId, string $imagePath): void
+{
     $old = product_image_get_main($pdo, $productId);
 
     $pdo->prepare("INSERT INTO product_images (product_id, variation_id, image_type, image_path, sort_order) VALUES (?, NULL, 'main', ?, 0)")
@@ -102,14 +116,34 @@ function product_image_add_gallery(PDO $pdo, int $productId, array $uploadedFile
         return;
     }
 
+    $imagePaths = [];
+    foreach ($uploadedFiles as $file) {
+        $imagePaths[] = image_upload_process($file, 'products');
+    }
+
+    product_image_add_gallery_from_paths($pdo, $productId, $imagePaths);
+}
+
+/**
+ * Background image queue support - the DB-write half of product_image_add_gallery() above,
+ * same split reasoning as product_image_set_main_from_path(). Takes already-processed .webp
+ * paths (from image_upload_process_from_path() on a staged file, run by the queue worker) and
+ * just appends the product_images rows - no behavior change for product_image_add_gallery()'s
+ * existing synchronous callers.
+ */
+function product_image_add_gallery_from_paths(PDO $pdo, int $productId, array $imagePaths): void
+{
+    if ($imagePaths === []) {
+        return;
+    }
+
     $maxOrderStmt = $pdo->prepare("SELECT COALESCE(MAX(sort_order), -1) FROM product_images WHERE product_id = ? AND variation_id IS NULL AND image_type = 'gallery'");
     $maxOrderStmt->execute([$productId]);
     $nextOrder = (int) $maxOrderStmt->fetchColumn() + 1;
 
     $insertStmt = $pdo->prepare("INSERT INTO product_images (product_id, variation_id, image_type, image_path, sort_order) VALUES (?, NULL, 'gallery', ?, ?)");
 
-    foreach ($uploadedFiles as $file) {
-        $imagePath = image_upload_process($file, 'products');
+    foreach ($imagePaths as $imagePath) {
         $insertStmt->execute([$productId, $imagePath, $nextOrder]);
         $nextOrder++;
     }
