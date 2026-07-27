@@ -36,6 +36,88 @@ if ($rawBody === false) {
 $config = wc_client_config();
 $secret = trim((string) ($config['webhook_receive_secret'] ?? ''));
 
+// --- TEMPORARY DIAGNOSTIC (production "Webhook receiving is not configured" audit) ------
+// Reachable only via ?wc_webhook_diagnose=1 (never on a normal WooCommerce delivery, which
+// never sets this param). Reports ONLY booleans/lengths/paths - never the secret value
+// itself - to distinguish between the candidate causes without creating a real disclosure
+// risk on this unauthenticated, internet-facing endpoint. Remove this whole block once the
+// mismatch is found.
+if (isset($_GET['wc_webhook_diagnose'])) {
+    $envPath = dirname(__DIR__, 2) . '/.env';
+    $configPath = dirname(__DIR__, 2) . '/config.php';
+
+    $getenvValue = getenv('WC_WEBHOOK_RECEIVE_SECRET');
+    $envSuperglobalValue = $_ENV['WC_WEBHOOK_RECEIVE_SECRET'] ?? null;
+    $serverSuperglobalValue = $_SERVER['WC_WEBHOOK_RECEIVE_SECRET'] ?? null;
+
+    $opcacheInfo = null;
+    if (function_exists('opcache_get_status')) {
+        $status = @opcache_get_status(true);
+        if (is_array($status) && isset($status['scripts'])) {
+            $realConfigPath = realpath($configPath) ?: $configPath;
+            // opcache_get_status() keys scripts by their resolved path - checked against both
+            // the raw and realpath()'d form since either can be the key depending on PHP/OS.
+            $cachedEntry = $status['scripts'][$realConfigPath] ?? $status['scripts'][$configPath] ?? null;
+            $opcacheInfo = [
+                'opcache_enabled' => true,
+                'config_php_cached' => $cachedEntry !== null,
+                // If cached, compares the timestamp opcache captured at compile time against
+                // config.php's CURRENT on-disk mtime - a mismatch means opcache is serving a
+                // stale compiled copy from before the last edit (needs a PHP-FPM/opcache
+                // reset, not just a file save) - this directly answers check #6.
+                'cached_mtime_matches_disk_mtime' => $cachedEntry !== null
+                    ? (($cachedEntry['timestamp'] ?? null) === (is_file($configPath) ? filemtime($configPath) : null))
+                    : null,
+            ];
+        } else {
+            $opcacheInfo = ['opcache_enabled' => false];
+        }
+    } else {
+        $opcacheInfo = ['opcache_enabled' => false, 'note' => 'opcache extension not loaded'];
+    }
+
+    header('Content-Type: application/json');
+    http_response_code(200);
+    echo json_encode([
+        'diagnostic' => 'wc_webhook_receive_secret',
+        'php_sapi' => PHP_SAPI,
+        'env_file' => [
+            'resolved_path' => $envPath,
+            'exists' => is_file($envPath),
+            'readable' => is_file($envPath) && is_readable($envPath),
+        ],
+        'getenv' => [
+            'present' => $getenvValue !== false,
+            'nonempty' => $getenvValue !== false && trim((string) $getenvValue) !== '',
+            'length' => $getenvValue !== false ? strlen(trim((string) $getenvValue)) : 0,
+        ],
+        'env_superglobal' => [
+            'present' => $envSuperglobalValue !== null,
+            'length' => $envSuperglobalValue !== null ? strlen(trim((string) $envSuperglobalValue)) : 0,
+        ],
+        'server_superglobal' => [
+            'present' => $serverSuperglobalValue !== null,
+            'length' => $serverSuperglobalValue !== null ? strlen(trim((string) $serverSuperglobalValue)) : 0,
+        ],
+        'config_php' => [
+            'resolved_path' => $configPath,
+            'realpath' => realpath($configPath) ?: null,
+            'exists' => is_file($configPath),
+            'mtime' => is_file($configPath) ? filemtime($configPath) : null,
+            'mtime_human' => is_file($configPath) ? gmdate('Y-m-d H:i:s', filemtime($configPath)) . ' UTC' : null,
+            'woocommerce_key_present' => isset($config) && is_array($config),
+            // isset() specifically - distinguishes "key missing from the array entirely"
+            // (stale config.php predating this mapping) from "key present but empty string"
+            // (the mapping exists, but getenv() returned nothing at the time config.php ran).
+            'webhook_receive_secret_key_present' => array_key_exists('webhook_receive_secret', $config),
+            'webhook_receive_secret_length' => strlen($secret),
+        ],
+        'opcache' => $opcacheInfo,
+    ], JSON_PRETTY_PRINT);
+    exit;
+}
+// --- END TEMPORARY DIAGNOSTIC -------------------------------------------------------------
+
 $signatureHeader = trim((string) ($_SERVER['HTTP_X_WC_WEBHOOK_SIGNATURE'] ?? ''));
 $topic = trim((string) ($_SERVER['HTTP_X_WC_WEBHOOK_TOPIC'] ?? ''));
 $resource = trim((string) ($_SERVER['HTTP_X_WC_WEBHOOK_RESOURCE'] ?? ''));
