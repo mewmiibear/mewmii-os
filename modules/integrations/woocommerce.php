@@ -66,6 +66,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $summary = wc_product_import_run($pdo);
             app_redirect('/modules/integrations/woocommerce.php?product_imported=1&created=' . $summary['products_created'] . '&updated=' . $summary['products_updated'] . '&skipped=' . $summary['products_skipped'] . '&failed=' . $summary['products_failed']);
+        } catch (RuntimeException $exception) {
+            if ($exception->getCode() === WC_PRODUCT_IMPORT_MASTER_LOCAL_BLOCKED_CODE) {
+                // Complete Mewmii OS master mode enforcement - expected, intentional refusal,
+                // not a failure. Already logged to sync_logs by wc_product_import_run() itself.
+                app_redirect('/modules/integrations/woocommerce.php?product_import_blocked=1');
+            }
+
+            app_redirect('/modules/integrations/woocommerce.php?product_imported=1&created=0&updated=0&skipped=0&failed=0&message=' . urlencode($exception->getMessage()));
         } catch (Throwable $exception) {
             app_redirect('/modules/integrations/woocommerce.php?product_imported=1&created=0&updated=0&skipped=0&failed=0&message=' . urlencode($exception->getMessage()));
         }
@@ -239,6 +247,15 @@ require_once __DIR__ . '/../../includes/header.php';
     </div>
 </div>
 
+<?php if ($syncMode === WC_CLIENT_SYNC_MODE_MASTER_LOCAL): ?>
+    <div class="alert alert-info">
+        <strong>Architecture mode:</strong><br>
+        Mewmii OS is the primary database.<br>
+        Products, customers, inventory, pricing, and catalog changes must be made in Mewmii OS.<br>
+        WooCommerce is used only as a storefront and order channel.
+    </div>
+<?php endif; ?>
+
 <?php if ($error !== ''): ?>
     <div class="alert alert-danger"><?php echo app_escape($error); ?></div>
 <?php endif; ?>
@@ -268,6 +285,10 @@ require_once __DIR__ . '/../../includes/header.php';
 
 <?php if (isset($_GET['sync_mode_saved'])): ?>
     <div class="alert alert-success">Sync Mode setting saved.</div>
+<?php endif; ?>
+
+<?php if (isset($_GET['product_import_blocked'])): ?>
+    <div class="alert alert-warning">Mewmii OS is the master source. WooCommerce product import is disabled.</div>
 <?php endif; ?>
 
 <?php if (isset($_GET['product_imported'])): ?>

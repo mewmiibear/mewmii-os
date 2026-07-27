@@ -76,6 +76,14 @@ try {
         exit(0);
     }
 
+    if ($e->getCode() === WC_PRODUCT_IMPORT_MASTER_LOCAL_BLOCKED_CODE) {
+        // Complete Mewmii OS master mode enforcement - expected, intentional state while
+        // woocommerce.sync_mode = master_local, not a cron failure. Already logged to
+        // sync_logs by wc_product_import_run() itself before it threw.
+        wc_product_import_cli_log($e->getMessage());
+        exit(0);
+    }
+
     wc_product_import_cli_error('Unhandled exception during import: ' . $e->getMessage());
     exit(1);
 } catch (Throwable $e) {

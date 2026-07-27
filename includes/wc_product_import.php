@@ -814,9 +814,31 @@ function wc_product_import_process_one_product(PDO $pdo, array $wcProduct, bool 
  * @throws RuntimeException with code WC_PRODUCT_IMPORT_LOCK_BUSY_CODE if another product sync
  * is already running - callers (see cli/wc_product_import.php) should treat this as benign/
  * expected, not a real failure.
+ *
+ * Complete Mewmii OS master mode enforcement - checked before anything else in this function
+ * (no lock, no WooCommerce API call, no cursor read - a blocked run does nothing at all).
+ * Covers BOTH callers (the "Import Products Now" button and cli/wc_product_import.php's cron/
+ * manual run) from this ONE place, so there is exactly one function deciding "is a WooCommerce
+ * -> Mewmii OS product import allowed right now" - matches the same gate already applied to
+ * product/customer webhooks in wc_webhook_process_one_event() (includes/wc_webhook.php).
+ * bidirectional mode is entirely unaffected - this function's own logic below is completely
+ * unchanged for that mode.
+ *
+ * @throws RuntimeException with code WC_PRODUCT_IMPORT_MASTER_LOCAL_BLOCKED_CODE if
+ * woocommerce.sync_mode is master_local - callers should treat this the same way, as an
+ * expected refusal, not a real failure.
  */
+const WC_PRODUCT_IMPORT_MASTER_LOCAL_BLOCKED_CODE = 42305;
+const WC_PRODUCT_IMPORT_MASTER_LOCAL_BLOCKED_MESSAGE = 'Mewmii OS is the master source. WooCommerce product import is disabled.';
+
 function wc_product_import_run(PDO $pdo, bool $dryRun = false, int $batchSize = WC_PRODUCT_IMPORT_BATCH_SIZE): array
 {
+    if (wc_client_sync_mode($pdo) === WC_CLIENT_SYNC_MODE_MASTER_LOCAL) {
+        sync_log_write($pdo, WC_PRODUCT_IMPORT_SYNC_TYPE, 'warning', null, 'action=master_local_import_blocked reason=Mewmii OS is authoritative');
+
+        throw new RuntimeException(WC_PRODUCT_IMPORT_MASTER_LOCAL_BLOCKED_MESSAGE, WC_PRODUCT_IMPORT_MASTER_LOCAL_BLOCKED_CODE);
+    }
+
     $lockStmt = $pdo->prepare('SELECT GET_LOCK(?, 0)');
     $lockStmt->execute([WC_PRODUCT_IMPORT_LOCK_NAME]);
 
