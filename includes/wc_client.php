@@ -47,6 +47,38 @@ function wc_client_auto_sync_enabled(PDO $pdo): bool
     return wc_client_get_setting($pdo, WC_CLIENT_AUTO_SYNC_SETTING_KEY) === '1';
 }
 
+// Mewmii OS master mode (Convert WooCommerce sync to Mewmii OS master mode) - reuses the same
+// settings-table key/value pattern as WC_CLIENT_AUTO_SYNC_SETTING_KEY above, so this is
+// admin-toggleable from modules/integrations/woocommerce.php with no deploy/config.php change,
+// exactly like Auto Sync already is.
+//
+// master_local (default - any stored value other than the literal string below falls back to
+// this, including unset/NULL): Mewmii OS is the single source of truth.
+//   - Product/customer WooCommerce webhooks (created/updated/deleted) are logged only, never
+//     applied - see wc_webhook_process_one_event()'s sync-mode gate in wc_webhook.php.
+//   - The product push (Save/Auto Sync/"Sync to WooCommerce") never withholds for a
+//     WooCommerce-side conflict - see wc_client_sync_if_changed() below, which skips the
+//     staleness check entirely in this mode.
+//   - Order webhooks are UNCHANGED in either mode - orders originate from WooCommerce
+//     customers, not from Mewmii OS, so there is no "master" side to protect there.
+//
+// bidirectional: the full two-way sync this app had before this phase - WooCommerce webhooks
+// import/archive/cancel as usual, and a push withholds when WooCommerce has a newer edit
+// Mewmii OS hasn't seen (see wc_client_check_product_staleness()). Every function this setting
+// gates already existed before this phase; nothing was removed, only made conditional.
+const WC_CLIENT_SYNC_MODE_SETTING_KEY = 'woocommerce_sync_mode';
+const WC_CLIENT_SYNC_MODE_MASTER_LOCAL = 'master_local';
+const WC_CLIENT_SYNC_MODE_BIDIRECTIONAL = 'bidirectional';
+
+function wc_client_sync_mode(PDO $pdo): string
+{
+    $value = wc_client_get_setting($pdo, WC_CLIENT_SYNC_MODE_SETTING_KEY);
+
+    return $value === WC_CLIENT_SYNC_MODE_BIDIRECTIONAL
+        ? WC_CLIENT_SYNC_MODE_BIDIRECTIONAL
+        : WC_CLIENT_SYNC_MODE_MASTER_LOCAL;
+}
+
 function wc_client_config(): array
 {
     static $config = null;
@@ -1203,8 +1235,14 @@ function wc_client_sync_if_changed(PDO $pdo, array $product, bool $force = false
         return ['action' => 'skipped'];
     }
 
+    // Mewmii OS master mode - in master_local (the default), Mewmii OS always wins: the
+    // WooCommerce-side staleness/conflict check below is skipped entirely and every push
+    // proceeds regardless of woocommerce_last_seen_modified_at. Only bidirectional mode still
+    // withholds a push when WooCommerce has a newer edit Mewmii OS hasn't seen - see
+    // wc_client_sync_mode()'s own docblock for what each mode means. wc_client_check_product_
+    // staleness() itself is unchanged; it is simply not called at all in master_local.
     $remoteModifiedAt = null;
-    if ($alreadyPublished) {
+    if ($alreadyPublished && wc_client_sync_mode($pdo) === WC_CLIENT_SYNC_MODE_BIDIRECTIONAL) {
         $staleness = wc_client_check_product_staleness($wooCommerceProductId, $product['woocommerce_last_seen_modified_at'] ?? null);
 
         if ($staleness['stale']) {

@@ -188,6 +188,73 @@ function wc_webhook_calculate_next_retry(int $attempts): string
 }
 
 /**
+ * Mewmii OS master mode - true when this event's resource (product/customer only - see
+ * wc_webhook_log_ignored_master_local()'s own docblock for why order is exempt) must be
+ * ignored rather than dispatched, per the current woocommerce.sync_mode setting. Shared by
+ * wc_webhook_process_one_event() (decides whether to dispatch at all) and both call sites of
+ * wc_webhook_describe_outcome() below (decide whether to ALSO write the generic post-dispatch
+ * log line) so an ignored event gets exactly one sync_logs row - the detailed one from
+ * wc_webhook_log_ignored_master_local() - never two.
+ */
+function wc_webhook_is_master_local_ignore(PDO $pdo, array $event): bool
+{
+    return ($event['resource'] === 'product' || $event['resource'] === 'customer')
+        && wc_client_sync_mode($pdo) === WC_CLIENT_SYNC_MODE_MASTER_LOCAL;
+}
+
+/**
+ * Mewmii OS master mode - in master_local (the default), product and customer webhooks are
+ * logged only, never applied: WooCommerce must never overwrite/create/archive a Mewmii OS
+ * record it doesn't control in this mode. Order webhooks are the one deliberate exception in
+ * BOTH modes - orders originate from WooCommerce customers, not from Mewmii OS, so there is no
+ * "master copy" on the Mewmii side for an order to conflict with; blocking order import would
+ * just mean orders never arrive at all. Reuses the existing sync_logs infrastructure (same
+ * WC_WEBHOOK_SYNC_TYPE, same table modules/sync-logs/index.php already renders) rather than a
+ * second logging path - status 'success' with a descriptive message, exactly matching how
+ * wc_webhook_describe_outcome() below already uses that column for non-error text. This is the
+ * ONLY log write for an ignored event - see wc_webhook_is_master_local_ignore()'s own docblock
+ * for how the two call sites avoid double-logging it.
+ *
+ * Looks up a matching local record (product by woocommerce_product_id, customer by
+ * woocommerce_customer_id) READ-ONLY, purely so the log line can carry product_id per the
+ * "ignored reason" audit requirement - this lookup never writes anything.
+ */
+function wc_webhook_log_ignored_master_local(PDO $pdo, array $event, array $payload): void
+{
+    $wcId = (int) ($payload['id'] ?? ($event['resource_id'] ?? 0));
+    $wcModifiedAt = trim((string) ($payload['date_modified'] ?? ''));
+
+    $localId = null;
+    if ($wcId > 0 && $event['resource'] === 'product') {
+        $stmt = $pdo->prepare('SELECT id FROM products WHERE woocommerce_product_id = ?');
+        $stmt->execute([$wcId]);
+        $found = $stmt->fetchColumn();
+        $localId = $found !== false ? (int) $found : null;
+    } elseif ($wcId > 0 && $event['resource'] === 'customer') {
+        $stmt = $pdo->prepare('SELECT id FROM customers WHERE woocommerce_customer_id = ?');
+        $stmt->execute([$wcId]);
+        $found = $stmt->fetchColumn();
+        $localId = $found !== false ? (int) $found : null;
+    }
+
+    $reason = $event['topic'] === $event['resource'] . '.updated'
+        ? 'WooCommerce changed externally while Mewmii OS is master'
+        : 'WooCommerce changes ignored. Mewmii OS is the master catalog.';
+
+    $description = sprintf(
+        '%s local_id=%s woocommerce_id=%d woocommerce_modified_at=%s topic=%s ignored_reason=%s action=master_local_ignore',
+        ucfirst($event['resource']),
+        $localId !== null ? (string) $localId : '(none)',
+        $wcId,
+        $wcModifiedAt !== '' ? $wcModifiedAt : '(not provided)',
+        $event['topic'],
+        $reason
+    );
+
+    sync_log_write($pdo, WC_WEBHOOK_SYNC_TYPE, 'success', $localId, $description);
+}
+
+/**
  * Routes one already-claimed event to the existing per-item processing function for its
  * resource type - reuses wc_product_import_process_one_product()/wc_order_import_single()
  * unchanged (see this file's own docblock), and the new wc_customer_import_upsert() for the
@@ -201,12 +268,26 @@ function wc_webhook_calculate_next_retry(int $attempts): string
  * order.deleted/customer.deleted never hard-delete anything on the Mewmii OS side - see
  * wc_webhook_dispatch_product_deleted()/wc_webhook_dispatch_order_deleted()/
  * wc_webhook_dispatch_customer_deleted() below for what each one actually does instead.
+ *
+ * Mewmii OS master mode - product/customer resources are additionally gated by
+ * wc_client_sync_mode() here: in master_local, every product/customer topic (created, updated,
+ * AND deleted) is logged only via wc_webhook_log_ignored_master_local() above, never dispatched
+ * to the real handlers. bidirectional mode reaches the exact same dispatch calls as before this
+ * phase - nothing about wc_webhook_dispatch_product()/_deleted()/wc_webhook_dispatch_customer()/
+ * _deleted() changed. Order resources are never gated - see
+ * wc_webhook_log_ignored_master_local()'s own docblock for why.
  */
 function wc_webhook_process_one_event(PDO $pdo, array $event): ?int
 {
     $payload = json_decode((string) $event['payload_json'], true);
     if (!is_array($payload)) {
         throw new RuntimeException('Stored webhook payload is not valid JSON.');
+    }
+
+    if (wc_webhook_is_master_local_ignore($pdo, $event)) {
+        wc_webhook_log_ignored_master_local($pdo, $event, $payload);
+
+        return null;
     }
 
     switch ($event['resource']) {
@@ -663,7 +744,12 @@ function wc_webhook_process_pending_events_body(PDO $pdo, int $batchSize): array
 
             $pdo->prepare("UPDATE webhook_events SET status = 'completed', processed_at = UTC_TIMESTAMP(), last_error = NULL, next_retry_at = NULL WHERE id = ?")
                 ->execute([$eventId]);
-            sync_log_write($pdo, WC_WEBHOOK_SYNC_TYPE, 'success', $localId, wc_webhook_describe_outcome($event, $localId));
+            // Mewmii OS master mode - an ignored event already got its own detailed log row
+            // from inside wc_webhook_process_one_event() (wc_webhook_log_ignored_master_local())
+            // - skip the generic one here so it isn't logged twice for the same delivery.
+            if (!wc_webhook_is_master_local_ignore($pdo, $event)) {
+                sync_log_write($pdo, WC_WEBHOOK_SYNC_TYPE, 'success', $localId, wc_webhook_describe_outcome($event, $localId));
+            }
             $summary['completed']++;
         } catch (Throwable $e) {
             $nextRetryAt = $newAttempts < WC_WEBHOOK_MAX_ATTEMPTS ? wc_webhook_calculate_next_retry($newAttempts) : null;
@@ -726,7 +812,10 @@ function wc_webhook_retry_event_now(PDO $pdo, int $eventId): void
 
         $pdo->prepare("UPDATE webhook_events SET status = 'completed', processed_at = UTC_TIMESTAMP(), last_error = NULL, next_retry_at = NULL WHERE id = ?")
             ->execute([$eventId]);
-        sync_log_write($pdo, WC_WEBHOOK_SYNC_TYPE, 'success', $localId, wc_webhook_describe_outcome($event, $localId));
+        // Mewmii OS master mode - same "don't double-log" reasoning as the batch processor above.
+        if (!wc_webhook_is_master_local_ignore($pdo, $event)) {
+            sync_log_write($pdo, WC_WEBHOOK_SYNC_TYPE, 'success', $localId, wc_webhook_describe_outcome($event, $localId));
+        }
     } catch (Throwable $e) {
         $pdo->prepare("UPDATE webhook_events SET status = 'failed', last_error = ?, next_retry_at = NULL WHERE id = ?")
             ->execute([$e->getMessage(), $eventId]);

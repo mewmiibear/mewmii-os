@@ -72,6 +72,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($error === '' && isset($_POST['set_auto_sync'])) {
         wc_client_set_setting($pdo, WC_CLIENT_AUTO_SYNC_SETTING_KEY, !empty($_POST['auto_sync_enabled']) ? '1' : '0');
         app_redirect('/modules/integrations/woocommerce.php?auto_sync_saved=1');
+    } elseif ($error === '' && isset($_POST['set_sync_mode'])) {
+        // Mewmii OS master mode - only the two known values are ever stored; anything else
+        // (a malformed/tampered POST) falls back to master_local, the safe default, rather
+        // than silently persisting an unrecognized mode - matches wc_client_sync_mode()'s own
+        // "anything but the literal 'bidirectional' string means master_local" reading.
+        $requestedMode = (string) ($_POST['sync_mode'] ?? '');
+        $newMode = $requestedMode === WC_CLIENT_SYNC_MODE_BIDIRECTIONAL
+            ? WC_CLIENT_SYNC_MODE_BIDIRECTIONAL
+            : WC_CLIENT_SYNC_MODE_MASTER_LOCAL;
+        wc_client_set_setting($pdo, WC_CLIENT_SYNC_MODE_SETTING_KEY, $newMode);
+        app_redirect('/modules/integrations/woocommerce.php?sync_mode_saved=1');
     }
 }
 
@@ -168,6 +179,7 @@ $recentPushLogsStmt->execute();
 $recentPushLogs = $recentPushLogsStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $autoSyncEnabled = wc_client_auto_sync_enabled($pdo);
+$syncMode = wc_client_sync_mode($pdo);
 
 // Phase 6E (WooCommerce webhook integration) - additive only, does not touch any of the
 // polling/push stats or controls above. "Enabled" here means "a receive secret is
@@ -252,6 +264,10 @@ require_once __DIR__ . '/../../includes/header.php';
 
 <?php if (isset($_GET['auto_sync_saved'])): ?>
     <div class="alert alert-success">Auto Sync setting saved.</div>
+<?php endif; ?>
+
+<?php if (isset($_GET['sync_mode_saved'])): ?>
+    <div class="alert alert-success">Sync Mode setting saved.</div>
 <?php endif; ?>
 
 <?php if (isset($_GET['product_imported'])): ?>
@@ -510,6 +526,27 @@ require_once __DIR__ . '/../../includes/header.php';
 </p>
 
 <div class="card p-4 mb-4">
+    <h6 class="mb-2">Sync Mode</h6>
+    <p class="text-muted small">
+        <strong>Mewmii OS is master (default):</strong> Mewmii OS is the single source of truth. Saving/pushing a product to WooCommerce is never withheld for a WooCommerce-side edit, and incoming product/customer webhooks (created, updated, deleted) are logged only, never applied - WooCommerce changes ignored. Mewmii OS is the master catalog. Order webhooks are unaffected either way, since orders originate from WooCommerce customers.<br>
+        <strong>Bidirectional:</strong> the full two-way sync - a push withholds when WooCommerce has a newer edit Mewmii OS hasn't seen, and product/customer webhooks import/archive/cancel as usual.
+    </p>
+    <form method="post" class="d-flex align-items-center gap-3 flex-wrap">
+        <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+        <input type="hidden" name="set_sync_mode" value="1">
+        <div class="form-check">
+            <input class="form-check-input" type="radio" name="sync_mode" id="sync-mode-master" value="<?php echo app_escape(WC_CLIENT_SYNC_MODE_MASTER_LOCAL); ?>" <?php echo $syncMode === WC_CLIENT_SYNC_MODE_MASTER_LOCAL ? 'checked' : ''; ?> onchange="this.form.requestSubmit()">
+            <label class="form-check-label" for="sync-mode-master">Mewmii OS is master</label>
+        </div>
+        <div class="form-check">
+            <input class="form-check-input" type="radio" name="sync_mode" id="sync-mode-bidirectional" value="<?php echo app_escape(WC_CLIENT_SYNC_MODE_BIDIRECTIONAL); ?>" <?php echo $syncMode === WC_CLIENT_SYNC_MODE_BIDIRECTIONAL ? 'checked' : ''; ?> onchange="this.form.requestSubmit()">
+            <label class="form-check-label" for="sync-mode-bidirectional">Bidirectional</label>
+        </div>
+        <noscript><button type="submit" class="btn btn-sm btn-outline-secondary">Save</button></noscript>
+    </form>
+</div>
+
+<div class="card p-4 mb-4">
     <h6 class="mb-2">Auto Sync</h6>
     <p class="text-muted small">When enabled, saving a product in Mewmii OS (create or edit) automatically pushes just that one product to WooCommerce. When disabled, products only sync when you click "Sync to WooCommerce" on the Products page.</p>
     <form method="post" class="d-flex align-items-center gap-2">
@@ -659,7 +696,7 @@ require_once __DIR__ . '/../../includes/header.php';
 </div>
 <div class="card p-4">
     <h6 class="mb-2">Receiver URL</h6>
-    <p class="text-muted small mb-2">Register this URL in WooCommerce (Settings &gt; Advanced &gt; Webhooks) once per topic: product.created, product.updated, product.deleted, order.created, order.updated, order.deleted, customer.created, customer.updated, customer.deleted - all can point at this same URL. Deleted-topic deliveries archive/cancel the matching Mewmii OS record rather than deleting anything.</p>
+    <p class="text-muted small mb-2">Register this URL in WooCommerce (Settings &gt; Advanced &gt; Webhooks) once per topic: product.created, product.updated, product.deleted, order.created, order.updated, order.deleted, customer.created, customer.updated, customer.deleted - all can point at this same URL. Order webhooks always import. Product/customer webhook behavior depends on Sync Mode above: under "Mewmii OS is master" (default), they're logged only and never applied; under "Bidirectional", deleted-topic deliveries archive/cancel the matching Mewmii OS record rather than deleting anything, and created/updated import as usual.</p>
     <code><?php echo app_escape($webhookReceiverUrl); ?></code>
 </div>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
