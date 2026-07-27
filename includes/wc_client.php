@@ -287,14 +287,24 @@ function wc_client_is_sku_conflict_message(string $message): bool
 
 /**
  * Bugfix (SKU sync errors) - status=any broadens this search beyond the REST API's default
- * (published-ish) status filter to draft/pending/private products too (WordPress's own
- * "any" still excludes trash - this is a real, known limitation, not a guaranteed catch-all).
- * Without this, a non-published product already holding a SKU was invisible to this search,
- * so wc_client_resolve_existing_product() found nothing, fell through to a CREATE, and
+ * (published-ish) status filter to draft/pending/private products too. Without this, a
+ * non-published product already holding a SKU was invisible to this search, so
+ * wc_client_resolve_existing_product() found nothing, fell through to a CREATE, and
  * WooCommerce rejected that with "Invalid or duplicated SKU" for a conflict this function
- * could have resolved (by updating the matched product) instead of failing outright. A SKU
- * still held by a genuinely trashed product, or by a variation elsewhere, is caught
- * separately - see wc_client_is_sku_conflict_message()'s callers below, which turn that
+ * could have resolved (by updating the matched product) instead of failing outright.
+ *
+ * SKU conflict fix - WordPress's "any" status excludes trash (a WP_Query quirk, not a
+ * WooCommerce-specific choice), so a SKU still held by a TRASHED product used to fall through
+ * to a failed CREATE the exact same way. One extra, explicit status=trash lookup, only run when
+ * the first search misses - wc_client_resolve_existing_product() then updates that trashed
+ * product via its id, and since the update payload always sets a real status (see
+ * wc_client_map_product_status_for_woocommerce() - never 'trash'), the update also un-trashes
+ * it. Wrapped so a failure in this fallback lookup itself never blocks the sync - worst case,
+ * this degrades back to the pre-fix behavior (a clear, SKU-named error) rather than a new,
+ * different failure.
+ *
+ * The one conflict shape still not auto-resolved: a SKU held by a VARIATION elsewhere (not a
+ * top-level product) - see wc_client_is_sku_conflict_message()'s callers below, which turn that
  * remaining case into a clear, SKU-named error instead of a bare WooCommerce 400.
  */
 function wc_client_find_product_by_sku(string $sku): ?array
@@ -311,14 +321,47 @@ function wc_client_find_product_by_sku(string $sku): ?array
         }
     }
 
+    try {
+        $trashed = wc_client_get('products', ['sku' => $sku, 'per_page' => 10, 'status' => 'trash']);
+    } catch (Throwable $e) {
+        return null;
+    }
+
+    foreach ($trashed as $product) {
+        if (!is_array($product)) {
+            continue;
+        }
+
+        if (trim((string) ($product['sku'] ?? '')) === $sku) {
+            return $product;
+        }
+    }
+
     return null;
 }
 
+/** Same any-status-then-trash-fallback shape as wc_client_find_product_by_sku() above, for one variation. */
 function wc_client_find_variation_by_sku(int $parentWcId, string $sku): ?array
 {
-    $variations = wc_client_get('products/' . $parentWcId . '/variations', ['sku' => $sku, 'per_page' => 10]);
+    $variations = wc_client_get('products/' . $parentWcId . '/variations', ['sku' => $sku, 'per_page' => 10, 'status' => 'any']);
 
     foreach ($variations as $variation) {
+        if (!is_array($variation)) {
+            continue;
+        }
+
+        if (trim((string) ($variation['sku'] ?? '')) === $sku) {
+            return $variation;
+        }
+    }
+
+    try {
+        $trashed = wc_client_get('products/' . $parentWcId . '/variations', ['sku' => $sku, 'per_page' => 10, 'status' => 'trash']);
+    } catch (Throwable $e) {
+        return null;
+    }
+
+    foreach ($trashed as $variation) {
         if (!is_array($variation)) {
             continue;
         }
@@ -1056,9 +1099,25 @@ function wc_client_sync_variable_product_from_mewmii(PDO $pdo, array $product): 
         }
 
         $existingVariation = wc_client_resolve_existing_variation($remoteProductId, $variation, $variationSku);
-        $variationResponse = $existingVariation !== null
-            ? wc_client_put('products/' . $remoteProductId . '/variations/' . (int) ($existingVariation['id'] ?? 0), $variationPayload)
-            : wc_client_post('products/' . $remoteProductId . '/variations', $variationPayload);
+        if ($existingVariation !== null) {
+            $variationResponse = wc_client_put('products/' . $remoteProductId . '/variations/' . (int) ($existingVariation['id'] ?? 0), $variationPayload);
+        } else {
+            try {
+                $variationResponse = wc_client_post('products/' . $remoteProductId . '/variations', $variationPayload);
+            } catch (RuntimeException $e) {
+                // SKU conflict fix - same reasoning as wc_client_sync_product_from_mewmii()'s own
+                // catch block, applied here too (requirement: same logic for variations). By this
+                // point wc_client_resolve_existing_variation() has already tried id, any-status
+                // SKU search, AND trash - so a SKU conflict surviving all of that means the SKU
+                // belongs to something this search can't see from here (a top-level product, or a
+                // variation under a DIFFERENT parent product).
+                if (wc_client_is_sku_conflict_message($e->getMessage())) {
+                    throw new RuntimeException("Variation SKU '{$variationSku}' already exists in WooCommerce but could not be automatically matched to update (it may belong to a product, or a variation under a different parent) - resolve the conflict in WooCommerce, then retry.", 0, $e);
+                }
+
+                throw $e;
+            }
+        }
 
         $remoteVariationId = (int) ($variationResponse['id'] ?? 0);
         if ($remoteVariationId > 0) {
