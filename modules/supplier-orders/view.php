@@ -536,23 +536,38 @@ require_once __DIR__ . '/../../includes/header.php';
                 <div class="card p-4 h-100">
                     <h5 class="mb-3"><i class="bi bi-truck"></i> Supplier</h5>
                     <table class="table table-borderless mb-0">
-                        <tr><th>Supplier</th><td>
-                            <?php if ($canViewSuppliers): ?>
-                                <a href="/modules/suppliers/view.php?id=<?php echo (int) $order['supplier_id']; ?>"><?php echo app_escape($order['supplier_name']); ?></a>
-                            <?php else: ?>
-                                <?php echo app_escape($order['supplier_name']); ?>
-                            <?php endif; ?>
-                        </td></tr>
-                        <tr><th>Created Date</th><td><?php echo app_escape($order['order_date'] ?? '-'); ?></td></tr>
-                        <tr><th>Expected Delivery</th><td>
-                            <?php echo app_escape($order['expected_delivery_date'] ?? '-'); ?>
-                            <?php if ($isOverdue): ?>
-                                <div><span class="badge bg-danger">Overdue by <?php echo (int) $daysOverdue; ?> day<?php echo $daysOverdue === 1 ? '' : 's'; ?></span></div>
-                            <?php endif; ?>
-                        </td></tr>
-                        <tr><th>Received Date</th><td><?php echo app_escape($order['received_date'] ?? '-'); ?></td></tr>
+                        <tr>
+                            <th>Supplier</th>
+                            <td>
+                                <?php if ($canViewSuppliers): ?>
+                                    <a href="/modules/suppliers/view.php?id=<?php echo (int) $order['supplier_id']; ?>"><?php echo app_escape($order['supplier_name']); ?></a>
+                                <?php else: ?>
+                                    <?php echo app_escape($order['supplier_name']); ?>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Created Date</th>
+                            <td><?php echo app_escape($order['order_date'] ?? '-'); ?></td>
+                        </tr>
+                        <tr>
+                            <th>Expected Delivery</th>
+                            <td>
+                                <?php echo app_escape($order['expected_delivery_date'] ?? '-'); ?>
+                                <?php if ($isOverdue): ?>
+                                    <div><span class="badge bg-danger">Overdue by <?php echo (int) $daysOverdue; ?> day<?php echo $daysOverdue === 1 ? '' : 's'; ?></span></div>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Received Date</th>
+                            <td><?php echo app_escape($order['received_date'] ?? '-'); ?></td>
+                        </tr>
                         <?php if (!empty($order['notes'])): ?>
-                            <tr><th>Notes</th><td><?php echo nl2br(app_escape($order['notes'])); ?></td></tr>
+                            <tr>
+                                <th>Notes</th>
+                                <td><?php echo nl2br(app_escape($order['notes'])); ?></td>
+                            </tr>
                         <?php endif; ?>
                     </table>
                     <div class="mt-2">
@@ -570,12 +585,30 @@ require_once __DIR__ . '/../../includes/header.php';
                 <div class="card p-4 h-100">
                     <h5 class="mb-3"><i class="bi bi-cash-coin"></i> Payment Summary</h5>
                     <table class="table table-borderless mb-0">
-                        <tr><th>Payment Status</th><td><?php echo supplier_order_payment_status_badge((string) $order['payment_status']); ?></td></tr>
-                        <tr><th>Product Subtotal</th><td class="text-end">RM <?php echo app_escape(number_format($orderTotal, 2)); ?></td></tr>
-                        <tr><th>Shipping Fee</th><td class="text-end">RM <?php echo app_escape(number_format((float) $order['shipping_fee'], 2)); ?></td></tr>
-                        <tr class="fw-semibold"><th>Total Purchase Amount</th><td class="text-end">RM <?php echo app_escape(number_format($totalPurchaseAmount, 2)); ?></td></tr>
-                        <tr><th>Paid Amount</th><td class="text-end">RM <?php echo app_escape(number_format($paidAmount, 2)); ?></td></tr>
-                        <tr><th>Remaining Amount</th><td class="text-end"><?php echo $remainingAmount > 0.001 ? '<span class="text-danger">RM ' . app_escape(number_format($remainingAmount, 2)) . '</span>' : 'RM ' . app_escape(number_format($remainingAmount, 2)); ?></td></tr>
+                        <tr>
+                            <th>Payment Status</th>
+                            <td><?php echo supplier_order_payment_status_badge((string) $order['payment_status']); ?></td>
+                        </tr>
+                        <tr>
+                            <th>Product Subtotal</th>
+                            <td class="text-end">RM <?php echo app_escape(number_format($orderTotal, 2)); ?></td>
+                        </tr>
+                        <tr>
+                            <th>Shipping Fee</th>
+                            <td class="text-end">RM <?php echo app_escape(number_format((float) $order['shipping_fee'], 2)); ?></td>
+                        </tr>
+                        <tr class="fw-semibold">
+                            <th>Total Purchase Amount</th>
+                            <td class="text-end">RM <?php echo app_escape(number_format($totalPurchaseAmount, 2)); ?></td>
+                        </tr>
+                        <tr>
+                            <th>Paid Amount</th>
+                            <td class="text-end">RM <?php echo app_escape(number_format($paidAmount, 2)); ?></td>
+                        </tr>
+                        <tr>
+                            <th>Remaining Amount</th>
+                            <td class="text-end"><?php echo $remainingAmount > 0.001 ? '<span class="text-danger">RM ' . app_escape(number_format($remainingAmount, 2)) . '</span>' : 'RM ' . app_escape(number_format($remainingAmount, 2)); ?></td>
+                        </tr>
                     </table>
                     <?php $paidPct = $totalPurchaseAmount > 0 ? (int) round(min(100, ($paidAmount / $totalPurchaseAmount) * 100)) : 0; ?>
                     <div class="mt-2">
@@ -592,18 +625,17 @@ require_once __DIR__ . '/../../includes/header.php';
 
             <?php
             // Phase 6B (Supplier Order currency) - only shown for a foreign-currency order;
-            // a plain MYR order (every order before this feature, and any new order left on
-            // MYR) looks exactly as it did before this card existed.
-            $supplierCurrency = (string) ($order['currency'] ?? 'MYR');
+            // a plain selling-currency order looks exactly as it did before this card existed.
+            $supplierCurrency = (string) ($order['currency'] ?? SYSTEM_SELLING_CURRENCY);
             ?>
-            <?php if ($supplierCurrency !== 'MYR'): ?>
+            <?php if ($supplierCurrency !== SYSTEM_SELLING_CURRENCY): ?>
                 <?php
                 $currencySymbols = ['JPY' => '¥', 'CNY' => '¥', 'USD' => '$'];
                 $currencySymbol = $currencySymbols[$supplierCurrency] ?? ($supplierCurrency . ' ');
                 $orderExchangeRate = $order['exchange_rate'] !== null ? (float) $order['exchange_rate'] : 1.0;
-                // Small rates (e.g. JPY, where 1 unit is worth a fraction of a Ringgit) read
-                // clearer quoted per 100; anything else is shown per 1 - purely a display
-                // choice, the stored/calculated rate itself is always "1 unit = X MYR".
+                // Small rates (e.g. JPY, where 1 unit is worth a fraction of the selling currency)
+                // read clearer quoted per 100; anything else is shown per 1 - purely a display
+                // choice, the stored/calculated rate itself is always "1 unit = X selling currency".
                 $exchangeRateDisplay = $orderExchangeRate < 0.1
                     ? ('100 ' . $supplierCurrency . ' = RM' . number_format($orderExchangeRate * 100, 2))
                     : ('1 ' . $supplierCurrency . ' = RM' . number_format($orderExchangeRate, 2));
@@ -612,12 +644,24 @@ require_once __DIR__ . '/../../includes/header.php';
                     <div class="card p-4 h-100">
                         <h5 class="mb-3"><i class="bi bi-currency-exchange"></i> Supplier Currency</h5>
                         <table class="table table-borderless mb-0">
-                            <tr><th>Supplier Currency</th><td class="text-end"><?php echo app_escape($supplierCurrency); ?></td></tr>
-                            <tr><th>Exchange Rate</th><td class="text-end"><?php echo app_escape($exchangeRateDisplay); ?></td></tr>
-                            <tr><th>Supplier Total</th><td class="text-end"><?php echo app_escape($currencySymbol . number_format((float) ($order['foreign_total'] ?? 0), 2)); ?></td></tr>
-                            <tr class="fw-semibold"><th>Converted Total</th><td class="text-end">RM <?php echo app_escape(number_format($orderTotal, 2)); ?></td></tr>
+                            <tr>
+                                <th>Supplier Currency</th>
+                                <td class="text-end"><?php echo app_escape($supplierCurrency); ?></td>
+                            </tr>
+                            <tr>
+                                <th>Exchange Rate</th>
+                                <td class="text-end"><?php echo app_escape($exchangeRateDisplay); ?></td>
+                            </tr>
+                            <tr>
+                                <th>Supplier Total</th>
+                                <td class="text-end"><?php echo app_escape($currencySymbol . number_format((float) ($order['foreign_total'] ?? 0), 2)); ?></td>
+                            </tr>
+                            <tr class="fw-semibold">
+                                <th>Converted Total</th>
+                                <td class="text-end"><?php echo app_escape(SYSTEM_SELLING_CURRENCY); ?> <?php echo app_escape(number_format($orderTotal, 2)); ?></td>
+                            </tr>
                         </table>
-                        <div class="form-text mt-2">Product cost only - shipping fee and payments are tracked in RM.</div>
+                        <div class="form-text mt-2">Product cost only - shipping fee and payments are tracked in <?php echo app_escape(SYSTEM_SELLING_CURRENCY); ?>.</div>
                     </div>
                 </div>
             <?php endif; ?>
@@ -687,7 +731,7 @@ require_once __DIR__ . '/../../includes/header.php';
                             <td class="text-end"><?php echo app_escape((string) $item['remaining_quantity']); ?></td>
                             <td class="text-end">
                                 RM <?php echo app_escape(number_format((float) $item['supplier_price'], 2)); ?>
-                                <?php if ($supplierCurrency !== 'MYR' && $item['unit_cost_foreign'] !== null): ?>
+                                <?php if ($supplierCurrency !== SYSTEM_SELLING_CURRENCY && $item['unit_cost_foreign'] !== null): ?>
                                     <div class="text-muted small"><?php echo app_escape($currencySymbol . number_format((float) $item['unit_cost_foreign'], 2)); ?></div>
                                 <?php endif; ?>
                             </td>
@@ -711,144 +755,146 @@ require_once __DIR__ . '/../../includes/header.php';
                         </tr>
                     <?php endforeach; ?>
                     <?php if ($items === []): ?>
-                        <tr><td colspan="<?php echo $canManage ? 7 : 6; ?>" class="text-muted">No items on this order.</td></tr>
+                        <tr>
+                            <td colspan="<?php echo $canManage ? 7 : 6; ?>" class="text-muted">No items on this order.</td>
+                        </tr>
                     <?php endif; ?>
                 </tbody>
             </table>
         </div>
 
         <?php if ($items !== []): ?>
-        <div class="card p-4 mt-4">
-            <h5 class="mb-3"><i class="bi bi-box-seam"></i> Shipping &amp; Additional Costs</h5>
+            <div class="card p-4 mt-4">
+                <h5 class="mb-3"><i class="bi bi-box-seam"></i> Shipping &amp; Additional Costs</h5>
 
-            <?php if ($shippingAllocationMismatch): ?>
-                <div class="alert alert-warning py-2">
-                    Allocated total (RM <?php echo app_escape(number_format($totalShippingAllocated, 2)); ?>) does not match this order's Shipping Fee (RM <?php echo app_escape(number_format((float) $order['shipping_fee'], 2)); ?>).
+                <?php if ($shippingAllocationMismatch): ?>
+                    <div class="alert alert-warning py-2">
+                        Allocated total (RM <?php echo app_escape(number_format($totalShippingAllocated, 2)); ?>) does not match this order's Shipping Fee (RM <?php echo app_escape(number_format((float) $order['shipping_fee'], 2)); ?>).
+                    </div>
+                <?php endif; ?>
+
+                <div class="d-flex justify-content-between small text-muted mb-1">
+                    <span>Total Shipping Allocated</span>
+                    <span>
+                        RM <?php echo app_escape(number_format($totalShippingAllocated, 2)); ?>
+                        of RM <?php echo app_escape(number_format((float) $order['shipping_fee'], 2)); ?> shipping fee
+                        <?php if (!$anyShippingAllocated): ?><span class="text-muted">(not yet allocated)</span><?php endif; ?>
+                    </span>
                 </div>
-            <?php endif; ?>
+                <div class="d-flex justify-content-between small text-muted mb-3">
+                    <span>Total Additional Costs</span>
+                    <span>RM <?php echo app_escape(number_format($totalOtherCostsAllocated, 2)); ?></span>
+                </div>
 
-            <div class="d-flex justify-content-between small text-muted mb-1">
-                <span>Total Shipping Allocated</span>
-                <span>
-                    RM <?php echo app_escape(number_format($totalShippingAllocated, 2)); ?>
-                    of RM <?php echo app_escape(number_format((float) $order['shipping_fee'], 2)); ?> shipping fee
-                    <?php if (!$anyShippingAllocated): ?><span class="text-muted">(not yet allocated)</span><?php endif; ?>
-                </span>
-            </div>
-            <div class="d-flex justify-content-between small text-muted mb-3">
-                <span>Total Additional Costs</span>
-                <span>RM <?php echo app_escape(number_format($totalOtherCostsAllocated, 2)); ?></span>
-            </div>
-
-            <?php if ($canManage): ?>
-                <form method="post" id="shipping-allocation-form">
-                    <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
-                    <input type="hidden" name="action" value="allocate_shipping">
-                    <div class="row g-2 align-items-end mb-3">
-                        <div class="col-md-4">
-                            <label class="form-label small mb-1">Total Shipment Shipping Cost (RM)</label>
-                            <input type="number" step="0.01" min="0" class="form-control form-control-sm" name="total_shipping_cost" id="shipping-total-input" value="<?php echo app_escape(number_format((float) $order['shipping_fee'], 2, '.', '')); ?>" required>
+                <?php if ($canManage): ?>
+                    <form method="post" id="shipping-allocation-form">
+                        <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                        <input type="hidden" name="action" value="allocate_shipping">
+                        <div class="row g-2 align-items-end mb-3">
+                            <div class="col-md-4">
+                                <label class="form-label small mb-1">Total Shipment Shipping Cost (RM)</label>
+                                <input type="number" step="0.01" min="0" class="form-control form-control-sm" name="total_shipping_cost" id="shipping-total-input" value="<?php echo app_escape(number_format((float) $order['shipping_fee'], 2, '.', '')); ?>" required>
+                            </div>
+                            <div class="col-md-5">
+                                <label class="form-label small mb-1">Allocation Method</label>
+                                <select class="form-select form-select-sm" name="allocation_method" id="shipping-method-select">
+                                    <option value="by_quantity">By Item Quantity</option>
+                                    <option value="by_cost">By Item Cost Value</option>
+                                    <option value="manual">Manual Override</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <button type="submit" class="btn btn-sm btn-primary w-100">Allocate Shipping</button>
+                            </div>
                         </div>
-                        <div class="col-md-5">
-                            <label class="form-label small mb-1">Allocation Method</label>
-                            <select class="form-select form-select-sm" name="allocation_method" id="shipping-method-select">
-                                <option value="by_quantity">By Item Quantity</option>
-                                <option value="by_cost">By Item Cost Value</option>
-                                <option value="manual">Manual Override</option>
+
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>SKU</th>
+                                        <th>Product</th>
+                                        <th class="text-end">Qty</th>
+                                        <th class="text-end">Cost Value</th>
+                                        <th class="text-end">Shipping Allocation</th>
+                                        <th class="text-end d-none" id="manual-alloc-header">Manual Amount (RM)</th>
+                                        <th>Additional Costs</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($items as $item): ?>
+                                        <tr>
+                                            <td><?php echo app_escape($item['sku']); ?></td>
+                                            <td><?php echo app_escape($item['product_name']); ?></td>
+                                            <td class="text-end"><?php echo (int) $item['total_quantity']; ?></td>
+                                            <td class="text-end">RM <?php echo app_escape(number_format((float) $item['subtotal'], 2)); ?></td>
+                                            <td class="text-end"><?php echo $item['shipping_allocated'] !== null ? ('RM ' . app_escape(number_format((float) $item['shipping_allocated'], 2))) : '&mdash;'; ?></td>
+                                            <td class="text-end d-none manual-alloc-cell">
+                                                <input type="number" step="0.01" min="0" class="form-control form-control-sm manual-alloc-input" name="shipping_allocated[<?php echo (int) $item['id']; ?>]" value="<?php echo $item['shipping_allocated'] !== null ? app_escape(number_format((float) $item['shipping_allocated'], 2, '.', '')) : '0.00'; ?>">
+                                            </td>
+                                            <td>
+                                                <?php foreach ($itemCostsByItem[(int) $item['id']] ?? [] as $costRow): ?>
+                                                    <span class="badge bg-light text-dark border me-1 mb-1 d-inline-flex align-items-center gap-1">
+                                                        <?php echo app_escape($costRow['cost_type']); ?>: RM <?php echo app_escape(number_format((float) $costRow['amount'], 2)); ?>
+                                                        <?php if ($canManage): ?>
+                                                            <form method="post" class="d-inline" onsubmit="return confirm('Remove this additional cost?');">
+                                                                <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                                                                <input type="hidden" name="action" value="delete_item_cost">
+                                                                <input type="hidden" name="cost_id" value="<?php echo (int) $costRow['id']; ?>">
+                                                                <button type="submit" class="btn-close" style="font-size: 0.55rem;" aria-label="Remove"></button>
+                                                            </form>
+                                                        <?php endif; ?>
+                                                    </span>
+                                                <?php endforeach; ?>
+                                                <?php if (($itemCostsByItem[(int) $item['id']] ?? []) === []): ?>
+                                                    <span class="text-muted small">&mdash;</span>
+                                                <?php endif; ?>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="text-end small text-muted mt-2 d-none" id="manual-running-total">Manual total: RM <span id="manual-running-total-value">0.00</span></div>
+                    </form>
+
+                    <hr class="my-3">
+                    <div class="fw-semibold mb-2">Add Additional Cost</div>
+                    <form method="post" class="row g-2 align-items-end">
+                        <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                        <input type="hidden" name="action" value="add_item_cost">
+                        <div class="col-md-3">
+                            <label class="form-label small mb-1">Order Line</label>
+                            <select name="item_id" class="form-select form-select-sm" required>
+                                <?php foreach ($items as $item): ?>
+                                    <option value="<?php echo (int) $item['id']; ?>"><?php echo app_escape($item['sku'] . ' - ' . $item['product_name']); ?></option>
+                                <?php endforeach; ?>
                             </select>
                         </div>
                         <div class="col-md-3">
-                            <button type="submit" class="btn btn-sm btn-primary w-100">Allocate Shipping</button>
-                        </div>
-                    </div>
-
-                    <div class="table-responsive">
-                        <table class="table table-sm align-middle mb-0">
-                            <thead>
-                                <tr>
-                                    <th>SKU</th>
-                                    <th>Product</th>
-                                    <th class="text-end">Qty</th>
-                                    <th class="text-end">Cost Value</th>
-                                    <th class="text-end">Shipping Allocation</th>
-                                    <th class="text-end d-none" id="manual-alloc-header">Manual Amount (RM)</th>
-                                    <th>Additional Costs</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($items as $item): ?>
-                                    <tr>
-                                        <td><?php echo app_escape($item['sku']); ?></td>
-                                        <td><?php echo app_escape($item['product_name']); ?></td>
-                                        <td class="text-end"><?php echo (int) $item['total_quantity']; ?></td>
-                                        <td class="text-end">RM <?php echo app_escape(number_format((float) $item['subtotal'], 2)); ?></td>
-                                        <td class="text-end"><?php echo $item['shipping_allocated'] !== null ? ('RM ' . app_escape(number_format((float) $item['shipping_allocated'], 2))) : '&mdash;'; ?></td>
-                                        <td class="text-end d-none manual-alloc-cell">
-                                            <input type="number" step="0.01" min="0" class="form-control form-control-sm manual-alloc-input" name="shipping_allocated[<?php echo (int) $item['id']; ?>]" value="<?php echo $item['shipping_allocated'] !== null ? app_escape(number_format((float) $item['shipping_allocated'], 2, '.', '')) : '0.00'; ?>">
-                                        </td>
-                                        <td>
-                                            <?php foreach ($itemCostsByItem[(int) $item['id']] ?? [] as $costRow): ?>
-                                                <span class="badge bg-light text-dark border me-1 mb-1 d-inline-flex align-items-center gap-1">
-                                                    <?php echo app_escape($costRow['cost_type']); ?>: RM <?php echo app_escape(number_format((float) $costRow['amount'], 2)); ?>
-                                                    <?php if ($canManage): ?>
-                                                        <form method="post" class="d-inline" onsubmit="return confirm('Remove this additional cost?');">
-                                                            <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
-                                                            <input type="hidden" name="action" value="delete_item_cost">
-                                                            <input type="hidden" name="cost_id" value="<?php echo (int) $costRow['id']; ?>">
-                                                            <button type="submit" class="btn-close" style="font-size: 0.55rem;" aria-label="Remove"></button>
-                                                        </form>
-                                                    <?php endif; ?>
-                                                </span>
-                                            <?php endforeach; ?>
-                                            <?php if (($itemCostsByItem[(int) $item['id']] ?? []) === []): ?>
-                                                <span class="text-muted small">&mdash;</span>
-                                            <?php endif; ?>
-                                        </td>
-                                    </tr>
+                            <label class="form-label small mb-1">Cost Type</label>
+                            <select name="cost_type" id="item-cost-type-select" class="form-select form-select-sm">
+                                <?php foreach (SUPPLIER_ORDER_ITEM_COST_TYPE_SUGGESTIONS as $costTypeSuggestion): ?>
+                                    <option value="<?php echo app_escape($costTypeSuggestion); ?>"><?php echo app_escape($costTypeSuggestion); ?></option>
                                 <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                    <div class="text-end small text-muted mt-2 d-none" id="manual-running-total">Manual total: RM <span id="manual-running-total-value">0.00</span></div>
-                </form>
-
-                <hr class="my-3">
-                <div class="fw-semibold mb-2">Add Additional Cost</div>
-                <form method="post" class="row g-2 align-items-end">
-                    <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
-                    <input type="hidden" name="action" value="add_item_cost">
-                    <div class="col-md-3">
-                        <label class="form-label small mb-1">Order Line</label>
-                        <select name="item_id" class="form-select form-select-sm" required>
-                            <?php foreach ($items as $item): ?>
-                                <option value="<?php echo (int) $item['id']; ?>"><?php echo app_escape($item['sku'] . ' - ' . $item['product_name']); ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div class="col-md-3">
-                        <label class="form-label small mb-1">Cost Type</label>
-                        <select name="cost_type" id="item-cost-type-select" class="form-select form-select-sm">
-                            <?php foreach (SUPPLIER_ORDER_ITEM_COST_TYPE_SUGGESTIONS as $costTypeSuggestion): ?>
-                                <option value="<?php echo app_escape($costTypeSuggestion); ?>"><?php echo app_escape($costTypeSuggestion); ?></option>
-                            <?php endforeach; ?>
-                            <option value="__custom__">Custom type&hellip;</option>
-                        </select>
-                        <input type="text" class="form-control form-control-sm mt-2 d-none" id="item-cost-type-other" name="cost_type_other" maxlength="50" placeholder="e.g. Insurance">
-                    </div>
-                    <div class="col-md-2">
-                        <label class="form-label small mb-1">Amount (RM)</label>
-                        <input type="number" step="0.01" min="0" class="form-control form-control-sm" name="amount" required>
-                    </div>
-                    <div class="col-md-2">
-                        <label class="form-label small mb-1">Notes</label>
-                        <input type="text" class="form-control form-control-sm" name="notes">
-                    </div>
-                    <div class="col-md-2">
-                        <button type="submit" class="btn btn-sm btn-primary w-100">Add Cost</button>
-                    </div>
-                </form>
-            <?php endif; ?>
-        </div>
+                                <option value="__custom__">Custom type&hellip;</option>
+                            </select>
+                            <input type="text" class="form-control form-control-sm mt-2 d-none" id="item-cost-type-other" name="cost_type_other" maxlength="50" placeholder="e.g. Insurance">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small mb-1">Amount (RM)</label>
+                            <input type="number" step="0.01" min="0" class="form-control form-control-sm" name="amount" required>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small mb-1">Notes</label>
+                            <input type="text" class="form-control form-control-sm" name="notes">
+                        </div>
+                        <div class="col-md-2">
+                            <button type="submit" class="btn btn-sm btn-primary w-100">Add Cost</button>
+                        </div>
+                    </form>
+                <?php endif; ?>
+            </div>
         <?php endif; ?>
     </div>
 
@@ -981,77 +1027,77 @@ require_once __DIR__ . '/../../includes/header.php';
 </div>
 
 <?php if ($canManage && $items !== []): ?>
-<script>
-(function () {
-    // Phase 7D (Shipping Allocation) - same toggle-by-classList shape already used elsewhere
-    // in this app (e.g. modules/products/_form.php's Enable Sale / Cost Currency toggles),
-    // self-contained here since nothing else on this page needs it.
-    var methodSelect = document.getElementById('shipping-method-select');
-    var manualHeader = document.getElementById('manual-alloc-header');
-    var manualCells = document.querySelectorAll('.manual-alloc-cell');
-    var manualInputs = document.querySelectorAll('.manual-alloc-input');
-    var runningTotalWrap = document.getElementById('manual-running-total');
-    var runningTotalValue = document.getElementById('manual-running-total-value');
-    var hasExistingAllocation = <?php echo $anyShippingAllocated ? 'true' : 'false'; ?>;
+    <script>
+        (function() {
+            // Phase 7D (Shipping Allocation) - same toggle-by-classList shape already used elsewhere
+            // in this app (e.g. modules/products/_form.php's Enable Sale / Cost Currency toggles),
+            // self-contained here since nothing else on this page needs it.
+            var methodSelect = document.getElementById('shipping-method-select');
+            var manualHeader = document.getElementById('manual-alloc-header');
+            var manualCells = document.querySelectorAll('.manual-alloc-cell');
+            var manualInputs = document.querySelectorAll('.manual-alloc-input');
+            var runningTotalWrap = document.getElementById('manual-running-total');
+            var runningTotalValue = document.getElementById('manual-running-total-value');
+            var hasExistingAllocation = <?php echo $anyShippingAllocated ? 'true' : 'false'; ?>;
 
-    function applyMethod() {
-        var isManual = methodSelect.value === 'manual';
-        if (manualHeader) {
-            manualHeader.classList.toggle('d-none', !isManual);
-        }
-        manualCells.forEach(function (cell) {
-            cell.classList.toggle('d-none', !isManual);
-        });
-        if (runningTotalWrap) {
-            runningTotalWrap.classList.toggle('d-none', !isManual);
-        }
-        updateRunningTotal();
-    }
-
-    function updateRunningTotal() {
-        if (!runningTotalValue) {
-            return;
-        }
-        var total = 0;
-        manualInputs.forEach(function (input) {
-            total += parseFloat(input.value) || 0;
-        });
-        runningTotalValue.textContent = total.toFixed(2);
-    }
-
-    if (methodSelect) {
-        methodSelect.addEventListener('change', applyMethod);
-        applyMethod();
-    }
-    manualInputs.forEach(function (input) {
-        input.addEventListener('input', updateRunningTotal);
-    });
-
-    var form = document.getElementById('shipping-allocation-form');
-    if (form) {
-        form.addEventListener('submit', function (event) {
-            // "Do not silently overwrite existing allocations" - every method (including
-            // switching from a prior manual allocation to an automatic one, or vice versa)
-            // replaces every line's shipping_allocated, so this fires regardless of which
-            // method is selected whenever an allocation already exists.
-            if (hasExistingAllocation && !confirm('This order already has a shipping allocation. Continue and overwrite it?')) {
-                event.preventDefault();
+            function applyMethod() {
+                var isManual = methodSelect.value === 'manual';
+                if (manualHeader) {
+                    manualHeader.classList.toggle('d-none', !isManual);
+                }
+                manualCells.forEach(function(cell) {
+                    cell.classList.toggle('d-none', !isManual);
+                });
+                if (runningTotalWrap) {
+                    runningTotalWrap.classList.toggle('d-none', !isManual);
+                }
+                updateRunningTotal();
             }
-        });
-    }
 
-    // Phase 7F (Additional Costs Framework) - same toggle-by-classList shape as the Cost
-    // Currency "Other" field on modules/products/_form.php, self-contained here.
-    var costTypeSelect = document.getElementById('item-cost-type-select');
-    var costTypeOther = document.getElementById('item-cost-type-other');
-    if (costTypeSelect && costTypeOther) {
-        var applyCostType = function () {
-            costTypeOther.classList.toggle('d-none', costTypeSelect.value !== '__custom__');
-        };
-        costTypeSelect.addEventListener('change', applyCostType);
-        applyCostType();
-    }
-})();
-</script>
+            function updateRunningTotal() {
+                if (!runningTotalValue) {
+                    return;
+                }
+                var total = 0;
+                manualInputs.forEach(function(input) {
+                    total += parseFloat(input.value) || 0;
+                });
+                runningTotalValue.textContent = total.toFixed(2);
+            }
+
+            if (methodSelect) {
+                methodSelect.addEventListener('change', applyMethod);
+                applyMethod();
+            }
+            manualInputs.forEach(function(input) {
+                input.addEventListener('input', updateRunningTotal);
+            });
+
+            var form = document.getElementById('shipping-allocation-form');
+            if (form) {
+                form.addEventListener('submit', function(event) {
+                    // "Do not silently overwrite existing allocations" - every method (including
+                    // switching from a prior manual allocation to an automatic one, or vice versa)
+                    // replaces every line's shipping_allocated, so this fires regardless of which
+                    // method is selected whenever an allocation already exists.
+                    if (hasExistingAllocation && !confirm('This order already has a shipping allocation. Continue and overwrite it?')) {
+                        event.preventDefault();
+                    }
+                });
+            }
+
+            // Phase 7F (Additional Costs Framework) - same toggle-by-classList shape as the Cost
+            // Currency "Other" field on modules/products/_form.php, self-contained here.
+            var costTypeSelect = document.getElementById('item-cost-type-select');
+            var costTypeOther = document.getElementById('item-cost-type-other');
+            if (costTypeSelect && costTypeOther) {
+                var applyCostType = function() {
+                    costTypeOther.classList.toggle('d-none', costTypeSelect.value !== '__custom__');
+                };
+                costTypeSelect.addEventListener('change', applyCostType);
+                applyCostType();
+            }
+        })();
+    </script>
 <?php endif; ?>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

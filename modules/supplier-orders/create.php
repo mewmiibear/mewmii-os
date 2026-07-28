@@ -11,7 +11,7 @@ $pdo = app_db();
 
 // Phase 6B (Supplier Order currency) - dropdown offered on the form; 'OTHER' reveals a free-
 // text code (currency_other below) for anything not in this short list.
-const SUPPLIER_ORDER_CURRENCY_OPTIONS = ['MYR', 'JPY', 'CNY', 'USD'];
+const SUPPLIER_ORDER_CURRENCY_OPTIONS = ['MYR', 'JPY', 'CNY', 'USD', 'EUR', 'GBP'];
 
 $form = [
     'supplier_id' => '',
@@ -19,7 +19,7 @@ $form = [
     'notes' => '',
     'shipping_fee' => '0.00',
     'payment_status' => 'unpaid',
-    'currency' => 'MYR',
+    'currency' => SYSTEM_SELLING_CURRENCY,
     'currency_other' => '',
     'exchange_rate' => '',
 ];
@@ -37,7 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form['notes'] = trim((string) ($_POST['notes'] ?? ''));
     $form['shipping_fee'] = trim((string) ($_POST['shipping_fee'] ?? ''));
     $form['payment_status'] = in_array($_POST['payment_status'] ?? '', SUPPLIER_ORDER_PAYMENT_STATUSES, true) ? $_POST['payment_status'] : 'unpaid';
-    $form['currency'] = trim((string) ($_POST['currency'] ?? 'MYR'));
+    $form['currency'] = trim((string) ($_POST['currency'] ?? SYSTEM_SELLING_CURRENCY));
     $form['currency_other'] = trim((string) ($_POST['currency_other'] ?? ''));
     $form['exchange_rate'] = trim((string) ($_POST['exchange_rate'] ?? ''));
 
@@ -54,9 +54,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Invalid currency.';
         }
     }
-    if ($error === '' && $currency !== 'MYR') {
+    if ($error === '' && $currency !== SYSTEM_SELLING_CURRENCY) {
         if ($form['exchange_rate'] === '' || !is_numeric($form['exchange_rate']) || (float) $form['exchange_rate'] <= 0) {
-            $error = 'Enter a valid exchange rate (1 ' . $currency . ' = ? MYR).';
+            $error = 'Enter a valid exchange rate (1 ' . $currency . ' = ? ' . SYSTEM_SELLING_CURRENCY . ').';
         } else {
             $exchangeRate = (float) $form['exchange_rate'];
         }
@@ -321,10 +321,12 @@ require_once __DIR__ . '/../../includes/header.php';
 
 <?php require __DIR__ . '/_item_picker_modal.php'; ?>
 
-<script id="supplier-order-form-data" type="application/json"><?php echo json_encode([
-    'products' => $pickerProducts,
-    'existingItems' => $existingItems,
-]); ?></script>
+<script id="supplier-order-form-data" type="application/json">
+    <?php echo json_encode([
+        'products' => $pickerProducts,
+        'existingItems' => $existingItems,
+    ]); ?>
+</script>
 <?php
 $supplierOrderFormJsPath = __DIR__ . '/../../assets/js/supplier-order-form.js';
 $supplierOrderFormJsVersion = is_file($supplierOrderFormJsPath) ? filemtime($supplierOrderFormJsPath) : time();

@@ -70,9 +70,9 @@ $existingItems = array_map(static function (array $item) use ($pdo): array {
 
 // Phase 6B (Supplier Order currency) - same short list create.php offers; 'OTHER' reveals a
 // free-text code (currency_other below) for anything not in this list.
-const SUPPLIER_ORDER_CURRENCY_OPTIONS = ['MYR', 'JPY', 'CNY', 'USD'];
+const SUPPLIER_ORDER_CURRENCY_OPTIONS = ['MYR', 'JPY', 'CNY', 'USD', 'EUR', 'GBP'];
 
-$orderCurrency = (string) ($order['currency'] ?? 'MYR');
+$orderCurrency = (string) ($order['currency'] ?? SYSTEM_SELLING_CURRENCY);
 $form = [
     'supplier_id' => (string) $order['supplier_id'],
     'purchase_number' => $order['purchase_number'],
@@ -127,7 +127,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } else {
         $form['supplier_id'] = trim((string) ($_POST['supplier_id'] ?? ''));
-        $form['currency'] = trim((string) ($_POST['currency'] ?? 'MYR'));
+        $form['currency'] = trim((string) ($_POST['currency'] ?? SYSTEM_SELLING_CURRENCY));
         $form['currency_other'] = trim((string) ($_POST['currency_other'] ?? ''));
         $form['exchange_rate'] = trim((string) ($_POST['exchange_rate'] ?? ''));
 
@@ -142,9 +142,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = 'Invalid currency.';
             }
         }
-        if ($error === '' && $currency !== 'MYR') {
+        if ($error === '' && $currency !== SYSTEM_SELLING_CURRENCY) {
             if ($form['exchange_rate'] === '' || !is_numeric($form['exchange_rate']) || (float) $form['exchange_rate'] <= 0) {
-                $error = 'Enter a valid exchange rate (1 ' . $currency . ' = ? MYR).';
+                $error = 'Enter a valid exchange rate (1 ' . $currency . ' = ? ' . SYSTEM_SELLING_CURRENCY . ').';
             } else {
                 $exchangeRate = (float) $form['exchange_rate'];
             }
@@ -328,10 +328,10 @@ require_once __DIR__ . '/../../includes/header.php';
                     </select>
                     <input type="text" class="form-control mt-2<?php echo in_array($form['currency'], SUPPLIER_ORDER_CURRENCY_OPTIONS, true) ? ' d-none' : ''; ?>" id="supplier-order-currency-other" name="currency_other" maxlength="10" placeholder="e.g. KRW" value="<?php echo app_escape($form['currency_other']); ?>">
                 </div>
-                <div class="col-md-3<?php echo $form['currency'] === 'MYR' ? ' d-none' : ''; ?>" id="supplier-order-exchange-rate-wrapper">
+                <div class="col-md-3<?php echo $form['currency'] === SYSTEM_SELLING_CURRENCY ? ' d-none' : ''; ?>" id="supplier-order-exchange-rate-wrapper">
                     <label class="form-label" id="supplier-order-exchange-rate-label">Exchange Rate</label>
                     <input type="number" step="0.000001" min="0" class="form-control" id="supplier-order-exchange-rate" name="exchange_rate" value="<?php echo app_escape($form['exchange_rate']); ?>">
-                    <div class="form-text">e.g. 1 JPY = 0.03 MYR</div>
+                    <div class="form-text">e.g. 1 JPY = 0.03 <?php echo app_escape(SYSTEM_SELLING_CURRENCY); ?></div>
                 </div>
 
                 <div class="col-md-6">
@@ -401,10 +401,12 @@ require_once __DIR__ . '/../../includes/header.php';
 
     <?php require __DIR__ . '/_item_picker_modal.php'; ?>
 
-    <script id="supplier-order-form-data" type="application/json"><?php echo json_encode([
-        'products' => $pickerProducts,
-        'existingItems' => $existingItems,
-    ]); ?></script>
+    <script id="supplier-order-form-data" type="application/json">
+        <?php echo json_encode([
+            'products' => $pickerProducts,
+            'existingItems' => $existingItems,
+        ]); ?>
+    </script>
     <?php
     $supplierOrderFormJsPath = __DIR__ . '/../../assets/js/supplier-order-form.js';
     $supplierOrderFormJsVersion = is_file($supplierOrderFormJsPath) ? filemtime($supplierOrderFormJsPath) : time();

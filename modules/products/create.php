@@ -17,7 +17,7 @@ $canManage = true;
 // constant here since a product's cost currency is a separate field from any supplier order's
 // currency (one product can be costed in a currency that differs from its usual supplier's
 // default order currency).
-const PRODUCT_COST_CURRENCY_OPTIONS = ['MYR', 'JPY', 'CNY', 'USD'];
+const PRODUCT_COST_CURRENCY_OPTIONS = ['MYR', 'JPY', 'CNY', 'USD', 'EUR', 'GBP'];
 
 $isEdit = false;
 $productId = null;
@@ -52,7 +52,7 @@ $form = [
     'status' => 'active',
     'availability_override' => 'auto',
     'product_cost' => '',
-    'cost_currency' => 'MYR',
+    'cost_currency' => SYSTEM_SELLING_CURRENCY,
     'cost_currency_other' => '',
     'exchange_rate' => '',
     'selling_price' => '',
@@ -74,9 +74,9 @@ $form = [
     // amount input at all (Phase 9G) - it's calculated from Original Price, only its
     // currency is picked here.
     'original_price' => '',
-    'original_currency' => 'MYR',
+    'original_currency' => SYSTEM_SELLING_CURRENCY,
     'original_currency_other' => '',
-    'market_currency' => 'MYR',
+    'market_currency' => SYSTEM_SELLING_CURRENCY,
     'market_currency_other' => '',
     'weight_grams' => '',
     'shipping_origin_country_id' => '',
@@ -126,7 +126,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     $form['availability_override'] = (string) ($_POST['availability_override'] ?? 'auto');
     $form['product_cost'] = trim((string) ($_POST['product_cost'] ?? ''));
-    $form['cost_currency'] = trim((string) ($_POST['cost_currency'] ?? 'MYR'));
+    $form['cost_currency'] = trim((string) ($_POST['cost_currency'] ?? SYSTEM_SELLING_CURRENCY));
     $form['cost_currency_other'] = trim((string) ($_POST['cost_currency_other'] ?? ''));
     $form['exchange_rate'] = trim((string) ($_POST['exchange_rate'] ?? ''));
     $form['selling_price'] = trim((string) ($_POST['selling_price'] ?? ''));
@@ -146,9 +146,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Phase 9D/9F/9F.1/9F.2/9G (Pricing Engine)
     $form['original_price'] = trim((string) ($_POST['original_price'] ?? ''));
-    $form['original_currency'] = trim((string) ($_POST['original_currency'] ?? 'MYR'));
+    $form['original_currency'] = trim((string) ($_POST['original_currency'] ?? SYSTEM_SELLING_CURRENCY));
     $form['original_currency_other'] = trim((string) ($_POST['original_currency_other'] ?? ''));
-    $form['market_currency'] = trim((string) ($_POST['market_currency'] ?? 'MYR'));
+    $form['market_currency'] = trim((string) ($_POST['market_currency'] ?? SYSTEM_SELLING_CURRENCY));
     $form['market_currency_other'] = trim((string) ($_POST['market_currency_other'] ?? ''));
     $form['weight_grams'] = trim((string) ($_POST['weight_grams'] ?? ''));
     $form['shipping_origin_country_id'] = trim((string) ($_POST['shipping_origin_country_id'] ?? ''));
@@ -329,7 +329,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $form['internal_code'] !== '' ? $form['internal_code'] : null,
                 $supplierId,
                 round((float) $form['product_cost'], 2),
-                $costCurrency !== 'MYR' ? $costCurrency : null,
+                $costCurrency !== SYSTEM_SELLING_CURRENCY ? $costCurrency : null,
                 round((float) $form['selling_price'], 2),
                 $form['sale_enabled'] ? 1 : 0,
                 ($form['sale_enabled'] && $form['sale_price'] !== '') ? round((float) $form['sale_price'], 2) : null,
@@ -344,8 +344,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $form['status'],
                 $form['availability_override'],
                 $form['original_price'] !== '' ? round((float) $form['original_price'], 2) : null,
-                $form['original_price'] !== '' && $originalCurrency !== 'MYR' ? $originalCurrency : null,
-                $marketCurrency !== 'MYR' ? $marketCurrency : null,
+                $form['original_price'] !== '' && $originalCurrency !== SYSTEM_SELLING_CURRENCY ? $originalCurrency : null,
+                $marketCurrency !== SYSTEM_SELLING_CURRENCY ? $marketCurrency : null,
                 $form['weight_grams'] !== '' ? round((float) $form['weight_grams'], 2) : null,
                 $shippingOriginCountryId,
             ]);
@@ -355,7 +355,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // the centrally-managed currency_rates table right after every save, so
             // includes/product_cost.php's actual Landed Cost engine (untouched) always reads
             // an up-to-date rate.
-            currency_rates_sync_product_exchange_rate($pdo, $productId, $costCurrency !== 'MYR' ? $costCurrency : null);
+            currency_rates_sync_product_exchange_rate($pdo, $productId, $costCurrency !== SYSTEM_SELLING_CURRENCY ? $costCurrency : null);
 
             catalog_sync_product_category($pdo, $productId, $categoryId);
             catalog_sync_product_collection($pdo, $productId, $collectionId);

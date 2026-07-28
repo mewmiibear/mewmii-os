@@ -25,6 +25,8 @@ $formData = [
     'market_rate' => '',
 ];
 
+currency_rates_cleanup_system_currency_rows($pdo);
+
 function currency_rates_audit_details(string $action, string $currencyCode, array $oldValues, array $newValues): string
 {
     $segments = ['currency=' . $currencyCode];
@@ -65,6 +67,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[] = 'Currency code is required.';
         } elseif (strlen($currencyCode) !== 3) {
             $errors[] = 'Currency code must be exactly 3 characters.';
+        } elseif ($currencyCode === SYSTEM_BASE_CURRENCY) {
+            $errors[] = SYSTEM_BASE_CURRENCY . ' is the base currency and cannot be managed here.';
+        } elseif ($currencyCode === SYSTEM_SELLING_CURRENCY) {
+            $errors[] = SYSTEM_SELLING_CURRENCY . ' is not managed as a rate currency.';
         }
 
         foreach (CURRENCY_RATE_TYPES as $rateType) {
@@ -168,8 +174,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $currencyRows = currency_rates_list_by_currency($pdo);
+$displayCurrencyRows = [];
+$displayCurrencyRows[SYSTEM_BASE_CURRENCY] = [
+    '_is_base' => true,
+    'supplier' => ['exchange_rate' => 1.0],
+    'original' => ['exchange_rate' => 1.0],
+    'market' => ['exchange_rate' => 1.0],
+];
+foreach ($currencyRows as $currencyCode => $rows) {
+    if ($currencyCode === SYSTEM_SELLING_CURRENCY || $currencyCode === SYSTEM_BASE_CURRENCY) {
+        continue;
+    }
+    $displayCurrencyRows[$currencyCode] = $rows;
+}
+uksort($displayCurrencyRows, static function (string $a, string $b): int {
+    if ($a === SYSTEM_BASE_CURRENCY) {
+        return -1;
+    }
+    if ($b === SYSTEM_BASE_CURRENCY) {
+        return 1;
+    }
+
+    return strcmp($a, $b);
+});
+
 $editRates = [];
-if ($editCurrencyCode !== '') {
+if ($editCurrencyCode !== '' && $editCurrencyCode !== SYSTEM_BASE_CURRENCY) {
     $editRates = currency_rates_find_for_currency($pdo, $editCurrencyCode);
     if ($editRates === []) {
         http_response_code(404);
@@ -184,6 +214,8 @@ if ($editCurrencyCode !== '') {
         'original_rate' => $editRates['original']['exchange_rate'] ?? '',
         'market_rate' => $editRates['market']['exchange_rate'] ?? '',
     ];
+} else {
+    $editCurrencyCode = '';
 }
 
 if (isset($_GET['created'])) {
@@ -222,6 +254,7 @@ require_once __DIR__ . '/../../includes/header.php';
             <a class="btn btn-sm btn-outline-secondary" href="/modules/settings/currency_rates.php">Cancel</a>
         <?php endif; ?>
     </div>
+    <p class="text-muted small mb-3">JPY is the system base currency and is managed automatically. Only foreign/source currencies that need conversion are entered here.</p>
     <form method="post" class="row g-3 align-items-end">
         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
         <input type="hidden" name="action" value="<?php echo $editCurrencyCode !== '' ? 'update' : 'add'; ?>">
@@ -265,26 +298,37 @@ require_once __DIR__ . '/../../includes/header.php';
                 </tr>
             </thead>
             <tbody>
-                <?php foreach ($currencyRows as $currencyCode => $rows): ?>
+                <?php foreach ($displayCurrencyRows as $currencyCode => $rows): ?>
                     <tr>
-                        <td><?php echo app_escape($currencyCode); ?></td>
+                        <td>
+                            <div class="d-flex align-items-center gap-2">
+                                <span><?php echo app_escape($currencyCode); ?></span>
+                                <?php if ($currencyCode === SYSTEM_BASE_CURRENCY): ?>
+                                    <span class="badge bg-primary">Base Currency</span>
+                                <?php endif; ?>
+                            </div>
+                        </td>
                         <td><?php echo app_escape(isset($rows['supplier']) ? number_format((float) $rows['supplier']['exchange_rate'], 6) : '—'); ?></td>
                         <td><?php echo app_escape(isset($rows['original']) ? number_format((float) $rows['original']['exchange_rate'], 6) : '—'); ?></td>
                         <td><?php echo app_escape(isset($rows['market']) ? number_format((float) $rows['market']['exchange_rate'], 6) : '—'); ?></td>
                         <td class="text-end">
-                            <div class="d-flex gap-1 justify-content-end">
-                                <a class="btn btn-sm btn-outline-secondary" href="/modules/settings/currency_rates.php?edit=<?php echo app_escape($currencyCode); ?>">Edit</a>
-                                <form method="post" class="d-inline" action="/modules/settings/currency_rates.php" onsubmit="return confirm('Delete all rates for this currency?');">
-                                    <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
-                                    <input type="hidden" name="action" value="delete">
-                                    <input type="hidden" name="currency_code" value="<?php echo app_escape($currencyCode); ?>">
-                                    <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
-                                </form>
-                            </div>
+                            <?php if ($currencyCode === SYSTEM_BASE_CURRENCY): ?>
+                                <span class="text-muted small">Locked</span>
+                            <?php else: ?>
+                                <div class="d-flex gap-1 justify-content-end">
+                                    <a class="btn btn-sm btn-outline-secondary" href="/modules/settings/currency_rates.php?edit=<?php echo app_escape($currencyCode); ?>">Edit</a>
+                                    <form method="post" class="d-inline" action="/modules/settings/currency_rates.php" onsubmit="return confirm('Delete all rates for this currency?');">
+                                        <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                                        <input type="hidden" name="action" value="delete">
+                                        <input type="hidden" name="currency_code" value="<?php echo app_escape($currencyCode); ?>">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                                    </form>
+                                </div>
+                            <?php endif; ?>
                         </td>
                     </tr>
                 <?php endforeach; ?>
-                <?php if ($currencyRows === []): ?>
+                <?php if ($displayCurrencyRows === []): ?>
                     <tr>
                         <td colspan="5">
                             <div class="empty-state">
