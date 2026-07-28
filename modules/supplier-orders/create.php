@@ -186,13 +186,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $pdo->commit();
-            inventory_flush_woocommerce_resync($pdo);
+        } catch (Throwable $exception) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            inventory_discard_pending_woocommerce_resync();
+
+            error_log('[supplier-orders/create] ' . get_class($exception) . ': ' . $exception->getMessage() . "\n" . $exception->getTraceAsString());
+
+            $configPath = dirname(__DIR__, 2) . '/config.php';
+            $appConfig = is_file($configPath) ? require $configPath : [];
+            $debugEnabled = !empty($appConfig['app']['debug']);
+
+            $error = 'Failed to create supplier order.' . ($debugEnabled ? ' Debug: ' . $exception->getMessage() : '');
+        }
+
+        // The order is already durably committed at this point - a failure in the WooCommerce
+        // resync (best-effort, and not expected to ever throw - see
+        // inventory_flush_woocommerce_resync()'s own doc comment) must never turn a real
+        // success into a false "Failed to create supplier order" that could prompt the admin
+        // to resubmit and create a genuine duplicate order.
+        if ($error === '') {
+            try {
+                inventory_flush_woocommerce_resync($pdo);
+            } catch (Throwable $exception) {
+                error_log('[supplier-orders/create] WooCommerce resync failed after commit for order #' . $orderId . ': ' . $exception->getMessage());
+            }
 
             app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&created=1');
-        } catch (Exception $exception) {
-            $pdo->rollBack();
-            inventory_discard_pending_woocommerce_resync();
-            $error = 'Failed to create supplier order.';
         }
     }
 }

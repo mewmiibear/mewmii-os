@@ -31,6 +31,22 @@
     }
 
     // ---------------------------------------------------------------------------------
+    // Guards against a fast double-click (or an impatient repeat click while the first
+    // request is still in flight) firing two POSTs and creating a genuine duplicate order -
+    // disabling happens in the submit handler itself, after the browser has already read
+    // the button's value for this submission, so the in-flight request is unaffected.
+    // ---------------------------------------------------------------------------------
+    var orderForm = document.querySelector('#supplier-order-items-table');
+    orderForm = orderForm ? orderForm.closest('form') : null;
+    if (orderForm) {
+        orderForm.addEventListener('submit', function () {
+            orderForm.querySelectorAll('button[type="submit"]').forEach(function (button) {
+                button.disabled = true;
+            });
+        });
+    }
+
+    // ---------------------------------------------------------------------------------
     // Order items table.
     // ---------------------------------------------------------------------------------
     var tbody = document.querySelector('#supplier-order-items-table tbody');

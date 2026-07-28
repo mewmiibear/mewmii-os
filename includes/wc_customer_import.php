@@ -23,6 +23,8 @@
  */
 
 require_once __DIR__ . '/wc_order_import.php';
+require_once __DIR__ . '/wc_client.php';
+require_once __DIR__ . '/sync_log.php';
 
 /**
  * @return array{name: ?string, email: ?string, phone: ?string, address: ?string} null means
@@ -171,4 +173,177 @@ function wc_customer_import_archive_deleted(PDO $pdo, int $wcCustomerId): ?int
     ')->execute(['Deleted WooCommerce Customer #' . $wcCustomerId, $customerId]);
 
     return $customerId;
+}
+const WC_CUSTOMER_IMPORT_SYNC_TYPE = 'woocommerce_customer_import';
+const WC_CUSTOMER_IMPORT_SETTING_LAST_SYNCED_AT = 'wc_customer_import_last_synced_at';
+const WC_CUSTOMER_IMPORT_SETTING_LAST_RUN_SUMMARY = 'wc_customer_import_last_run_summary';
+const WC_CUSTOMER_IMPORT_PAGE_SIZE = 100;
+const WC_CUSTOMER_IMPORT_MAX_PAGES = 25;
+const WC_CUSTOMER_IMPORT_LOCK_NAME = 'mewmii_wc_customer_import';
+const WC_CUSTOMER_IMPORT_LOCK_BUSY_CODE = 42306;
+const WC_CUSTOMER_IMPORT_MASTER_LOCAL_BLOCKED_CODE = 42307;
+const WC_CUSTOMER_IMPORT_MASTER_LOCAL_BLOCKED_MESSAGE = 'Mewmii OS is the master source. WooCommerce customer import is disabled.';
+
+function wc_customer_import_get_setting(PDO $pdo, string $key): ?string
+{
+    $stmt = $pdo->prepare('SELECT setting_value FROM settings WHERE setting_key = ?');
+    $stmt->execute([$key]);
+    $value = $stmt->fetchColumn();
+
+    return $value !== false ? (string) $value : null;
+}
+
+function wc_customer_import_set_setting(PDO $pdo, string $key, string $value): void
+{
+    $pdo->prepare('
+        INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)
+        ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)
+    ')->execute([$key, $value]);
+}
+
+function wc_customer_import_fetch_all(string $endpoint, array $query, callable $onPage): array
+{
+    $all = [];
+    $page = 1;
+    $fullyCompleted = false;
+
+    while (true) {
+        if ($page > WC_CUSTOMER_IMPORT_MAX_PAGES) {
+            break;
+        }
+
+        $items = wc_client_get($endpoint, array_merge($query, ['per_page' => WC_CUSTOMER_IMPORT_PAGE_SIZE, 'page' => $page]));
+        if (!is_array($items) || $items === []) {
+            $fullyCompleted = true;
+            break;
+        }
+
+        $all = array_merge($all, $items);
+        $onPage($page, count($items));
+
+        if (count($items) < WC_CUSTOMER_IMPORT_PAGE_SIZE) {
+            $fullyCompleted = true;
+            break;
+        }
+
+        $page++;
+    }
+
+    return ['items' => $all, 'fully_completed' => $fullyCompleted];
+}
+
+function wc_customer_import_run(PDO $pdo, bool $dryRun = false): array
+{
+    if (wc_client_sync_mode($pdo) === WC_CLIENT_SYNC_MODE_MASTER_LOCAL) {
+        sync_log_write($pdo, WC_CUSTOMER_IMPORT_SYNC_TYPE, 'warning', null, 'action=master_local_customer_import_blocked reason=Mewmii OS is authoritative');
+
+        throw new RuntimeException(WC_CUSTOMER_IMPORT_MASTER_LOCAL_BLOCKED_MESSAGE, WC_CUSTOMER_IMPORT_MASTER_LOCAL_BLOCKED_CODE);
+    }
+
+    $lockStmt = $pdo->prepare('SELECT GET_LOCK(?, 0)');
+    $lockStmt->execute([WC_CUSTOMER_IMPORT_LOCK_NAME]);
+
+    if ((int) $lockStmt->fetchColumn() !== 1) {
+        throw new RuntimeException(
+            'Another WooCommerce customer import is already in progress - skipped this run.',
+            WC_CUSTOMER_IMPORT_LOCK_BUSY_CODE
+        );
+    }
+
+    try {
+        return wc_customer_import_run_body($pdo, $dryRun);
+    } finally {
+        try {
+            $pdo->prepare('SELECT RELEASE_LOCK(?)')->execute([WC_CUSTOMER_IMPORT_LOCK_NAME]);
+        } catch (Throwable $e) {
+            // Lock release failure is non-fatal for this connection.
+        }
+    }
+}
+
+function wc_customer_import_run_body(PDO $pdo, bool $dryRun): array
+{
+    $stats = [
+        'created' => 0,
+        'updated' => 0,
+        'failed' => 0,
+    ];
+
+    $syncStartedAt = gmdate('Y-m-d\TH:i:s');
+    $previousCursor = wc_customer_import_get_setting($pdo, WC_CUSTOMER_IMPORT_SETTING_LAST_SYNCED_AT);
+
+    $customersQuery = [];
+    if ($previousCursor !== null) {
+        $customersQuery['modified_after'] = $previousCursor;
+        $customersQuery['dates_are_gmt'] = true;
+    }
+
+    try {
+        $fetchResult = wc_customer_import_fetch_all('customers', $customersQuery, static function (int $page, int $count): void {});
+    } catch (Throwable $e) {
+        if (!$dryRun) {
+            sync_log_failure($pdo, WC_CUSTOMER_IMPORT_SYNC_TYPE, 'WooCommerce customer fetch failed: ' . $e->getMessage());
+            wc_customer_import_store_run_summary($pdo, $syncStartedAt, $stats);
+        }
+
+        return $stats;
+    }
+
+    $wcCustomers = $fetchResult['items'];
+    $fullyCompleted = $fetchResult['fully_completed'];
+
+    if (!$fullyCompleted && !$dryRun) {
+        sync_log_write(
+            $pdo,
+            WC_CUSTOMER_IMPORT_SYNC_TYPE,
+            'failed',
+            null,
+            'Stopped after ' . WC_CUSTOMER_IMPORT_MAX_PAGES . ' pages (safety limit) - more customers may remain. Cursor not advanced; re-run to continue.'
+        );
+        wc_customer_import_store_run_summary($pdo, $syncStartedAt, $stats);
+
+        return $stats;
+    }
+
+    foreach ($wcCustomers as $wcCustomer) {
+        try {
+            $result = wc_customer_import_upsert($pdo, $wcCustomer);
+            if ($result['created']) {
+                $stats['created']++;
+            } else {
+                $stats['updated']++;
+            }
+
+            if (!$dryRun) {
+                sync_log_success($pdo, WC_CUSTOMER_IMPORT_SYNC_TYPE, $result['id']);
+            }
+        } catch (Throwable $e) {
+            $stats['failed']++;
+            if (!$dryRun) {
+                $wcCustomerId = (int) ($wcCustomer['id'] ?? 0);
+                sync_log_failure($pdo, WC_CUSTOMER_IMPORT_SYNC_TYPE, 'WooCommerce customer #' . $wcCustomerId . ': ' . $e->getMessage());
+            }
+        }
+    }
+
+    if (!$dryRun) {
+        wc_customer_import_store_run_summary($pdo, $syncStartedAt, $stats);
+
+        if ($fullyCompleted) {
+            wc_customer_import_set_setting($pdo, WC_CUSTOMER_IMPORT_SETTING_LAST_SYNCED_AT, $syncStartedAt);
+        }
+    }
+
+    return $stats;
+}
+
+function wc_customer_import_store_run_summary(PDO $pdo, string $ranAt, array $stats): void
+{
+    wc_customer_import_set_setting($pdo, WC_CUSTOMER_IMPORT_SETTING_LAST_RUN_SUMMARY, json_encode([
+        'ran_at' => $ranAt,
+        'imported' => $stats['created'] + $stats['updated'],
+        'created' => $stats['created'],
+        'updated' => $stats['updated'],
+        'failed' => $stats['failed'],
+    ]));
 }

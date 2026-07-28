@@ -3,6 +3,7 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/wc_client.php';
 require_once __DIR__ . '/../../includes/wc_order_import.php';
 require_once __DIR__ . '/../../includes/wc_product_import.php';
+require_once __DIR__ . '/../../includes/wc_customer_import.php';
 require_once __DIR__ . '/../../includes/wc_webhook.php';
 app_require_permission('settings.manage');
 
@@ -77,6 +78,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (Throwable $exception) {
             app_redirect('/modules/integrations/woocommerce.php?product_imported=1&created=0&updated=0&skipped=0&failed=0&message=' . urlencode($exception->getMessage()));
         }
+    } elseif ($error === '' && !empty($_POST['import_customers'])) {
+        try {
+            $summary = wc_customer_import_run($pdo);
+            app_redirect('/modules/integrations/woocommerce.php?customer_imported=1&created=' . $summary['created'] . '&updated=' . $summary['updated'] . '&failed=' . $summary['failed']);
+        } catch (RuntimeException $exception) {
+            if ($exception->getCode() === WC_CUSTOMER_IMPORT_MASTER_LOCAL_BLOCKED_CODE) {
+                app_redirect('/modules/integrations/woocommerce.php?customer_import_blocked=1');
+            }
+
+            app_redirect('/modules/integrations/woocommerce.php?customer_imported=1&created=0&updated=0&failed=0&message=' . urlencode($exception->getMessage()));
+        } catch (Throwable $exception) {
+            app_redirect('/modules/integrations/woocommerce.php?customer_imported=1&created=0&updated=0&failed=0&message=' . urlencode($exception->getMessage()));
+        }
     } elseif ($error === '' && isset($_POST['set_auto_sync'])) {
         wc_client_set_setting($pdo, WC_CLIENT_AUTO_SYNC_SETTING_KEY, !empty($_POST['auto_sync_enabled']) ? '1' : '0');
         app_redirect('/modules/integrations/woocommerce.php?auto_sync_saved=1');
@@ -116,6 +130,34 @@ $recentLogsStmt = $pdo->prepare('
 ');
 $recentLogsStmt->execute([WC_ORDER_IMPORT_SYNC_TYPE]);
 $recentLogs = $recentLogsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$customerStatsStmt = $pdo->prepare("
+    SELECT
+        SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS success_count,
+        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_count,
+        MAX(created_at) AS last_sync_at
+    FROM sync_logs
+    WHERE sync_type = ?
+");
+$customerStatsStmt->execute([WC_CUSTOMER_IMPORT_SYNC_TYPE]);
+$customerStats = $customerStatsStmt->fetch(PDO::FETCH_ASSOC);
+
+$recentCustomerLogsStmt = $pdo->prepare('
+    SELECT id, reference_id, status, error_message, created_at
+    FROM sync_logs
+    WHERE sync_type = ?
+    ORDER BY id DESC
+    LIMIT 10
+');
+$recentCustomerLogsStmt->execute([WC_CUSTOMER_IMPORT_SYNC_TYPE]);
+$recentCustomerLogs = $recentCustomerLogsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$lastCustomerSyncCursor = wc_customer_import_get_setting($pdo, WC_CUSTOMER_IMPORT_SETTING_LAST_SYNCED_AT);
+$lastCustomerRunSummaryRaw = wc_customer_import_get_setting($pdo, WC_CUSTOMER_IMPORT_SETTING_LAST_RUN_SUMMARY);
+$lastCustomerRunSummary = $lastCustomerRunSummaryRaw !== null ? json_decode($lastCustomerRunSummaryRaw, true) : null;
+if (!is_array($lastCustomerRunSummary)) {
+    $lastCustomerRunSummary = null;
+}
 
 // Delta-sync visibility (Sync Automation Phase 1) - sourced from the `settings` table cursor/
 // summary wc_order_import_run() now maintains, not from sync_logs. sync_logs only gains a row
@@ -244,6 +286,11 @@ require_once __DIR__ . '/../../includes/header.php';
             <input type="hidden" name="import_products" value="1">
             <button type="submit" class="btn btn-primary" <?php echo $isConfigured ? '' : 'disabled'; ?>>Import Products Now</button>
         </form>
+        <form method="post" class="d-inline">
+            <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+            <input type="hidden" name="import_customers" value="1">
+            <button type="submit" class="btn btn-primary" <?php echo $isConfigured ? '' : 'disabled'; ?>>Import Customers Now</button>
+        </form>
     </div>
 </div>
 
@@ -302,6 +349,21 @@ require_once __DIR__ . '/../../includes/header.php';
     <?php endif; ?>
 <?php endif; ?>
 
+<?php if (isset($_GET['customer_imported'])): ?>
+    <?php if (isset($_GET['message'])): ?>
+        <div class="alert alert-danger">Customer import failed: <?php echo app_escape($_GET['message']); ?></div>
+    <?php else: ?>
+        <div class="alert alert-success">
+            Customer import finished - <?php echo (int) $_GET['created']; ?> created, <?php echo (int) $_GET['updated']; ?> updated,
+            <?php echo (int) $_GET['failed']; ?> failed.
+        </div>
+    <?php endif; ?>
+<?php endif; ?>
+
+<?php if (isset($_GET['customer_import_blocked'])): ?>
+    <div class="alert alert-warning">Mewmii OS is the master source. WooCommerce customer import is disabled.</div>
+<?php endif; ?>
+
 <h5 class="mb-3">Orders</h5>
 <div class="row g-3 mb-4">
     <div class="col-md-3">
@@ -332,6 +394,43 @@ require_once __DIR__ . '/../../includes/header.php';
             <div class="stat-label">Failed Sync</div>
             <div class="stat-value <?php echo (int) ($stats['failed_count'] ?? 0) > 0 ? 'stat-value-alert' : ''; ?>"><?php echo (int) ($stats['failed_count'] ?? 0); ?></div>
             <div class="stat-helper mb-0">Orders that failed to import.</div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card stat-card p-4 h-100 d-flex flex-column">
+            <div class="stat-label">Last Customer Sync</div>
+            <div class="stat-value" style="font-size: 1.5rem;">
+                <?php echo app_escape(wc_order_import_format_gmt_setting($lastCustomerRunSummary['ran_at'] ?? null) ?? 'Never'); ?>
+            </div>
+            <div class="stat-helper mb-0">When the customer importer last attempted to run.</div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card stat-card p-4 h-100 d-flex flex-column">
+            <div class="stat-label">Customer Sync Cursor</div>
+            <div class="stat-value" style="font-size: 1.5rem;">
+                <?php echo app_escape(wc_order_import_format_gmt_setting($lastCustomerSyncCursor) ?? 'Not synced yet'); ?>
+            </div>
+            <div class="stat-helper mb-0">Only customers modified after this point are fetched on the next import.</div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card stat-card p-4 h-100 d-flex flex-column">
+            <div class="stat-label">Customers Processed (Last Run)</div>
+            <div class="stat-value">
+                <?php echo $lastCustomerRunSummary !== null ? (int) $lastCustomerRunSummary['imported'] : 0; ?>
+            </div>
+            <div class="stat-helper mb-0">
+                <?php if ($lastCustomerRunSummary !== null): ?>
+                    <?php echo (int) $lastCustomerRunSummary['created']; ?> created, <?php echo (int) $lastCustomerRunSummary['updated']; ?> updated,
+                    <?php echo (int) $lastCustomerRunSummary['failed']; ?> failed.
+                <?php else: ?>
+                    No sync run yet.
+                <?php endif; ?>
+            </div>
         </div>
     </div>
 </div>
@@ -383,48 +482,48 @@ require_once __DIR__ . '/../../includes/header.php';
 <div class="card p-4">
     <h5 class="mb-3">Recent Sync Activity</h5>
     <div class="table-responsive">
-    <table class="table table-hover align-middle">
-        <thead>
-            <tr>
-                <th>Order</th>
-                <th>Status</th>
-                <th>Error</th>
-                <th>Date</th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php foreach ($recentLogs as $log): ?>
+        <table class="table table-hover align-middle">
+            <thead>
                 <tr>
-                    <td>
-                        <?php if ($log['reference_id'] !== null): ?>
-                            <a href="/modules/orders/view.php?id=<?php echo (int) $log['reference_id']; ?>">#<?php echo (int) $log['reference_id']; ?></a>
-                        <?php else: ?>
-                            -
-                        <?php endif; ?>
-                    </td>
-                    <td>
-                        <?php if ($log['status'] === 'success'): ?>
-                            <span class="badge bg-success">success</span>
-                        <?php else: ?>
-                            <span class="badge bg-danger"><?php echo app_escape($log['status']); ?></span>
-                        <?php endif; ?>
-                    </td>
-                    <td><?php echo app_escape($log['error_message'] ?? '-'); ?></td>
-                    <td><?php echo app_escape($log['created_at']); ?></td>
+                    <th>Order</th>
+                    <th>Status</th>
+                    <th>Error</th>
+                    <th>Date</th>
                 </tr>
-            <?php endforeach; ?>
-            <?php if ($recentLogs === []): ?>
-                <tr>
-                    <td colspan="4">
-                        <div class="empty-state">
-                            <div class="empty-state-title">No Import Activity Yet</div>
-                            <p class="empty-state-text">Click "Import Orders Now" to pull recent orders from WooCommerce.</p>
-                        </div>
-                    </td>
-                </tr>
-            <?php endif; ?>
-        </tbody>
-    </table>
+            </thead>
+            <tbody>
+                <?php foreach ($recentLogs as $log): ?>
+                    <tr>
+                        <td>
+                            <?php if ($log['reference_id'] !== null): ?>
+                                <a href="/modules/orders/view.php?id=<?php echo (int) $log['reference_id']; ?>">#<?php echo (int) $log['reference_id']; ?></a>
+                            <?php else: ?>
+                                -
+                            <?php endif; ?>
+                        </td>
+                        <td>
+                            <?php if ($log['status'] === 'success'): ?>
+                                <span class="badge bg-success">success</span>
+                            <?php else: ?>
+                                <span class="badge bg-danger"><?php echo app_escape($log['status']); ?></span>
+                            <?php endif; ?>
+                        </td>
+                        <td><?php echo app_escape($log['error_message'] ?? '-'); ?></td>
+                        <td><?php echo app_escape($log['created_at']); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if ($recentLogs === []): ?>
+                    <tr>
+                        <td colspan="4">
+                            <div class="empty-state">
+                                <div class="empty-state-title">No Import Activity Yet</div>
+                                <p class="empty-state-text">Click "Import Orders Now" to pull recent orders from WooCommerce.</p>
+                            </div>
+                        </td>
+                    </tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
     </div>
 </div>
 
@@ -488,51 +587,116 @@ require_once __DIR__ . '/../../includes/header.php';
     </div>
 </div>
 
+<div class="row g-3 mb-4">
+    <div class="col-md-6">
+        <div class="card stat-card p-4 h-100 d-flex flex-column">
+            <div class="stat-label">Imported Customers</div>
+            <div class="stat-value"><?php echo (int) ($customerStats['success_count'] ?? 0); ?></div>
+            <div class="stat-helper mb-0">Successful create/update events.</div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card stat-card p-4 h-100 d-flex flex-column">
+            <div class="stat-label">Failed Customer Sync</div>
+            <div class="stat-value <?php echo (int) ($customerStats['failed_count'] ?? 0) > 0 ? 'stat-value-alert' : ''; ?>"><?php echo (int) ($customerStats['failed_count'] ?? 0); ?></div>
+            <div class="stat-helper mb-0">Customers that failed to import.</div>
+        </div>
+    </div>
+</div>
+
+<div class="card p-4 mb-4">
+    <h5 class="mb-3">Recent Customer Sync Activity</h5>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>Customer</th>
+                    <th>Status</th>
+                    <th>Error</th>
+                    <th>Date</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($recentCustomerLogs as $log): ?>
+                    <tr>
+                        <td>
+                            <?php if ($log['reference_id'] !== null): ?>
+                                <a href="/modules/customers/view.php?id=<?php echo (int) $log['reference_id']; ?>">#<?php echo (int) $log['reference_id']; ?></a>
+                            <?php else: ?>
+                                -
+                            <?php endif; ?>
+                        </td>
+                        <td>
+                            <?php if ($log['status'] === 'success'): ?>
+                                <span class="badge bg-success">success</span>
+                            <?php else: ?>
+                                <span class="badge bg-danger"><?php echo app_escape($log['status']); ?></span>
+                            <?php endif; ?>
+                        </td>
+                        <td><?php echo app_escape($log['error_message'] ?? '-'); ?></td>
+                        <td><?php echo app_escape($log['created_at']); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if ($recentCustomerLogs === []): ?>
+                    <tr>
+                        <td colspan="4">
+                            <div class="empty-state">
+                                <div class="empty-state-title">No Customer Sync Activity Yet</div>
+                                <p class="empty-state-text">Click "Import Customers Now" to populate customers from WooCommerce.</p>
+                            </div>
+                        </td>
+                    </tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
+</div>
+
 <div class="card p-4">
     <h5 class="mb-3">Recent Product Sync Activity</h5>
     <div class="table-responsive">
-    <table class="table table-hover align-middle">
-        <thead>
-            <tr>
-                <th>Product</th>
-                <th>Status</th>
-                <th>Error</th>
-                <th>Date</th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php foreach ($recentProductLogs as $log): ?>
+        <table class="table table-hover align-middle">
+            <thead>
                 <tr>
-                    <td>
-                        <?php if ($log['reference_id'] !== null): ?>
-                            <a href="/modules/products/edit.php?id=<?php echo (int) $log['reference_id']; ?>">#<?php echo (int) $log['reference_id']; ?></a>
-                        <?php else: ?>
-                            -
-                        <?php endif; ?>
-                    </td>
-                    <td>
-                        <?php if ($log['status'] === 'success'): ?>
-                            <span class="badge bg-success">success</span>
-                        <?php else: ?>
-                            <span class="badge bg-danger"><?php echo app_escape($log['status']); ?></span>
-                        <?php endif; ?>
-                    </td>
-                    <td><?php echo app_escape($log['error_message'] ?? '-'); ?></td>
-                    <td><?php echo app_escape($log['created_at']); ?></td>
+                    <th>Product</th>
+                    <th>Status</th>
+                    <th>Error</th>
+                    <th>Date</th>
                 </tr>
-            <?php endforeach; ?>
-            <?php if ($recentProductLogs === []): ?>
-                <tr>
-                    <td colspan="4">
-                        <div class="empty-state">
-                            <div class="empty-state-title">No Import Activity Yet</div>
-                            <p class="empty-state-text">Click "Import Products Now" to pull products from WooCommerce.</p>
-                        </div>
-                    </td>
-                </tr>
-            <?php endif; ?>
-        </tbody>
-    </table>
+            </thead>
+            <tbody>
+                <?php foreach ($recentProductLogs as $log): ?>
+                    <tr>
+                        <td>
+                            <?php if ($log['reference_id'] !== null): ?>
+                                <a href="/modules/products/edit.php?id=<?php echo (int) $log['reference_id']; ?>">#<?php echo (int) $log['reference_id']; ?></a>
+                            <?php else: ?>
+                                -
+                            <?php endif; ?>
+                        </td>
+                        <td>
+                            <?php if ($log['status'] === 'success'): ?>
+                                <span class="badge bg-success">success</span>
+                            <?php else: ?>
+                                <span class="badge bg-danger"><?php echo app_escape($log['status']); ?></span>
+                            <?php endif; ?>
+                        </td>
+                        <td><?php echo app_escape($log['error_message'] ?? '-'); ?></td>
+                        <td><?php echo app_escape($log['created_at']); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if ($recentProductLogs === []): ?>
+                    <tr>
+                        <td colspan="4">
+                            <div class="empty-state">
+                                <div class="empty-state-title">No Import Activity Yet</div>
+                                <p class="empty-state-text">Click "Import Products Now" to pull products from WooCommerce.</p>
+                            </div>
+                        </td>
+                    </tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
     </div>
 </div>
 
@@ -608,48 +772,48 @@ require_once __DIR__ . '/../../includes/header.php';
 <div class="card p-4">
     <h6 class="mb-3">Recent Push Activity</h6>
     <div class="table-responsive">
-    <table class="table table-hover align-middle">
-        <thead>
-            <tr>
-                <th>Product</th>
-                <th>Status</th>
-                <th>Error</th>
-                <th>Date</th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php foreach ($recentPushLogs as $log): ?>
+        <table class="table table-hover align-middle">
+            <thead>
                 <tr>
-                    <td>
-                        <?php if ($log['reference_id'] !== null): ?>
-                            <a href="/modules/products/edit.php?id=<?php echo (int) $log['reference_id']; ?>">#<?php echo (int) $log['reference_id']; ?></a>
-                        <?php else: ?>
-                            -
-                        <?php endif; ?>
-                    </td>
-                    <td>
-                        <?php if ($log['status'] === 'success'): ?>
-                            <span class="badge bg-success">success</span>
-                        <?php else: ?>
-                            <span class="badge bg-danger"><?php echo app_escape($log['status']); ?></span>
-                        <?php endif; ?>
-                    </td>
-                    <td><?php echo app_escape($log['error_message'] ?? '-'); ?></td>
-                    <td><?php echo app_escape($log['created_at']); ?></td>
+                    <th>Product</th>
+                    <th>Status</th>
+                    <th>Error</th>
+                    <th>Date</th>
                 </tr>
-            <?php endforeach; ?>
-            <?php if ($recentPushLogs === []): ?>
-                <tr>
-                    <td colspan="4">
-                        <div class="empty-state">
-                            <div class="empty-state-title">No Push Activity Yet</div>
-                            <p class="empty-state-text">Use "Sync to WooCommerce" on the Products page, or enable Auto Sync above.</p>
-                        </div>
-                    </td>
-                </tr>
-            <?php endif; ?>
-        </tbody>
-    </table>
+            </thead>
+            <tbody>
+                <?php foreach ($recentPushLogs as $log): ?>
+                    <tr>
+                        <td>
+                            <?php if ($log['reference_id'] !== null): ?>
+                                <a href="/modules/products/edit.php?id=<?php echo (int) $log['reference_id']; ?>">#<?php echo (int) $log['reference_id']; ?></a>
+                            <?php else: ?>
+                                -
+                            <?php endif; ?>
+                        </td>
+                        <td>
+                            <?php if ($log['status'] === 'success'): ?>
+                                <span class="badge bg-success">success</span>
+                            <?php else: ?>
+                                <span class="badge bg-danger"><?php echo app_escape($log['status']); ?></span>
+                            <?php endif; ?>
+                        </td>
+                        <td><?php echo app_escape($log['error_message'] ?? '-'); ?></td>
+                        <td><?php echo app_escape($log['created_at']); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if ($recentPushLogs === []): ?>
+                    <tr>
+                        <td colspan="4">
+                            <div class="empty-state">
+                                <div class="empty-state-title">No Push Activity Yet</div>
+                                <p class="empty-state-text">Use "Sync to WooCommerce" on the Products page, or enable Auto Sync above.</p>
+                            </div>
+                        </td>
+                    </tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
     </div>
 </div>
 

@@ -226,17 +226,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 supplier_order_apply_edit($pdo, $orderId, $supplierId, $form['notes'], $validItems, $shippingFee, $form['payment_status'], $currency, $exchangeRate);
 
                 $pdo->commit();
-                inventory_flush_woocommerce_resync($pdo);
-
-                app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1');
             } catch (RuntimeException $exception) {
-                $pdo->rollBack();
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
                 inventory_discard_pending_woocommerce_resync();
                 $error = $exception->getMessage();
-            } catch (Exception $exception) {
-                $pdo->rollBack();
+            } catch (Throwable $exception) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
                 inventory_discard_pending_woocommerce_resync();
-                $error = 'Failed to update supplier order.';
+
+                error_log('[supplier-orders/edit] ' . get_class($exception) . ': ' . $exception->getMessage() . "\n" . $exception->getTraceAsString());
+
+                $configPath = dirname(__DIR__, 2) . '/config.php';
+                $appConfig = is_file($configPath) ? require $configPath : [];
+                $debugEnabled = !empty($appConfig['app']['debug']);
+
+                $error = 'Failed to update supplier order.' . ($debugEnabled ? ' Debug: ' . $exception->getMessage() : '');
+            }
+
+            // Same "already committed, must not report failure" protection as
+            // modules/supplier-orders/create.php - see its own comment for why.
+            if ($error === '') {
+                try {
+                    inventory_flush_woocommerce_resync($pdo);
+                } catch (Throwable $exception) {
+                    error_log('[supplier-orders/edit] WooCommerce resync failed after commit for order #' . $orderId . ': ' . $exception->getMessage());
+                }
+
+                app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1');
             }
         }
     }
