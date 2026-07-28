@@ -135,7 +135,7 @@ $form = [
     // free-text box - same "known value or OTHER + free text" pattern already used by
     // modules/supplier-orders/edit.php's currency field.
     'cost_currency' => $product['cost_currency'] === null || in_array($product['cost_currency'], PRODUCT_COST_CURRENCY_OPTIONS, true)
-        ? ($product['cost_currency'] ?? SYSTEM_SELLING_CURRENCY)
+        ? ($product['cost_currency'] ?? SYSTEM_BASE_CURRENCY)
         : 'OTHER',
     'cost_currency_other' => $product['cost_currency'] !== null && !in_array($product['cost_currency'], PRODUCT_COST_CURRENCY_OPTIONS, true)
         ? $product['cost_currency']
@@ -160,13 +160,13 @@ $form = [
     // "known value or OTHER + free text" pattern as cost_currency above.
     'original_price' => $product['original_price'] !== null ? (string) $product['original_price'] : '',
     'original_currency' => $product['original_currency'] === null || in_array($product['original_currency'], CURRENCY_RATE_OPTIONS, true)
-        ? ($product['original_currency'] ?? SYSTEM_SELLING_CURRENCY)
+        ? ($product['original_currency'] ?? SYSTEM_BASE_CURRENCY)
         : 'OTHER',
     'original_currency_other' => $product['original_currency'] !== null && !in_array($product['original_currency'], CURRENCY_RATE_OPTIONS, true)
         ? $product['original_currency']
         : '',
     'market_currency' => $product['market_currency'] === null || in_array($product['market_currency'], CURRENCY_RATE_OPTIONS, true)
-        ? ($product['market_currency'] ?? SYSTEM_SELLING_CURRENCY)
+        ? ($product['market_currency'] ?? SYSTEM_BASE_CURRENCY)
         : 'OTHER',
     'market_currency_other' => $product['market_currency'] !== null && !in_array($product['market_currency'], CURRENCY_RATE_OPTIONS, true)
         ? $product['market_currency']
@@ -175,6 +175,12 @@ $form = [
     'shipping_origin_country_id' => $product['shipping_origin_country_id'] !== null ? (string) $product['shipping_origin_country_id'] : '',
 ];
 $selectedTagIds = catalog_get_product_tag_ids($pdo, $productId);
+
+$costCurrencyOptions = [SYSTEM_BASE_CURRENCY];
+foreach (currency_rates_list_by_currency($pdo) as $currencyCode => $_currencyRows) {
+    $costCurrencyOptions[] = $currencyCode;
+}
+$costCurrencyOptions = array_values(array_unique($costCurrencyOptions));
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // --- TEMPORARY TIMING INSTRUMENTATION (product save performance audit) ----------------
@@ -213,7 +219,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form['status'] = (string) ($_POST['status'] ?? 'draft');
     $form['availability_override'] = (string) ($_POST['availability_override'] ?? 'auto');
     $form['product_cost'] = trim((string) ($_POST['product_cost'] ?? ''));
-    $form['cost_currency'] = trim((string) ($_POST['cost_currency'] ?? SYSTEM_SELLING_CURRENCY));
+    $form['cost_currency'] = trim((string) ($_POST['cost_currency'] ?? SYSTEM_BASE_CURRENCY));
     $form['cost_currency_other'] = trim((string) ($_POST['cost_currency_other'] ?? ''));
     $form['exchange_rate'] = trim((string) ($_POST['exchange_rate'] ?? ''));
     $form['selling_price'] = trim((string) ($_POST['selling_price'] ?? ''));
@@ -233,9 +239,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Phase 9D/9F/9F.1/9F.2/9G (Pricing Engine)
     $form['original_price'] = trim((string) ($_POST['original_price'] ?? ''));
-    $form['original_currency'] = trim((string) ($_POST['original_currency'] ?? SYSTEM_SELLING_CURRENCY));
+    $form['original_currency'] = trim((string) ($_POST['original_currency'] ?? SYSTEM_BASE_CURRENCY));
     $form['original_currency_other'] = trim((string) ($_POST['original_currency_other'] ?? ''));
-    $form['market_currency'] = trim((string) ($_POST['market_currency'] ?? SYSTEM_SELLING_CURRENCY));
+    $form['market_currency'] = trim((string) ($_POST['market_currency'] ?? SYSTEM_BASE_CURRENCY));
     $form['market_currency_other'] = trim((string) ($_POST['market_currency_other'] ?? ''));
     $form['weight_grams'] = trim((string) ($_POST['weight_grams'] ?? ''));
     $form['shipping_origin_country_id'] = trim((string) ($_POST['shipping_origin_country_id'] ?? ''));
@@ -274,7 +280,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($error === '') {
         if ($form['cost_currency'] === 'OTHER' && ($costCurrency === '' || strlen($costCurrency) > 10)) {
             $error = 'Enter a valid cost currency code (up to 10 characters).';
-        } elseif ($form['cost_currency'] !== 'OTHER' && !in_array($form['cost_currency'], PRODUCT_COST_CURRENCY_OPTIONS, true)) {
+        } elseif ($form['cost_currency'] !== 'OTHER' && !in_array($form['cost_currency'], $costCurrencyOptions, true)) {
             $error = 'Invalid cost currency.';
         }
     }

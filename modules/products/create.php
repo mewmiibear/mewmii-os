@@ -83,6 +83,12 @@ $form = [
 ];
 $selectedTagIds = [];
 
+$costCurrencyOptions = [SYSTEM_BASE_CURRENCY];
+foreach (currency_rates_list_by_currency($pdo) as $currencyCode => $_currencyRows) {
+    $costCurrencyOptions[] = $currencyCode;
+}
+$costCurrencyOptions = array_values(array_unique($costCurrencyOptions));
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // --- TEMPORARY TIMING INSTRUMENTATION (product save performance audit) ----------------
     // Marks elapsed time (ms since this POST started) at each major step, logged as one line
@@ -187,7 +193,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($error === '') {
         if ($form['cost_currency'] === 'OTHER' && ($costCurrency === '' || strlen($costCurrency) > 10)) {
             $error = 'Enter a valid cost currency code (up to 10 characters).';
-        } elseif ($form['cost_currency'] !== 'OTHER' && !in_array($form['cost_currency'], PRODUCT_COST_CURRENCY_OPTIONS, true)) {
+        } elseif ($form['cost_currency'] !== 'OTHER' && !in_array($form['cost_currency'], $costCurrencyOptions, true)) {
             $error = 'Invalid cost currency.';
         }
     }
