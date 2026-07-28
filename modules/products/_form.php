@@ -895,6 +895,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
         // server round-trips per keystroke. Mirrors includes/pricing_engine.php's own formulas
         // exactly so this preview never disagrees with what gets saved.
         'pricingCalculator' => [
+            'systemSellingCurrency' => SYSTEM_SELLING_CURRENCY,
             'rates' => $currencyRateMaps,
             'shippingRatesByCountryId' => array_column($shippingCountries, 'rate_per_gram', 'id'),
         ],
@@ -965,6 +966,18 @@ $entryFormJsVersion = is_file($entryFormJsPath) ? filemtime($entryFormJsPath) : 
             });
         }
 
+        var pricingConfigEl = document.getElementById('product-form-data');
+        var pricingConfig = pricingConfigEl ? JSON.parse(pricingConfigEl.textContent || '{}') : {};
+        var systemSellingCurrency = pricingConfig.pricingCalculator && pricingConfig.pricingCalculator.systemSellingCurrency ?
+            pricingConfig.pricingCalculator.systemSellingCurrency :
+            'MYR';
+        var pricingCalculatorData = pricingConfig.pricingCalculator || {
+            rates: {},
+            shippingRatesByCountryId: {}
+        };
+        var pricingRates = pricingCalculatorData.rates || {};
+        var shippingRatesByCountryId = pricingCalculatorData.shippingRatesByCountryId || {};
+
         // Phase 7C.1 (Product Cost Data Entry) - toggle-by-classList shape already used by
         // product-form.js's own js-sale-fields/enable-sale toggle. Phase 9D (Pricing Engine)
         // reuses the exact same function for the two new currency selects (Original/Market)
@@ -1011,14 +1024,6 @@ $entryFormJsVersion = is_file($entryFormJsPath) ? filemtime($entryFormJsPath) : 
         // Shipping Cost = weight x rate_per_gram; Estimated Cost = Supplier Cost + Shipping;
         // Profit = Selling Price - Estimated Cost) so this preview never disagrees with what's
         // actually saved. Recomputed on every relevant field's input/change - no server round-trip.
-        var pricingConfigEl = document.getElementById('product-form-data');
-        var pricingConfig = pricingConfigEl ? JSON.parse(pricingConfigEl.textContent || '{}') : {};
-        var pricingCalculatorData = pricingConfig.pricingCalculator || {
-            rates: {},
-            shippingRatesByCountryId: {}
-        };
-        var pricingRates = pricingCalculatorData.rates || {};
-        var shippingRatesByCountryId = pricingCalculatorData.shippingRatesByCountryId || {};
 
         function pfResolveCurrencyCode(selectId, otherId) {
             var select = document.getElementById(selectId);

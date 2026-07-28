@@ -52,7 +52,7 @@ $form = [
     'status' => 'active',
     'availability_override' => 'auto',
     'product_cost' => '',
-    'cost_currency' => SYSTEM_SELLING_CURRENCY,
+    'cost_currency' => SYSTEM_BASE_CURRENCY,
     'cost_currency_other' => '',
     'exchange_rate' => '',
     'selling_price' => '',
@@ -74,9 +74,9 @@ $form = [
     // amount input at all (Phase 9G) - it's calculated from Original Price, only its
     // currency is picked here.
     'original_price' => '',
-    'original_currency' => SYSTEM_SELLING_CURRENCY,
+    'original_currency' => SYSTEM_BASE_CURRENCY,
     'original_currency_other' => '',
-    'market_currency' => SYSTEM_SELLING_CURRENCY,
+    'market_currency' => SYSTEM_BASE_CURRENCY,
     'market_currency_other' => '',
     'weight_grams' => '',
     'shipping_origin_country_id' => '',
@@ -126,7 +126,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     $form['availability_override'] = (string) ($_POST['availability_override'] ?? 'auto');
     $form['product_cost'] = trim((string) ($_POST['product_cost'] ?? ''));
-    $form['cost_currency'] = trim((string) ($_POST['cost_currency'] ?? SYSTEM_SELLING_CURRENCY));
+    $form['cost_currency'] = trim((string) ($_POST['cost_currency'] ?? SYSTEM_BASE_CURRENCY));
     $form['cost_currency_other'] = trim((string) ($_POST['cost_currency_other'] ?? ''));
     $form['exchange_rate'] = trim((string) ($_POST['exchange_rate'] ?? ''));
     $form['selling_price'] = trim((string) ($_POST['selling_price'] ?? ''));
@@ -146,9 +146,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Phase 9D/9F/9F.1/9F.2/9G (Pricing Engine)
     $form['original_price'] = trim((string) ($_POST['original_price'] ?? ''));
-    $form['original_currency'] = trim((string) ($_POST['original_currency'] ?? SYSTEM_SELLING_CURRENCY));
+    $form['original_currency'] = trim((string) ($_POST['original_currency'] ?? SYSTEM_BASE_CURRENCY));
     $form['original_currency_other'] = trim((string) ($_POST['original_currency_other'] ?? ''));
-    $form['market_currency'] = trim((string) ($_POST['market_currency'] ?? SYSTEM_SELLING_CURRENCY));
+    $form['market_currency'] = trim((string) ($_POST['market_currency'] ?? SYSTEM_BASE_CURRENCY));
     $form['market_currency_other'] = trim((string) ($_POST['market_currency_other'] ?? ''));
     $form['weight_grams'] = trim((string) ($_POST['weight_grams'] ?? ''));
     $form['shipping_origin_country_id'] = trim((string) ($_POST['shipping_origin_country_id'] ?? ''));

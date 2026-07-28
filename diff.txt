@@ -1,0 +1,220 @@
+﻿diff --git a/includes/currency_rates.php b/includes/currency_rates.php
+index 72922e4..2c5c8c7 100644
+--- a/includes/currency_rates.php
++++ b/includes/currency_rates.php
+@@ -3,18 +3,16 @@
+ /**
+  * Phase 9F.1/9F.2 (Multi-Purpose Currency Rate Settings) - currency_rates is the single,
+  * centrally-managed source of conversion rates for source currencies (e.g. USD, CNY, EUR)
+- * into the selling currency (MYR), with JPY treated as the system's permanent base/source
+- * currency. No page anywhere asks an admin to type a rate directly onto a product anymore -
+- * includes/pricing_engine.php looks this table up live for Original/Supplier/Market Price
+- * conversion, and products.exchange_rate (the one column includes/product_cost.php's actual
+- * Landed Cost engine still reads - deliberately NOT modified) is kept in sync automatically
+- * by currency_rates_sync_product_exchange_rate()/currency_rates_bulk_refresh_products_exchange_rate()
+- * below, so that engine keeps working unmodified without anyone ever typing a rate into a
+- * product form again.
++ * into the selling currency (MYR). No page anywhere asks an admin to type a rate directly
++ * onto a product anymore - includes/pricing_engine.php looks this table up live for
++ * Original/Supplier/Market Price conversion, and products.exchange_rate (the one column
++ * includes/product_cost.php's actual Landed Cost engine still reads - deliberately NOT
++ * modified) is kept in sync automatically by currency_rates_sync_product_exchange_rate()/
++ * currency_rates_bulk_refresh_products_exchange_rate() below, so that engine keeps working
++ * unmodified without anyone ever typing a rate into a product form again.
+  *
+  * Phase 9F.2 - a single rate per currency code was wrong: Supplier, Original, and Market
+- * Price conversion each need their OWN rate even for the same code (JPY's supplier rate,
+- * original rate, and market rate are three independent numbers). Every function here now
++ * Price conversion each need their OWN rate even for the same code. Every function here now
+  * takes a $rateType ('supplier'/'original'/'market') alongside the currency code - a
+  * currency+rate_type pair with no row is "not configured", never assumed 1:1.
+  */
+@@ -50,7 +48,7 @@ function currency_rates_cleanup_system_currency_rows(PDO $pdo): void
+ function currency_rates_normalize_currency_code(?string $currencyCode): ?string
+ {
+     $code = strtoupper(trim((string) $currencyCode));
+-    if ($code === '' || $code === SYSTEM_BASE_CURRENCY || $code === SYSTEM_SELLING_CURRENCY) {
++    if ($code === '' || $code === SYSTEM_SELLING_CURRENCY) {
+         return null;
+     }
+ 
+diff --git a/modules/products/_form.php b/modules/products/_form.php
+index 90c362c..697eefc 100644
+--- a/modules/products/_form.php
++++ b/modules/products/_form.php
+@@ -895,6 +895,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
+         // server round-trips per keystroke. Mirrors includes/pricing_engine.php's own formulas
+         // exactly so this preview never disagrees with what gets saved.
+         'pricingCalculator' => [
++            'systemSellingCurrency' => SYSTEM_SELLING_CURRENCY,
+             'rates' => $currencyRateMaps,
+             'shippingRatesByCountryId' => array_column($shippingCountries, 'rate_per_gram', 'id'),
+         ],
+@@ -965,6 +966,18 @@ $entryFormJsVersion = is_file($entryFormJsPath) ? filemtime($entryFormJsPath) :
+             });
+         }
+ 
++        var pricingConfigEl = document.getElementById('product-form-data');
++        var pricingConfig = pricingConfigEl ? JSON.parse(pricingConfigEl.textContent || '{}') : {};
++        var systemSellingCurrency = pricingConfig.pricingCalculator && pricingConfig.pricingCalculator.systemSellingCurrency ?
++            pricingConfig.pricingCalculator.systemSellingCurrency :
++            'MYR';
++        var pricingCalculatorData = pricingConfig.pricingCalculator || {
++            rates: {},
++            shippingRatesByCountryId: {}
++        };
++        var pricingRates = pricingCalculatorData.rates || {};
++        var shippingRatesByCountryId = pricingCalculatorData.shippingRatesByCountryId || {};
++
+         // Phase 7C.1 (Product Cost Data Entry) - toggle-by-classList shape already used by
+         // product-form.js's own js-sale-fields/enable-sale toggle. Phase 9D (Pricing Engine)
+         // reuses the exact same function for the two new currency selects (Original/Market)
+@@ -1011,14 +1024,6 @@ $entryFormJsVersion = is_file($entryFormJsPath) ? filemtime($entryFormJsPath) :
+         // Shipping Cost = weight x rate_per_gram; Estimated Cost = Supplier Cost + Shipping;
+         // Profit = Selling Price - Estimated Cost) so this preview never disagrees with what's
+         // actually saved. Recomputed on every relevant field's input/change - no server round-trip.
+-        var pricingConfigEl = document.getElementById('product-form-data');
+-        var pricingConfig = pricingConfigEl ? JSON.parse(pricingConfigEl.textContent || '{}') : {};
+-        var pricingCalculatorData = pricingConfig.pricingCalculator || {
+-            rates: {},
+-            shippingRatesByCountryId: {}
+-        };
+-        var pricingRates = pricingCalculatorData.rates || {};
+-        var shippingRatesByCountryId = pricingCalculatorData.shippingRatesByCountryId || {};
+ 
+         function pfResolveCurrencyCode(selectId, otherId) {
+             var select = document.getElementById(selectId);
+diff --git a/modules/products/create.php b/modules/products/create.php
+index b4498d2..89d0aa4 100644
+--- a/modules/products/create.php
++++ b/modules/products/create.php
+@@ -52,7 +52,7 @@ $form = [
+     'status' => 'active',
+     'availability_override' => 'auto',
+     'product_cost' => '',
+-    'cost_currency' => SYSTEM_SELLING_CURRENCY,
++    'cost_currency' => SYSTEM_BASE_CURRENCY,
+     'cost_currency_other' => '',
+     'exchange_rate' => '',
+     'selling_price' => '',
+@@ -74,9 +74,9 @@ $form = [
+     // amount input at all (Phase 9G) - it's calculated from Original Price, only its
+     // currency is picked here.
+     'original_price' => '',
+-    'original_currency' => SYSTEM_SELLING_CURRENCY,
++    'original_currency' => SYSTEM_BASE_CURRENCY,
+     'original_currency_other' => '',
+-    'market_currency' => SYSTEM_SELLING_CURRENCY,
++    'market_currency' => SYSTEM_BASE_CURRENCY,
+     'market_currency_other' => '',
+     'weight_grams' => '',
+     'shipping_origin_country_id' => '',
+@@ -126,7 +126,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+     }
+     $form['availability_override'] = (string) ($_POST['availability_override'] ?? 'auto');
+     $form['product_cost'] = trim((string) ($_POST['product_cost'] ?? ''));
+-    $form['cost_currency'] = trim((string) ($_POST['cost_currency'] ?? SYSTEM_SELLING_CURRENCY));
++    $form['cost_currency'] = trim((string) ($_POST['cost_currency'] ?? SYSTEM_BASE_CURRENCY));
+     $form['cost_currency_other'] = trim((string) ($_POST['cost_currency_other'] ?? ''));
+     $form['exchange_rate'] = trim((string) ($_POST['exchange_rate'] ?? ''));
+     $form['selling_price'] = trim((string) ($_POST['selling_price'] ?? ''));
+@@ -146,9 +146,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+ 
+     // Phase 9D/9F/9F.1/9F.2/9G (Pricing Engine)
+     $form['original_price'] = trim((string) ($_POST['original_price'] ?? ''));
+-    $form['original_currency'] = trim((string) ($_POST['original_currency'] ?? SYSTEM_SELLING_CURRENCY));
++    $form['original_currency'] = trim((string) ($_POST['original_currency'] ?? SYSTEM_BASE_CURRENCY));
+     $form['original_currency_other'] = trim((string) ($_POST['original_currency_other'] ?? ''));
+-    $form['market_currency'] = trim((string) ($_POST['market_currency'] ?? SYSTEM_SELLING_CURRENCY));
++    $form['market_currency'] = trim((string) ($_POST['market_currency'] ?? SYSTEM_BASE_CURRENCY));
+     $form['market_currency_other'] = trim((string) ($_POST['market_currency_other'] ?? ''));
+     $form['weight_grams'] = trim((string) ($_POST['weight_grams'] ?? ''));
+     $form['shipping_origin_country_id'] = trim((string) ($_POST['shipping_origin_country_id'] ?? ''));
+diff --git a/modules/settings/currency_rates.php b/modules/settings/currency_rates.php
+index 4330509..c4f47f1 100644
+--- a/modules/settings/currency_rates.php
++++ b/modules/settings/currency_rates.php
+@@ -67,8 +67,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+             $errors[] = 'Currency code is required.';
+         } elseif (strlen($currencyCode) !== 3) {
+             $errors[] = 'Currency code must be exactly 3 characters.';
+-        } elseif ($currencyCode === SYSTEM_BASE_CURRENCY) {
+-            $errors[] = SYSTEM_BASE_CURRENCY . ' is the base currency and cannot be managed here.';
+         } elseif ($currencyCode === SYSTEM_SELLING_CURRENCY) {
+             $errors[] = SYSTEM_SELLING_CURRENCY . ' is not managed as a rate currency.';
+         }
+@@ -175,14 +173,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+ 
+ $currencyRows = currency_rates_list_by_currency($pdo);
+ $displayCurrencyRows = [];
+-$displayCurrencyRows[SYSTEM_BASE_CURRENCY] = [
+-    '_is_base' => true,
+-    'supplier' => ['exchange_rate' => 1.0],
+-    'original' => ['exchange_rate' => 1.0],
+-    'market' => ['exchange_rate' => 1.0],
+-];
+ foreach ($currencyRows as $currencyCode => $rows) {
+-    if ($currencyCode === SYSTEM_SELLING_CURRENCY || $currencyCode === SYSTEM_BASE_CURRENCY) {
++    if ($currencyCode === SYSTEM_SELLING_CURRENCY) {
+         continue;
+     }
+     $displayCurrencyRows[$currencyCode] = $rows;
+@@ -199,7 +191,7 @@ uksort($displayCurrencyRows, static function (string $a, string $b): int {
+ });
+ 
+ $editRates = [];
+-if ($editCurrencyCode !== '' && $editCurrencyCode !== SYSTEM_BASE_CURRENCY) {
++if ($editCurrencyCode !== '' && $editCurrencyCode !== SYSTEM_SELLING_CURRENCY) {
+     $editRates = currency_rates_find_for_currency($pdo, $editCurrencyCode);
+     if ($editRates === []) {
+         http_response_code(404);
+@@ -254,7 +246,7 @@ require_once __DIR__ . '/../../includes/header.php';
+             <a class="btn btn-sm btn-outline-secondary" href="/modules/settings/currency_rates.php">Cancel</a>
+         <?php endif; ?>
+     </div>
+-    <p class="text-muted small mb-3">JPY is the system base currency and is managed automatically. Only foreign/source currencies that need conversion are entered here.</p>
++    <p class="text-muted small mb-3">Manage conversion rates for foreign/source currencies into MYR. JPY is editable like any other configured currency.</p>
+     <form method="post" class="row g-3 align-items-end">
+         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+         <input type="hidden" name="action" value="<?php echo $editCurrencyCode !== '' ? 'update' : 'add'; ?>">
+@@ -301,30 +293,21 @@ require_once __DIR__ . '/../../includes/header.php';
+                 <?php foreach ($displayCurrencyRows as $currencyCode => $rows): ?>
+                     <tr>
+                         <td>
+-                            <div class="d-flex align-items-center gap-2">
+-                                <span><?php echo app_escape($currencyCode); ?></span>
+-                                <?php if ($currencyCode === SYSTEM_BASE_CURRENCY): ?>
+-                                    <span class="badge bg-primary">Base Currency</span>
+-                                <?php endif; ?>
+-                            </div>
++                            <span><?php echo app_escape($currencyCode); ?></span>
+                         </td>
+                         <td><?php echo app_escape(isset($rows['supplier']) ? number_format((float) $rows['supplier']['exchange_rate'], 6) : 'ΓÇö'); ?></td>
+                         <td><?php echo app_escape(isset($rows['original']) ? number_format((float) $rows['original']['exchange_rate'], 6) : 'ΓÇö'); ?></td>
+                         <td><?php echo app_escape(isset($rows['market']) ? number_format((float) $rows['market']['exchange_rate'], 6) : 'ΓÇö'); ?></td>
+                         <td class="text-end">
+-                            <?php if ($currencyCode === SYSTEM_BASE_CURRENCY): ?>
+-                                <span class="text-muted small">Locked</span>
+-                            <?php else: ?>
+-                                <div class="d-flex gap-1 justify-content-end">
+-                                    <a class="btn btn-sm btn-outline-secondary" href="/modules/settings/currency_rates.php?edit=<?php echo app_escape($currencyCode); ?>">Edit</a>
+-                                    <form method="post" class="d-inline" action="/modules/settings/currency_rates.php" onsubmit="return confirm('Delete all rates for this currency?');">
+-                                        <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+-                                        <input type="hidden" name="action" value="delete">
+-                                        <input type="hidden" name="currency_code" value="<?php echo app_escape($currencyCode); ?>">
+-                                        <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+-                                    </form>
+-                                </div>
+-                            <?php endif; ?>
++                            <div class="d-flex gap-1 justify-content-end">
++                                <a class="btn btn-sm btn-outline-secondary" href="/modules/settings/currency_rates.php?edit=<?php echo app_escape($currencyCode); ?>">Edit</a>
++                                <form method="post" class="d-inline" action="/modules/settings/currency_rates.php" onsubmit="return confirm('Delete all rates for this currency?');">
++                                    <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
++                                    <input type="hidden" name="action" value="delete">
++                                    <input type="hidden" name="currency_code" value="<?php echo app_escape($currencyCode); ?>">
++                                    <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
++                                </form>
++                            </div>
+                         </td>
+                     </tr>
+                 <?php endforeach; ?>

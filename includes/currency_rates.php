@@ -3,18 +3,16 @@
 /**
  * Phase 9F.1/9F.2 (Multi-Purpose Currency Rate Settings) - currency_rates is the single,
  * centrally-managed source of conversion rates for source currencies (e.g. USD, CNY, EUR)
- * into the selling currency (MYR), with JPY treated as the system's permanent base/source
- * currency. No page anywhere asks an admin to type a rate directly onto a product anymore -
- * includes/pricing_engine.php looks this table up live for Original/Supplier/Market Price
- * conversion, and products.exchange_rate (the one column includes/product_cost.php's actual
- * Landed Cost engine still reads - deliberately NOT modified) is kept in sync automatically
- * by currency_rates_sync_product_exchange_rate()/currency_rates_bulk_refresh_products_exchange_rate()
- * below, so that engine keeps working unmodified without anyone ever typing a rate into a
- * product form again.
+ * into the selling currency (MYR). No page anywhere asks an admin to type a rate directly
+ * onto a product anymore - includes/pricing_engine.php looks this table up live for
+ * Original/Supplier/Market Price conversion, and products.exchange_rate (the one column
+ * includes/product_cost.php's actual Landed Cost engine still reads - deliberately NOT
+ * modified) is kept in sync automatically by currency_rates_sync_product_exchange_rate()/
+ * currency_rates_bulk_refresh_products_exchange_rate() below, so that engine keeps working
+ * unmodified without anyone ever typing a rate into a product form again.
  *
  * Phase 9F.2 - a single rate per currency code was wrong: Supplier, Original, and Market
- * Price conversion each need their OWN rate even for the same code (JPY's supplier rate,
- * original rate, and market rate are three independent numbers). Every function here now
+ * Price conversion each need their OWN rate even for the same code. Every function here now
  * takes a $rateType ('supplier'/'original'/'market') alongside the currency code - a
  * currency+rate_type pair with no row is "not configured", never assumed 1:1.
  */
@@ -50,7 +48,7 @@ function currency_rates_cleanup_system_currency_rows(PDO $pdo): void
 function currency_rates_normalize_currency_code(?string $currencyCode): ?string
 {
     $code = strtoupper(trim((string) $currencyCode));
-    if ($code === '' || $code === SYSTEM_BASE_CURRENCY || $code === SYSTEM_SELLING_CURRENCY) {
+    if ($code === '' || $code === SYSTEM_SELLING_CURRENCY) {
         return null;
     }
 
