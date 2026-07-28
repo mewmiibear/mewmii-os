@@ -211,7 +211,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$customersStmt = $pdo->query('SELECT id, name, email FROM customers ORDER BY name ASC LIMIT 200');
+$customersStmt = $pdo->query('SELECT id, name, email, instagram_username FROM customers ORDER BY name ASC LIMIT 200');
 $allCustomers = $customersStmt->fetchAll(PDO::FETCH_ASSOC);
 
 $pickerCategories = catalog_list_categories_tree($pdo);
@@ -268,7 +268,7 @@ require_once __DIR__ . '/../../includes/header.php';
                             <option value="">Select a customer&hellip;</option>
                             <?php foreach ($allCustomers as $customer): ?>
                                 <option value="<?php echo (int) $customer['id']; ?>" <?php echo $form['customer_id'] === (string) $customer['id'] ? 'selected' : ''; ?>>
-                                    <?php echo app_escape($customer['name']); ?><?php if (!empty($customer['email'])): ?> (<?php echo app_escape($customer['email']); ?>)<?php endif; ?>
+                                    <?php echo app_escape(app_customer_dropdown_label($customer)); ?>
                                 </option>
                             <?php endforeach; ?>
                         </select>
@@ -341,12 +341,14 @@ require_once __DIR__ . '/../../includes/header.php';
 
     <?php require __DIR__ . '/_item_picker_modal.php'; ?>
 
-    <script id="order-form-data" type="application/json"><?php echo json_encode([
-        'products' => $pickerProducts,
-        'existingItems' => $existingItems,
-        'csrfToken' => app_csrf_token(),
-        'urls' => ['createCustomer' => '/modules/customers/ajax/create_customer.php'],
-    ]); ?></script>
+    <script id="order-form-data" type="application/json">
+        <?php echo json_encode([
+            'products' => $pickerProducts,
+            'existingItems' => $existingItems,
+            'csrfToken' => app_csrf_token(),
+            'urls' => ['createCustomer' => '/modules/customers/ajax/create_customer.php'],
+        ]); ?>
+    </script>
     <?php
     $orderFormJsPath = __DIR__ . '/../../assets/js/order-form.js';
     $orderFormJsVersion = is_file($orderFormJsPath) ? filemtime($orderFormJsPath) : time();

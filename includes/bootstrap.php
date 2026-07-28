@@ -156,6 +156,29 @@ function app_customer_display_name(array $customer): string
     return 'Unknown Customer';
 }
 
+function app_customer_dropdown_label(array $customer): string
+{
+    $name = trim((string) ($customer['name'] ?? ''));
+    $instagramUsername = trim((string) ($customer['instagram_username'] ?? ''));
+    $email = trim((string) ($customer['email'] ?? ''));
+
+    if ($name !== '') {
+        $label = $name;
+    } elseif ($instagramUsername !== '') {
+        $label = '@' . ltrim($instagramUsername, '@');
+    } elseif ($email !== '') {
+        return $email;
+    } else {
+        return 'Unknown Customer';
+    }
+
+    if ($email !== '') {
+        $label .= ' (' . $email . ')';
+    }
+
+    return $label;
+}
+
 function app_customer_find_existing_by_identity(PDO $pdo, array $identityFields, ?int $excludeId = null): ?array
 {
     $checks = [];
