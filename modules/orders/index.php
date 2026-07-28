@@ -107,7 +107,7 @@ $offset = ($page - 1) * $perPage;
 // digging up the oldest settled order. Never touches order_date's own value or how it's set.
 $orderBySql = $view === 'active' ? 'o.order_date ASC, o.id ASC' : 'o.id DESC';
 
-$sql = "SELECT DISTINCT o.id, o.order_number, o.order_date, o.payment_status, o.order_status, o.receipt_status, o.receipt_url, o.is_historical, o.woocommerce_order_id, o.tracking_number, o.customer_id, c.name AS customer_name {$fromSql}{$whereSql} ORDER BY {$orderBySql} LIMIT {$perPage} OFFSET {$offset}";
+$sql = "SELECT DISTINCT o.id, o.order_number, o.order_date, o.payment_status, o.order_status, o.receipt_status, o.receipt_url, o.is_historical, o.woocommerce_order_id, o.tracking_number, o.customer_id, c.name AS customer_name, c.instagram_username AS customer_instagram_username, c.email AS customer_email {$fromSql}{$whereSql} ORDER BY {$orderBySql} LIMIT {$perPage} OFFSET {$offset}";
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -165,8 +165,8 @@ unset($_SESSION['orders_bulk_result']);
 
 <?php if ($bulkResult !== null): ?>
     <?php
-    $bulkApprovedCount = count(array_filter($bulkResult, static fn (array $r): bool => $r['success']));
-    $bulkFailedResults = array_filter($bulkResult, static fn (array $r): bool => !$r['success']);
+    $bulkApprovedCount = count(array_filter($bulkResult, static fn(array $r): bool => $r['success']));
+    $bulkFailedResults = array_filter($bulkResult, static fn(array $r): bool => !$r['success']);
     ?>
     <div class="alert <?php echo $bulkFailedResults === [] ? 'alert-success' : 'alert-warning'; ?>">
         <div><?php echo (int) $bulkApprovedCount; ?> of <?php echo count($bulkResult); ?> order(s) approved.</div>
@@ -185,7 +185,8 @@ $viewLabels = ['active' => 'Active', 'completed' => 'Completed', 'cancelled' => 
 ?>
 <div class="d-flex flex-wrap gap-2 mb-3">
     <?php foreach ($viewLabels as $viewValue => $viewLabel): ?>
-        <?php $tabParams = array_merge($_GET, ['view' => $viewValue]); unset($tabParams['page']); ?>
+        <?php $tabParams = array_merge($_GET, ['view' => $viewValue]);
+        unset($tabParams['page']); ?>
         <a class="btn btn-sm <?php echo $view === $viewValue ? 'btn-primary' : 'btn-outline-secondary'; ?>" href="/modules/orders/index.php?<?php echo http_build_query($tabParams); ?>">
             <?php echo app_escape($viewLabel); ?>
         </a>
@@ -253,89 +254,94 @@ foreach ($orders as $order) {
             </div>
         <?php endif; ?>
         <div class="table-responsive">
-        <table class="table table-hover align-middle responsive-stack-table">
-            <thead>
-                <tr>
-                    <?php if ($canManage && $bulkEligibleCount > 0): ?>
-                        <th><input type="checkbox" class="form-check-input" id="orders-bulk-select-all"></th>
-                    <?php endif; ?>
-                    <th>Order #</th>
-                    <th>Customer</th>
-                    <th>Order Date</th>
-                    <th>Payment</th>
-                    <th>Status</th>
-                    <th>Receipt</th>
-                    <th>Tracking</th>
-                    <th></th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php foreach ($orders as $order): ?>
-                    <?php $bulkEligible = $order['payment_status'] === 'pending' && empty($order['is_historical']); ?>
+            <table class="table table-hover align-middle responsive-stack-table">
+                <thead>
                     <tr>
                         <?php if ($canManage && $bulkEligibleCount > 0): ?>
-                            <td data-label="">
-                                <?php if ($bulkEligible): ?>
-                                    <input type="checkbox" class="form-check-input orders-bulk-checkbox" name="order_ids[]" value="<?php echo (int) $order['id']; ?>">
+                            <th><input type="checkbox" class="form-check-input" id="orders-bulk-select-all"></th>
+                        <?php endif; ?>
+                        <th>Order #</th>
+                        <th>Customer</th>
+                        <th>Order Date</th>
+                        <th>Payment</th>
+                        <th>Status</th>
+                        <th>Receipt</th>
+                        <th>Tracking</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($orders as $order): ?>
+                        <?php $bulkEligible = $order['payment_status'] === 'pending' && empty($order['is_historical']); ?>
+                        <tr>
+                            <?php if ($canManage && $bulkEligibleCount > 0): ?>
+                                <td data-label="">
+                                    <?php if ($bulkEligible): ?>
+                                        <input type="checkbox" class="form-check-input orders-bulk-checkbox" name="order_ids[]" value="<?php echo (int) $order['id']; ?>">
+                                    <?php endif; ?>
+                                </td>
+                            <?php endif; ?>
+                            <td data-label="Order #">
+                                <?php echo app_escape(order_display_number_compact($order['order_number'])); ?>
+                                <?php echo order_source_badge($order); ?>
+                            </td>
+                            <td data-label="Customer">
+                                <?php $customerLabel = app_customer_dropdown_label([
+                                    'name' => $order['customer_name'],
+                                    'instagram_username' => $order['customer_instagram_username'] ?? null,
+                                    'email' => $order['customer_email'] ?? null,
+                                ]); ?>
+                                <?php if ($customerLabel === 'Unknown Customer'): ?>
+                                    Unknown
+                                <?php elseif ($canViewCustomers && $order['customer_id'] !== null): ?>
+                                    <a href="/modules/customers/view.php?id=<?php echo (int) $order['customer_id']; ?>"><?php echo app_escape($customerLabel); ?></a>
+                                <?php else: ?>
+                                    <?php echo app_escape($customerLabel); ?>
                                 <?php endif; ?>
                             </td>
-                        <?php endif; ?>
-                        <td data-label="Order #">
-                            <?php echo app_escape(order_display_number_compact($order['order_number'])); ?>
-                            <?php echo order_source_badge($order); ?>
-                        </td>
-                        <td data-label="Customer">
-                            <?php if ($order['customer_name'] === null): ?>
-                                Unknown
-                            <?php elseif ($canViewCustomers && $order['customer_id'] !== null): ?>
-                                <a href="/modules/customers/view.php?id=<?php echo (int) $order['customer_id']; ?>"><?php echo app_escape($order['customer_name']); ?></a>
-                            <?php else: ?>
-                                <?php echo app_escape($order['customer_name']); ?>
-                            <?php endif; ?>
-                        </td>
-                        <td data-label="Order Date">
-                            <?php if ($order['order_date'] !== null): ?>
-                                <?php echo app_escape(date('j M Y', strtotime($order['order_date']))); ?>
-                                <div class="text-muted small">
-                                    <?php echo (int) $order['age_days']; ?> day<?php echo $order['age_days'] === 1 ? '' : 's'; ?> ago
+                            <td data-label="Order Date">
+                                <?php if ($order['order_date'] !== null): ?>
+                                    <?php echo app_escape(date('j M Y', strtotime($order['order_date']))); ?>
+                                    <div class="text-muted small">
+                                        <?php echo (int) $order['age_days']; ?> day<?php echo $order['age_days'] === 1 ? '' : 's'; ?> ago
+                                    </div>
+                                    <?php if (!in_array($order['order_status'], ['completed', 'cancelled'], true) && $order['age_days'] >= $orderWaitingThresholdDays): ?>
+                                        <span class="badge bg-warning text-dark">&#9201; Waiting <?php echo (int) $order['age_days']; ?> day<?php echo $order['age_days'] === 1 ? '' : 's'; ?></span>
+                                    <?php endif; ?>
+                                <?php else: ?>
+                                    &mdash;
+                                <?php endif; ?>
+                            </td>
+                            <td data-label="Payment"><?php echo payment_status_badge($order['payment_status']); ?></td>
+                            <td data-label="Status"><?php echo order_status_badge($order['order_status']); ?></td>
+                            <td data-label="Receipt">
+                                <?php echo $order['receipt_status'] !== null ? order_receipt_status_badge($order) : '<span class="text-muted">&mdash;</span>'; ?>
+                            </td>
+                            <td data-label="Tracking"><?php echo $order['tracking_number'] !== null ? app_escape($order['tracking_number']) : '&mdash;'; ?></td>
+                            <td data-label="" class="text-end">
+                                <a class="btn btn-sm btn-outline-primary" href="/modules/orders/view.php?id=<?php echo (int) $order['id']; ?>">View</a>
+                                <?php if ($canManage): ?>
+                                    <a class="btn btn-sm btn-outline-secondary" href="/modules/orders/edit.php?id=<?php echo (int) $order['id']; ?>">Edit</a>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    <?php if ($orders === []): ?>
+                        <?php $hasActiveFilters = $searchTerm !== '' || $filterStatus !== null || $filterPaymentStatus !== null || $view !== 'active'; ?>
+                        <tr>
+                            <td colspan="9">
+                                <div class="empty-state">
+                                    <div class="empty-state-title">No Orders Match</div>
+                                    <p class="empty-state-text"><?php echo $hasActiveFilters ? 'Try adjusting or clearing your filters.' : 'Customer orders will appear here once created.'; ?></p>
+                                    <?php if ($canManage && !$hasActiveFilters): ?>
+                                        <a class="btn btn-primary btn-sm" href="/modules/orders/create.php">New Order</a>
+                                    <?php endif; ?>
                                 </div>
-                                <?php if (!in_array($order['order_status'], ['completed', 'cancelled'], true) && $order['age_days'] >= $orderWaitingThresholdDays): ?>
-                                    <span class="badge bg-warning text-dark">&#9201; Waiting <?php echo (int) $order['age_days']; ?> day<?php echo $order['age_days'] === 1 ? '' : 's'; ?></span>
-                                <?php endif; ?>
-                            <?php else: ?>
-                                &mdash;
-                            <?php endif; ?>
-                        </td>
-                        <td data-label="Payment"><?php echo payment_status_badge($order['payment_status']); ?></td>
-                        <td data-label="Status"><?php echo order_status_badge($order['order_status']); ?></td>
-                        <td data-label="Receipt">
-                            <?php echo $order['receipt_status'] !== null ? order_receipt_status_badge($order) : '<span class="text-muted">&mdash;</span>'; ?>
-                        </td>
-                        <td data-label="Tracking"><?php echo $order['tracking_number'] !== null ? app_escape($order['tracking_number']) : '&mdash;'; ?></td>
-                        <td data-label="" class="text-end">
-                            <a class="btn btn-sm btn-outline-primary" href="/modules/orders/view.php?id=<?php echo (int) $order['id']; ?>">View</a>
-                            <?php if ($canManage): ?>
-                                <a class="btn btn-sm btn-outline-secondary" href="/modules/orders/edit.php?id=<?php echo (int) $order['id']; ?>">Edit</a>
-                            <?php endif; ?>
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
-                <?php if ($orders === []): ?>
-                    <?php $hasActiveFilters = $searchTerm !== '' || $filterStatus !== null || $filterPaymentStatus !== null || $view !== 'active'; ?>
-                    <tr>
-                        <td colspan="9">
-                            <div class="empty-state">
-                                <div class="empty-state-title">No Orders Match</div>
-                                <p class="empty-state-text"><?php echo $hasActiveFilters ? 'Try adjusting or clearing your filters.' : 'Customer orders will appear here once created.'; ?></p>
-                                <?php if ($canManage && !$hasActiveFilters): ?>
-                                    <a class="btn btn-primary btn-sm" href="/modules/orders/create.php">New Order</a>
-                                <?php endif; ?>
-                            </div>
-                        </td>
-                    </tr>
-                <?php endif; ?>
-            </tbody>
-        </table>
+                            </td>
+                        </tr>
+                    <?php endif; ?>
+                </tbody>
+            </table>
         </div>
 
         <?php
@@ -365,29 +371,31 @@ foreach ($orders as $order) {
 </form>
 
 <?php if ($canManage && $bulkEligibleCount > 0): ?>
-<script>
-(function () {
-    var selectAll = document.getElementById('orders-bulk-select-all');
-    var checkboxes = document.querySelectorAll('.orders-bulk-checkbox');
-    var counter = document.getElementById('orders-bulk-count');
-    var submitBtn = document.getElementById('orders-bulk-submit');
+    <script>
+        (function() {
+            var selectAll = document.getElementById('orders-bulk-select-all');
+            var checkboxes = document.querySelectorAll('.orders-bulk-checkbox');
+            var counter = document.getElementById('orders-bulk-count');
+            var submitBtn = document.getElementById('orders-bulk-submit');
 
-    function updateState() {
-        var checked = document.querySelectorAll('.orders-bulk-checkbox:checked').length;
-        counter.textContent = String(checked);
-        submitBtn.disabled = checked === 0;
-    }
+            function updateState() {
+                var checked = document.querySelectorAll('.orders-bulk-checkbox:checked').length;
+                counter.textContent = String(checked);
+                submitBtn.disabled = checked === 0;
+            }
 
-    if (selectAll) {
-        selectAll.addEventListener('change', function () {
-            checkboxes.forEach(function (checkbox) { checkbox.checked = selectAll.checked; });
-            updateState();
-        });
-    }
-    checkboxes.forEach(function (checkbox) {
-        checkbox.addEventListener('change', updateState);
-    });
-})();
-</script>
+            if (selectAll) {
+                selectAll.addEventListener('change', function() {
+                    checkboxes.forEach(function(checkbox) {
+                        checkbox.checked = selectAll.checked;
+                    });
+                    updateState();
+                });
+            }
+            checkboxes.forEach(function(checkbox) {
+                checkbox.addEventListener('change', updateState);
+            });
+        })();
+    </script>
 <?php endif; ?>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
