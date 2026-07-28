@@ -82,27 +82,31 @@ function wc_customer_import_upsert(PDO $pdo, array $wcCustomer): array
     $matchedById = $idStmt->fetchColumn();
     if ($matchedById !== false) {
         $existingId = (int) $matchedById;
-    } elseif ($fields['email'] !== null) {
-        // Same case-insensitive convention as wc_order_import_match_customer() and every
-        // other customer-creation path in this app.
-        $emailStmt = $pdo->prepare('SELECT id FROM customers WHERE LOWER(email) = LOWER(?) LIMIT 1');
-        $emailStmt->execute([$fields['email']]);
-        $matchedByEmail = $emailStmt->fetchColumn();
-        if ($matchedByEmail !== false) {
-            $existingId = (int) $matchedByEmail;
+    } else {
+        $matchedByIdentity = app_customer_find_existing_by_identity($pdo, [
+            'phone' => $fields['phone'] ?? null,
+            'email' => $fields['email'] ?? null,
+            'instagram_username' => null,
+        ]);
+        if ($matchedByIdentity !== null) {
+            $existingId = (int) $matchedByIdentity['id'];
         }
     }
 
     if ($existingId !== null) {
+        if ($wcCustomerId > 0) {
+            $pdo->prepare('UPDATE customers SET woocommerce_customer_id = ? WHERE id = ? AND (woocommerce_customer_id IS NULL OR woocommerce_customer_id = 0)')
+                ->execute([$wcCustomerId, $existingId]);
+        }
+
         $pdo->prepare('
             UPDATE customers
-            SET woocommerce_customer_id = ?,
-                name = COALESCE(?, name),
+            SET name = COALESCE(?, name),
                 email = COALESCE(?, email),
                 phone = COALESCE(?, phone),
                 address = COALESCE(?, address)
             WHERE id = ?
-        ')->execute([$wcCustomerId, $fields['name'], $fields['email'], $fields['phone'], $fields['address'], $existingId]);
+        ')->execute([$fields['name'], $fields['email'], $fields['phone'], $fields['address'], $existingId]);
 
         return ['id' => $existingId, 'created' => false];
     }
@@ -112,8 +116,8 @@ function wc_customer_import_upsert(PDO $pdo, array $wcCustomer): array
         VALUES (?, ?, ?, ?, ?)
     ');
     $insertStmt->execute([
-        $wcCustomerId,
-        $fields['name'] ?? 'WooCommerce Customer',
+        $wcCustomerId > 0 ? $wcCustomerId : null,
+        $fields['name'] ?? '',
         $fields['email'],
         $fields['phone'],
         $fields['address'],

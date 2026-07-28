@@ -131,6 +131,68 @@ function app_escape($value): string
     return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 }
 
+function app_customer_display_name(array $customer): string
+{
+    $displayName = trim((string) ($customer['name'] ?? ''));
+    if ($displayName !== '') {
+        return $displayName;
+    }
+
+    $instagramUsername = trim((string) ($customer['instagram_username'] ?? ''));
+    if ($instagramUsername !== '') {
+        return '@' . $instagramUsername;
+    }
+
+    $phone = trim((string) ($customer['phone'] ?? ''));
+    if ($phone !== '') {
+        return $phone;
+    }
+
+    $email = trim((string) ($customer['email'] ?? ''));
+    if ($email !== '') {
+        return $email;
+    }
+
+    return 'Unknown Customer';
+}
+
+function app_customer_find_existing_by_identity(PDO $pdo, array $identityFields, ?int $excludeId = null): ?array
+{
+    $checks = [];
+    if (trim((string) ($identityFields['phone'] ?? '')) !== '') {
+        $checks[] = ['phone', 'phone'];
+    }
+    if (trim((string) ($identityFields['email'] ?? '')) !== '') {
+        $checks[] = ['email', 'email'];
+    }
+    if (trim((string) ($identityFields['instagram_username'] ?? '')) !== '') {
+        $checks[] = ['instagram_username', 'instagram_username'];
+    }
+
+    foreach ($checks as [$fieldName, $column]) {
+        $value = trim((string) ($identityFields[$fieldName] ?? ''));
+        if ($value === '') {
+            continue;
+        }
+
+        $sql = "SELECT id, name, email, phone, instagram_username FROM customers WHERE {$column} IS NOT NULL AND TRIM(LOWER({$column})) = TRIM(LOWER(?))";
+        $params = [$value];
+        if ($excludeId !== null) {
+            $sql .= ' AND id != ?';
+            $params[] = $excludeId;
+        }
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $matches = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if (count($matches) === 1) {
+            return $matches[0];
+        }
+    }
+
+    return null;
+}
+
 function app_is_logged_in(): bool
 {
     return !empty($_SESSION['user_id']);

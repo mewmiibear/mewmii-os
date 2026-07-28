@@ -41,6 +41,7 @@ $stmt = $pdo->prepare("
         c.name,
         c.email,
         c.phone,
+        c.instagram_username,
         mt.name AS membership_tier,
         COALESCE(SUM(pt.amount), 0) AS points,
         COALESCE(orders_agg.total_orders, 0) AS total_orders,
@@ -56,7 +57,7 @@ $stmt = $pdo->prepare("
         GROUP BY customer_id
     ) orders_agg ON orders_agg.customer_id = c.id
     {$whereSql}
-    GROUP BY c.id, c.name, c.email, c.phone, mt.name, orders_agg.total_orders, orders_agg.lifetime_spend, orders_agg.last_order_date
+    GROUP BY c.id, c.name, c.email, c.phone, c.instagram_username, mt.name, orders_agg.total_orders, orders_agg.lifetime_spend, orders_agg.last_order_date
     ORDER BY c.id DESC
     LIMIT {$perPage} OFFSET {$offset}
 ");
@@ -100,54 +101,54 @@ require_once __DIR__ . '/../../includes/header.php';
 
 <div class="card p-4">
     <div class="table-responsive">
-    <table class="table table-hover align-middle responsive-stack-table">
-        <thead>
-            <tr>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Phone</th>
-                <th>Tier</th>
-                <th>Points</th>
-                <th>Total Orders</th>
-                <th>Lifetime Spend</th>
-                <th>Last Order</th>
-                <th></th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php foreach ($customers as $customer): ?>
+        <table class="table table-hover align-middle responsive-stack-table">
+            <thead>
                 <tr>
-                    <td data-label="Name"><?php echo app_escape($customer['name']); ?></td>
-                    <td data-label="Email"><?php echo app_escape($customer['email'] ?? '-'); ?></td>
-                    <td data-label="Phone"><?php echo app_escape($customer['phone'] ?? '-'); ?></td>
-                    <td data-label="Tier"><?php echo app_escape($customer['membership_tier']); ?></td>
-                    <td data-label="Points"><?php echo app_escape((string) $customer['points']); ?></td>
-                    <td data-label="Total Orders"><?php echo (int) $customer['total_orders']; ?></td>
-                    <td data-label="Lifetime Spend">RM <?php echo app_escape(number_format((float) $customer['lifetime_spend'], 2)); ?></td>
-                    <td data-label="Last Order"><?php echo $customer['last_order_date'] !== null ? app_escape($customer['last_order_date']) : 'Never'; ?></td>
-                    <td data-label="" class="text-end">
-                        <a class="btn btn-sm btn-outline-secondary" href="/modules/customers/view.php?id=<?php echo (int) $customer['id']; ?>">History</a>
-                        <?php if ($canManage): ?>
-                            <a class="btn btn-sm btn-outline-primary" href="/modules/customers/edit.php?id=<?php echo (int) $customer['id']; ?>">Edit</a>
-                        <?php endif; ?>
-                    </td>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Phone</th>
+                    <th>Tier</th>
+                    <th>Points</th>
+                    <th>Total Orders</th>
+                    <th>Lifetime Spend</th>
+                    <th>Last Order</th>
+                    <th></th>
                 </tr>
-            <?php endforeach; ?>
-            <?php if ($customers === []): ?>
-                <tr>
-                    <td colspan="9">
-                        <div class="empty-state">
-                            <div class="empty-state-title"><?php echo $searchTerm !== '' ? 'No Customers Match This Search' : 'No Customers Yet'; ?></div>
-                            <p class="empty-state-text"><?php echo $searchTerm !== '' ? 'Try adjusting or clearing your search.' : 'Customer profiles will appear here once added.'; ?></p>
-                            <?php if ($canManage && $searchTerm === ''): ?>
-                                <a class="btn btn-primary btn-sm" href="/modules/customers/create.php">Add Customer</a>
+            </thead>
+            <tbody>
+                <?php foreach ($customers as $customer): ?>
+                    <tr>
+                        <td data-label="Name"><?php echo app_escape(app_customer_display_name($customer)); ?></td>
+                        <td data-label="Email"><?php echo app_escape($customer['email'] ?? '-'); ?></td>
+                        <td data-label="Phone"><?php echo app_escape($customer['phone'] ?? '-'); ?></td>
+                        <td data-label="Tier"><?php echo app_escape($customer['membership_tier']); ?></td>
+                        <td data-label="Points"><?php echo app_escape((string) $customer['points']); ?></td>
+                        <td data-label="Total Orders"><?php echo (int) $customer['total_orders']; ?></td>
+                        <td data-label="Lifetime Spend">RM <?php echo app_escape(number_format((float) $customer['lifetime_spend'], 2)); ?></td>
+                        <td data-label="Last Order"><?php echo $customer['last_order_date'] !== null ? app_escape($customer['last_order_date']) : 'Never'; ?></td>
+                        <td data-label="" class="text-end">
+                            <a class="btn btn-sm btn-outline-secondary" href="/modules/customers/view.php?id=<?php echo (int) $customer['id']; ?>">History</a>
+                            <?php if ($canManage): ?>
+                                <a class="btn btn-sm btn-outline-primary" href="/modules/customers/edit.php?id=<?php echo (int) $customer['id']; ?>">Edit</a>
                             <?php endif; ?>
-                        </div>
-                    </td>
-                </tr>
-            <?php endif; ?>
-        </tbody>
-    </table>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if ($customers === []): ?>
+                    <tr>
+                        <td colspan="9">
+                            <div class="empty-state">
+                                <div class="empty-state-title"><?php echo $searchTerm !== '' ? 'No Customers Match This Search' : 'No Customers Yet'; ?></div>
+                                <p class="empty-state-text"><?php echo $searchTerm !== '' ? 'Try adjusting or clearing your search.' : 'Customer profiles will appear here once added.'; ?></p>
+                                <?php if ($canManage && $searchTerm === ''): ?>
+                                    <a class="btn btn-primary btn-sm" href="/modules/customers/create.php">Add Customer</a>
+                                <?php endif; ?>
+                            </div>
+                        </td>
+                    </tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
     </div>
 
     <?php

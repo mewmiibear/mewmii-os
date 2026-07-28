@@ -107,7 +107,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1"><?php echo app_escape($customer['name']); ?></h2>
+        <h2 class="mb-1"><?php echo app_escape(app_customer_display_name($customer)); ?></h2>
         <p class="text-muted mb-0">
             <?php echo app_escape($customer['email'] ?? '-'); ?> &middot; <?php echo app_escape($customer['phone'] ?? '-'); ?>
             <?php if (!empty($customer['instagram_username'])): ?> &middot; @<?php echo app_escape($customer['instagram_username']); ?><?php endif; ?>
@@ -149,21 +149,28 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="fs-4 mb-2">RM <?php echo app_escape(number_format((float) $wallet['balance'], 2)); ?></div>
     <?php if ($walletTransactions !== []): ?>
         <div class="table-responsive">
-        <table class="table table-sm">
-            <thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Note</th></tr></thead>
-            <tbody>
-                <?php foreach ($walletTransactions as $tx): ?>
+            <table class="table table-sm">
+                <thead>
                     <tr>
-                        <td class="text-muted small"><?php echo app_escape($tx['created_at']); ?></td>
-                        <td><?php echo app_escape(ucfirst($tx['type'])); ?></td>
-                        <td class="<?php echo (float) $tx['amount'] < 0 ? 'text-danger' : 'text-success'; ?>">
-                            <?php echo (float) $tx['amount'] >= 0 ? '+' : ''; ?>RM <?php echo app_escape(number_format((float) $tx['amount'], 2)); ?>
-                        </td>
-                        <td class="text-muted small"><?php echo app_escape($tx['note'] ?? ''); ?></td>
+                        <th>Date</th>
+                        <th>Type</th>
+                        <th>Amount</th>
+                        <th>Note</th>
                     </tr>
-                <?php endforeach; ?>
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                    <?php foreach ($walletTransactions as $tx): ?>
+                        <tr>
+                            <td class="text-muted small"><?php echo app_escape($tx['created_at']); ?></td>
+                            <td><?php echo app_escape(ucfirst($tx['type'])); ?></td>
+                            <td class="<?php echo (float) $tx['amount'] < 0 ? 'text-danger' : 'text-success'; ?>">
+                                <?php echo (float) $tx['amount'] >= 0 ? '+' : ''; ?>RM <?php echo app_escape(number_format((float) $tx['amount'], 2)); ?>
+                            </td>
+                            <td class="text-muted small"><?php echo app_escape($tx['note'] ?? ''); ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
         </div>
     <?php else: ?>
         <p class="text-muted small mb-0">No wallet activity yet.</p>
@@ -202,7 +209,9 @@ require_once __DIR__ . '/../../includes/header.php';
                 </tr>
             <?php endforeach; ?>
             <?php if ($orders === []): ?>
-                <tr><td colspan="5" class="text-muted">No orders yet.</td></tr>
+                <tr>
+                    <td colspan="5" class="text-muted">No orders yet.</td>
+                </tr>
             <?php endif; ?>
         </tbody>
     </table>
@@ -243,7 +252,9 @@ require_once __DIR__ . '/../../includes/header.php';
                 </tr>
             <?php endforeach; ?>
             <?php if ($storageItems === []): ?>
-                <tr><td colspan="5" class="text-muted">No items currently stored.</td></tr>
+                <tr>
+                    <td colspan="5" class="text-muted">No items currently stored.</td>
+                </tr>
             <?php endif; ?>
         </tbody>
     </table>
@@ -302,7 +313,9 @@ require_once __DIR__ . '/../../includes/header.php';
                 </tr>
             <?php endforeach; ?>
             <?php if ($shipments === []): ?>
-                <tr><td colspan="6" class="text-muted">No shipments yet.</td></tr>
+                <tr>
+                    <td colspan="6" class="text-muted">No shipments yet.</td>
+                </tr>
             <?php endif; ?>
         </tbody>
     </table>

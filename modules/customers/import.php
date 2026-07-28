@@ -50,9 +50,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $rowNum = $i + 2; // +1 for header, +1 for 1-indexed display
                 $name = trim((string) ($row['name'] ?? ''));
                 $email = trim((string) ($row['email'] ?? ''));
+                $phone = trim((string) ($row['phone'] ?? ''));
+                $instagramUsername = trim((string) ($row['instagram_username'] ?? ''));
+                $hasIdentity = $name !== '' || $email !== '' || $phone !== '' || $instagramUsername !== '';
 
-                if ($name === '' || strlen($name) > 120) {
-                    $rowErrors[] = "Row {$rowNum}: name is required and must be 120 characters or fewer.";
+                if (!$hasIdentity) {
+                    $rowErrors[] = "Row {$rowNum}: provide at least one of name, email, phone, or instagram_username.";
+                } elseif ($name !== '' && strlen($name) > 120) {
+                    $rowErrors[] = "Row {$rowNum}: name must be 120 characters or fewer.";
                 } elseif ($email !== '' && (strlen($email) > 190 || !app_validate_email($email))) {
                     $rowErrors[] = "Row {$rowNum}: email must be a valid address of 190 characters or fewer.";
                 } elseif ($email !== '' && isset($existingEmails[strtolower($email)])) {
@@ -126,7 +131,7 @@ require_once __DIR__ . '/../../includes/header.php';
 
 <div class="card p-4">
     <h5 class="mb-3">Upload CSV</h5>
-    <p class="text-muted small">Columns (header row required): <code>name</code> (required), <code>email</code>, <code>phone</code>, <code>instagram_username</code>, <code>address</code>, <code>notes</code>.</p>
+    <p class="text-muted small">Columns (header row required): <code>name</code> (optional), <code>email</code>, <code>phone</code>, <code>instagram_username</code>, <code>address</code>, <code>notes</code>. At least one identity field is required per row.</p>
     <form method="post" enctype="multipart/form-data">
         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
         <div class="mb-3">

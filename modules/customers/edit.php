@@ -55,8 +55,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form['notes'] = trim((string) ($_POST['notes'] ?? ''));
 
     if ($error === '') {
-        if ($form['name'] === '' || strlen($form['name']) > 120) {
-            $error = 'Name is required and must be 120 characters or fewer.';
+        $hasIdentity = $form['name'] !== '' || $form['email'] !== '' || $form['phone'] !== '' || $form['instagram_username'] !== '';
+        if (!$hasIdentity) {
+            $error = 'Provide at least one of display name, Instagram username, phone, or email.';
+        } elseif ($form['name'] !== '' && strlen($form['name']) > 120) {
+            $error = 'Display name must be 120 characters or fewer.';
         } elseif ($form['email'] !== '' && (strlen($form['email']) > 190 || !app_validate_email($form['email']))) {
             $error = 'Email must be a valid address of 190 characters or fewer.';
         } elseif (strlen($form['phone']) > 30) {
@@ -131,9 +134,9 @@ require_once __DIR__ . '/../../includes/header.php';
         <h5 class="mb-3">Identity</h5>
         <div class="row g-3">
             <div class="col-md-6">
-                <label class="form-label">Name</label>
-                <input type="text" class="form-control" name="name" value="<?php echo app_escape($form['name']); ?>" maxlength="120" required>
-                <div class="invalid-feedback">Name is required.</div>
+                <label class="form-label">Display Name</label>
+                <input type="text" class="form-control" name="name" value="<?php echo app_escape($form['name']); ?>" maxlength="120">
+                <div class="form-text">Optional, but at least one of display name, Instagram username, phone, or email is required.</div>
             </div>
 
             <div class="col-md-6">

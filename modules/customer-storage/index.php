@@ -73,11 +73,13 @@ $storageStmt = $pdo->prepare("
         c.id AS customer_id,
         c.name AS customer_name,
         c.email AS customer_email,
+        c.phone AS customer_phone,
+        c.instagram_username AS customer_instagram_username,
         COUNT(DISTINCT cs.product_id) AS product_count,
         SUM(cs.quantity) AS total_quantity
     FROM customers c
     INNER JOIN customer_storage cs ON cs.customer_id = c.id AND cs.status = 'stored' AND cs.quantity > 0
-    GROUP BY c.id, c.name, c.email
+    GROUP BY c.id, c.name, c.email, c.phone, c.instagram_username
     ORDER BY c.name ASC
     LIMIT {$perPage} OFFSET {$offset}
 ");
@@ -157,43 +159,43 @@ require_once __DIR__ . '/../../includes/header.php';
 
 <div class="card p-4">
     <div class="table-responsive">
-    <table class="table table-hover align-middle">
-        <thead>
-            <tr>
-                <th>Customer</th>
-                <th>Products Stored</th>
-                <th>Total Quantity</th>
-                <th></th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php foreach ($customerStorage as $row): ?>
+        <table class="table table-hover align-middle">
+            <thead>
                 <tr>
-                    <td>
-                        <?php echo app_escape($row['customer_name']); ?>
-                        <?php if (!empty($row['customer_email'])): ?>
-                            <div class="text-muted small"><?php echo app_escape($row['customer_email']); ?></div>
-                        <?php endif; ?>
-                    </td>
-                    <td><?php echo app_escape((string) $row['product_count']); ?></td>
-                    <td><?php echo app_escape((string) $row['total_quantity']); ?></td>
-                    <td class="text-end">
-                        <a class="btn btn-sm btn-outline-primary" href="/modules/customer-storage/view.php?customer_id=<?php echo (int) $row['customer_id']; ?>">View</a>
-                    </td>
+                    <th>Customer</th>
+                    <th>Products Stored</th>
+                    <th>Total Quantity</th>
+                    <th></th>
                 </tr>
-            <?php endforeach; ?>
-            <?php if ($customerStorage === []): ?>
-                <tr>
-                    <td colspan="4">
-                        <div class="empty-state">
-                            <div class="empty-state-title">No Items in Storage</div>
-                            <p class="empty-state-text">Customers with items currently stored in the warehouse will appear here.</p>
-                        </div>
-                    </td>
-                </tr>
-            <?php endif; ?>
-        </tbody>
-    </table>
+            </thead>
+            <tbody>
+                <?php foreach ($customerStorage as $row): ?>
+                    <tr>
+                        <td>
+                            <?php echo app_escape(app_customer_display_name(['name' => $row['customer_name'], 'email' => $row['customer_email'], 'phone' => $row['customer_phone'], 'instagram_username' => $row['customer_instagram_username']])); ?>
+                            <?php if (!empty($row['customer_email'])): ?>
+                                <div class="text-muted small"><?php echo app_escape($row['customer_email']); ?></div>
+                            <?php endif; ?>
+                        </td>
+                        <td><?php echo app_escape((string) $row['product_count']); ?></td>
+                        <td><?php echo app_escape((string) $row['total_quantity']); ?></td>
+                        <td class="text-end">
+                            <a class="btn btn-sm btn-outline-primary" href="/modules/customer-storage/view.php?customer_id=<?php echo (int) $row['customer_id']; ?>">View</a>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if ($customerStorage === []): ?>
+                    <tr>
+                        <td colspan="4">
+                            <div class="empty-state">
+                                <div class="empty-state-title">No Items in Storage</div>
+                                <p class="empty-state-text">Customers with items currently stored in the warehouse will appear here.</p>
+                            </div>
+                        </td>
+                    </tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
     </div>
 
     <?php
