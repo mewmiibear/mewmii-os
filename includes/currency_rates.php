@@ -45,6 +45,60 @@ function currency_rates_list(PDO $pdo, string $rateType): array
 }
 
 /**
+ * Find one specific row by rate type and currency code.
+ */
+function currency_rates_find(PDO $pdo, string $rateType, string $code): ?array
+{
+    $stmt = $pdo->prepare('SELECT * FROM currency_rates WHERE rate_type = ? AND currency_code = ? LIMIT 1');
+    $stmt->execute([$rateType, $code]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    return $row !== false ? $row : null;
+}
+
+/**
+ * Fetch all three rows for one currency code, keyed by rate type.
+ */
+function currency_rates_find_for_currency(PDO $pdo, string $currencyCode): array
+{
+    $stmt = $pdo->prepare('SELECT * FROM currency_rates WHERE currency_code = ? ORDER BY CASE rate_type WHEN ? THEN 1 WHEN ? THEN 2 WHEN ? THEN 3 ELSE 4 END');
+    $stmt->execute([strtoupper(trim($currencyCode)), 'supplier', 'original', 'market']);
+
+    $rows = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $rows[$row['rate_type']] = $row;
+    }
+
+    return $rows;
+}
+
+/**
+ * Return grouped currency rows in a shape convenient for the settings UI.
+ */
+function currency_rates_list_by_currency(PDO $pdo): array
+{
+    $stmt = $pdo->query('SELECT * FROM currency_rates ORDER BY currency_code ASC, CASE rate_type WHEN "supplier" THEN 1 WHEN "original" THEN 2 WHEN "market" THEN 3 ELSE 4 END');
+
+    $grouped = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $grouped[$row['currency_code']][$row['rate_type']] = $row;
+    }
+
+    return $grouped;
+}
+
+/**
+ * Check whether a currency already exists in the rate table for any rate type.
+ */
+function currency_rates_currency_exists(PDO $pdo, string $currencyCode): bool
+{
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM currency_rates WHERE currency_code = ?');
+    $stmt->execute([strtoupper(trim($currencyCode))]);
+
+    return (int) $stmt->fetchColumn() > 0;
+}
+
+/**
  * Phase 9G (Inline Pricing & Inventory Calculation UI) - every configured rate for all three
  * types in one shape: ['supplier' => [code => rate], 'original' => [...], 'market' => [...]].
  * One query, not three-per-page-load-times-N-fields - for modules/products/_form.php's
@@ -76,9 +130,9 @@ function currency_rates_all_maps(PDO $pdo): array
 function currency_rates_lookup_batch(PDO $pdo, string $rateType, array $currencyCodes): array
 {
     $currencyCodes = array_values(array_unique(array_filter(array_map(
-        static fn ($code): string => strtoupper(trim((string) $code)),
+        static fn($code): string => strtoupper(trim((string) $code)),
         $currencyCodes
-    ), static fn (string $code): bool => $code !== '')));
+    ), static fn(string $code): bool => $code !== '')));
 
     if ($currencyCodes === []) {
         return [];

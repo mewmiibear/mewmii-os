@@ -85,7 +85,7 @@ $appTitle = 'Mewmii OS';
         }
 
         /* --- Tables: calmer borders, more breathing room, muted header text --------------- */
-        .table > :not(caption) > * > * {
+        .table> :not(caption)>*>* {
             padding: 0.85rem 1rem;
             border-bottom-color: #F1E7ED;
         }
@@ -265,14 +265,14 @@ $appTitle = 'Mewmii OS';
             vertical-align: middle;
         }
 
-        .table .badge + .badge {
+        .table .badge+.badge {
             margin-left: 0.3rem;
         }
 
-        .table td .btn + .btn,
-        .table td .btn + form,
-        .table td form + .btn,
-        .table td form + form {
+        .table td .btn+.btn,
+        .table td .btn+form,
+        .table td form+.btn,
+        .table td form+form {
             margin-left: 0.35rem;
         }
 
@@ -618,6 +618,7 @@ $appTitle = 'Mewmii OS';
                             <a class="nav-link<?php echo $navActive('/modules/sync-logs/index.php'); ?>" href="/modules/sync-logs/index.php"><i class="bi bi-list-check"></i> Sync Logs</a>
                             <a class="nav-link<?php echo $navActive('/modules/operations/job_queue.php'); ?>" href="/modules/operations/job_queue.php"><i class="bi bi-stack"></i> Job Queue</a>
                             <a class="nav-link<?php echo $navActive('/modules/settings/system_health.php'); ?>" href="/modules/settings/system_health.php"><i class="bi bi-heart-pulse"></i> System Health</a>
+                            <a class="nav-link<?php echo $navActive('/modules/settings/currency_rates.php'); ?>" href="/modules/settings/currency_rates.php"><i class="bi bi-cash-stack"></i> Currency Rates</a>
                             <a class="nav-link<?php echo $navActive('/modules/settings/inventory_reconciliation.php'); ?>" href="/modules/settings/inventory_reconciliation.php"><i class="bi bi-clipboard-data"></i> Inventory Reconciliation</a>
                             <a class="nav-link<?php echo $navActive('/modules/settings/maintenance.php'); ?>" href="/modules/settings/maintenance.php"><i class="bi bi-gear"></i> Settings</a>
                             <a class="nav-link<?php echo $navActive('/modules/settings/reset_test_data.php'); ?>" href="/modules/settings/reset_test_data.php"><i class="bi bi-exclamation-triangle"></i> Reset Test Data</a>
