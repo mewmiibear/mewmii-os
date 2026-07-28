@@ -461,17 +461,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!empty($_POST['remove_main_image'])) {
                 product_image_remove_main($pdo, $productId);
             }
+            // --- TEMPORARY UPLOAD TIMING INSTRUMENTATION (image compression already queued;
+            // investigating whether the remaining save-time delay on image uploads is the HTTP
+            // upload itself, move_uploaded_file(), or something else). error_log only, no
+            // response/behavior change. Remove alongside the step-timing block below once the
+            // bottleneck is identified. See the identical block in modules/products/create.php.
+            $__uploadFileCount = 0;
+            $__uploadTotalBytes = 0;
+            $__uploadMoveDurationsMs = [];
+            // --- END SETUP - populated inline in the staging loop below -----------------------
             $pendingImages = [];
             if (!empty($_FILES['main_image']['name'])) {
-                $pendingImages[] = ['role' => 'main', 'staged_path' => image_upload_stage($_FILES['main_image'], 'products')];
+                $__uploadFileCount++;
+                $__uploadTotalBytes += (int) ($_FILES['main_image']['size'] ?? 0);
+                $__moveStart = microtime(true); // TEMPORARY UPLOAD TIMING INSTRUMENTATION
+                $stagedPath = image_upload_stage($_FILES['main_image'], 'products');
+                $__uploadMoveDurationsMs[] = round((microtime(true) - $__moveStart) * 1000, 1); // TEMPORARY UPLOAD TIMING INSTRUMENTATION
+                $pendingImages[] = ['role' => 'main', 'staged_path' => $stagedPath];
             }
             $galleryFiles = image_upload_normalize_multi($_FILES['gallery_images'] ?? []);
             foreach ($galleryFiles as $galleryFile) {
-                $pendingImages[] = ['role' => 'gallery', 'staged_path' => image_upload_stage($galleryFile, 'products')];
+                $__uploadFileCount++;
+                $__uploadTotalBytes += (int) ($galleryFile['size'] ?? 0);
+                $__moveStart = microtime(true); // TEMPORARY UPLOAD TIMING INSTRUMENTATION
+                $stagedPath = image_upload_stage($galleryFile, 'products');
+                $__uploadMoveDurationsMs[] = round((microtime(true) - $__moveStart) * 1000, 1); // TEMPORARY UPLOAD TIMING INSTRUMENTATION
+                $pendingImages[] = ['role' => 'gallery', 'staged_path' => $stagedPath];
             }
             if ($pendingImages !== []) {
                 product_image_enqueue_processing($pdo, $productId, $pendingImages);
             }
+
+            // --- TEMPORARY UPLOAD TIMING INSTRUMENTATION - log line ---------------------------
+            // See modules/products/create.php's identical block for the full explanation of
+            // request_time_float_to_script_start_ms's meaning and limits.
+            if ($__uploadFileCount > 0) {
+                $__requestTimeFloat = (float) ($_SERVER['REQUEST_TIME_FLOAT'] ?? $__timingStart);
+                error_log(sprintf(
+                    '[product-upload-timing][edit] product_id=%d file_count=%d total_upload_mb=%.2f avg_file_size_kb=%.1f move_uploaded_file_ms=[%s] request_time_float_to_script_start_ms=%d',
+                    $productId,
+                    $__uploadFileCount,
+                    $__uploadTotalBytes / 1024 / 1024,
+                    ($__uploadTotalBytes / $__uploadFileCount) / 1024,
+                    implode(',', $__uploadMoveDurationsMs),
+                    (int) round(($__timingStart - $__requestTimeFloat) * 1000)
+                ));
+            }
+            // --- END TEMPORARY UPLOAD TIMING INSTRUMENTATION -----------------------------------
+
             $gallerySortOrders = $_POST['gallery_sort_order'] ?? [];
             $galleryDeleteIds = $_POST['gallery_delete'] ?? [];
             if ($gallerySortOrders !== [] || $galleryDeleteIds !== []) {

@@ -367,19 +367,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // staged (fast, no GD - see image_upload_stage()) here, then queued for the worker
             // to run the actual (unchanged) pipeline. A bad/corrupt/oversized file still throws
             // here, exactly like before - only the "resize+convert+save" part moved out.
+            //
+            // --- TEMPORARY UPLOAD TIMING INSTRUMENTATION (image compression already queued;
+            // investigating whether the remaining save-time delay on image uploads is the HTTP
+            // upload itself, move_uploaded_file(), or something else). error_log only, no
+            // response/behavior change. Remove alongside the step-timing block below once the
+            // bottleneck is identified.
+            $__uploadFileCount = 0;
+            $__uploadTotalBytes = 0;
+            $__uploadMoveDurationsMs = [];
+            // --- END SETUP - populated inline in the staging loop below -----------------------
             $pendingImages = [];
             if (!empty($_FILES['main_image']['name'])) {
-                $pendingImages[] = ['role' => 'main', 'staged_path' => image_upload_stage($_FILES['main_image'], 'products')];
+                $__uploadFileCount++;
+                $__uploadTotalBytes += (int) ($_FILES['main_image']['size'] ?? 0);
+                $__moveStart = microtime(true); // TEMPORARY UPLOAD TIMING INSTRUMENTATION
+                $stagedPath = image_upload_stage($_FILES['main_image'], 'products');
+                $__uploadMoveDurationsMs[] = round((microtime(true) - $__moveStart) * 1000, 1); // TEMPORARY UPLOAD TIMING INSTRUMENTATION
+                $pendingImages[] = ['role' => 'main', 'staged_path' => $stagedPath];
             }
 
             $galleryFiles = image_upload_normalize_multi($_FILES['gallery_images'] ?? []);
             foreach ($galleryFiles as $galleryFile) {
-                $pendingImages[] = ['role' => 'gallery', 'staged_path' => image_upload_stage($galleryFile, 'products')];
+                $__uploadFileCount++;
+                $__uploadTotalBytes += (int) ($galleryFile['size'] ?? 0);
+                $__moveStart = microtime(true); // TEMPORARY UPLOAD TIMING INSTRUMENTATION
+                $stagedPath = image_upload_stage($galleryFile, 'products');
+                $__uploadMoveDurationsMs[] = round((microtime(true) - $__moveStart) * 1000, 1); // TEMPORARY UPLOAD TIMING INSTRUMENTATION
+                $pendingImages[] = ['role' => 'gallery', 'staged_path' => $stagedPath];
             }
 
             if ($pendingImages !== []) {
                 product_image_enqueue_processing($pdo, $productId, $pendingImages);
             }
+
+            // --- TEMPORARY UPLOAD TIMING INSTRUMENTATION - log line ---------------------------
+            // request_time_float_to_script_start_ms approximates time spent before this script
+            // began executing (network transfer + PHP's own multipart body parsing, which
+            // includes writing the initial tmp upload files) - $_SERVER['REQUEST_TIME_FLOAT'] is
+            // the SAPI's own request-start timestamp, the closest signal available without
+            // adding a client-side JS timestamp to the form. NOT a precise "browser upload time"
+            // measurement on its own, but a large value here (seconds, not ms) on a multi-MB
+            // upload points at network/PHP-body-parsing rather than anything below this line.
+            if ($__uploadFileCount > 0) {
+                $__requestTimeFloat = (float) ($_SERVER['REQUEST_TIME_FLOAT'] ?? $__timingStart);
+                error_log(sprintf(
+                    '[product-upload-timing][create] product_id=%d file_count=%d total_upload_mb=%.2f avg_file_size_kb=%.1f move_uploaded_file_ms=[%s] request_time_float_to_script_start_ms=%d',
+                    $productId,
+                    $__uploadFileCount,
+                    $__uploadTotalBytes / 1024 / 1024,
+                    ($__uploadTotalBytes / $__uploadFileCount) / 1024,
+                    implode(',', $__uploadMoveDurationsMs),
+                    (int) round(($__timingStart - $__requestTimeFloat) * 1000)
+                ));
+            }
+            // --- END TEMPORARY UPLOAD TIMING INSTRUMENTATION -----------------------------------
 
             $__mark('image_processing'); // TEMPORARY TIMING INSTRUMENTATION (covers main+gallery image handling above; stock init below is folded into the next mark)
 
