@@ -192,19 +192,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             inventory_discard_pending_woocommerce_resync();
 
-            // TEMPORARY DEBUG - dumps the raw runtime exception instead of the normal
-            // friendly/logged handling below, so the exact type/message/file/line/trace can be
-            // read directly off the page for one reproduction. Revert to the real catch body
-            // (see git history / prior version of this block) once the root cause is found.
-            die(
-                '<pre>' .
-                get_class($exception) . "\n\n" .
-                $exception->getMessage() . "\n\n" .
-                $exception->getFile() . ':' . $exception->getLine() .
-                "\n\n" .
-                $exception->getTraceAsString() .
-                '</pre>'
-            );
+            error_log('[supplier-orders/create] ' . get_class($exception) . ': ' . $exception->getMessage() . "\n" . $exception->getTraceAsString());
+
+            // The UNIQUE constraint on supplier_orders.purchase_number (see database/schema.sql
+            // and database/migrate_supplier_order_purchase_number_unique.php) is the
+            // authoritative guard against two concurrent submissions creating duplicate orders -
+            // the SELECT COUNT() check above is only a fast-path UX hint and can race under real
+            // concurrency (two requests both reading "0 exists" before either inserts). MySQL
+            // error 1062 here means that race was actually hit: another request already created
+            // this exact order, so this one must not be reported as a generic failure that would
+            // invite the admin to retry and create a real duplicate.
+            $isDuplicatePurchaseNumber = $exception instanceof PDOException
+                && (int) ($exception->errorInfo[1] ?? 0) === 1062;
+
+            if ($isDuplicatePurchaseNumber) {
+                $error = 'Supplier order already created. Please refresh the page.';
+            } else {
+                $configPath = dirname(__DIR__, 2) . '/config.php';
+                $appConfig = is_file($configPath) ? require $configPath : [];
+                $debugEnabled = !empty($appConfig['app']['debug']);
+
+                $error = 'Failed to create supplier order.' . ($debugEnabled ? ' Debug: ' . $exception->getMessage() : '');
+            }
         }
 
         // The order is already durably committed at this point - a failure in the WooCommerce
