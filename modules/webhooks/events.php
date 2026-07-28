@@ -115,9 +115,14 @@ require_once __DIR__ . '/../../includes/header.php';
             <input type="hidden" name="action" value="cleanup">
             <button type="submit" class="btn btn-outline-secondary btn-sm">Clean Old Completed Events</button>
         </form>
+        <button id="retry-all-pending-webhooks-btn" type="button" class="btn btn-warning btn-sm">
+            <i class="bi bi-arrow-repeat"></i> Retry All Pending Webhooks
+        </button>
         <a class="btn btn-outline-secondary btn-sm" href="/modules/integrations/woocommerce.php">Back to WooCommerce Sync</a>
     </div>
 </div>
+
+<div id="retry-pending-webhooks-status" class="mb-3"></div>
 
 <?php if (isset($_GET['retried'])): ?>
     <div class="alert alert-success">Event retried successfully.</div>
@@ -182,76 +187,76 @@ require_once __DIR__ . '/../../includes/header.php';
 
 <div class="card p-4">
     <div class="table-responsive">
-    <table class="table table-hover align-middle responsive-stack-table">
-        <thead>
-            <tr>
-                <th>Topic</th>
-                <th>Resource</th>
-                <th>Status</th>
-                <th>Attempts</th>
-                <th>Last Error</th>
-                <th>Received</th>
-                <th>Payload</th>
-                <th></th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php foreach ($events as $event): ?>
+        <table class="table table-hover align-middle responsive-stack-table">
+            <thead>
                 <tr>
-                    <td data-label="Topic"><?php echo app_escape($event['topic']); ?></td>
-                    <td data-label="Resource">
-                        <?php echo app_escape(ucfirst($event['resource'])); ?>
-                        <?php if ($event['resource_id'] !== null): ?>
-                            <span class="text-muted small">(WC #<?php echo (int) $event['resource_id']; ?>)</span>
-                        <?php endif; ?>
-                    </td>
-                    <td data-label="Status">
-                        <?php
-                        $statusBadgeColor = [
-                            'pending' => 'secondary',
-                            'processing' => 'info text-dark',
-                            'completed' => 'success',
-                            'failed' => 'danger',
-                        ][$event['status']] ?? 'secondary';
-                        ?>
-                        <span class="badge bg-<?php echo $statusBadgeColor; ?>"><?php echo app_escape($event['status']); ?></span>
-                        <?php if ($event['status'] === 'failed' && (int) $event['attempts'] >= WC_WEBHOOK_MAX_ATTEMPTS): ?>
-                            <span class="badge bg-dark">Attempts exhausted</span>
-                        <?php endif; ?>
-                    </td>
-                    <td data-label="Attempts"><?php echo (int) $event['attempts']; ?> / <?php echo WC_WEBHOOK_MAX_ATTEMPTS; ?></td>
-                    <td data-label="Last Error"><?php echo $event['last_error'] !== null ? app_escape($event['last_error']) : '-'; ?></td>
-                    <td data-label="Received"><?php echo app_escape($event['created_at']); ?></td>
-                    <td data-label="Payload">
-                        <details>
-                            <summary class="small">View</summary>
-                            <pre class="small bg-light p-2 rounded mt-2 mb-0" style="max-width: 360px; max-height: 240px; overflow: auto; white-space: pre-wrap;"><?php echo app_escape(json_encode(json_decode($event['payload_json'], true), JSON_PRETTY_PRINT)); ?></pre>
-                        </details>
-                    </td>
-                    <td data-label="" class="text-end">
-                        <?php if ($event['status'] !== 'completed'): ?>
-                            <form method="post" class="d-inline" onsubmit="return confirm('Retry this webhook event now?');">
-                                <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
-                                <input type="hidden" name="action" value="retry">
-                                <input type="hidden" name="event_id" value="<?php echo (int) $event['id']; ?>">
-                                <button type="submit" class="btn btn-sm btn-outline-primary">Retry</button>
-                            </form>
-                        <?php endif; ?>
-                    </td>
+                    <th>Topic</th>
+                    <th>Resource</th>
+                    <th>Status</th>
+                    <th>Attempts</th>
+                    <th>Last Error</th>
+                    <th>Received</th>
+                    <th>Payload</th>
+                    <th></th>
                 </tr>
-            <?php endforeach; ?>
-            <?php if ($events === []): ?>
-                <tr>
-                    <td colspan="8">
-                        <div class="empty-state">
-                            <div class="empty-state-title">No Webhook Events<?php echo ($filterStatus !== null || $filterResource !== null) ? ' Match' : ' Yet'; ?></div>
-                            <p class="empty-state-text"><?php echo ($filterStatus !== null || $filterResource !== null) ? 'Try adjusting or clearing your filters.' : 'Inbound WooCommerce webhook deliveries will appear here once configured - see WooCommerce Sync for the receiver URL.'; ?></p>
-                        </div>
-                    </td>
-                </tr>
-            <?php endif; ?>
-        </tbody>
-    </table>
+            </thead>
+            <tbody>
+                <?php foreach ($events as $event): ?>
+                    <tr>
+                        <td data-label="Topic"><?php echo app_escape($event['topic']); ?></td>
+                        <td data-label="Resource">
+                            <?php echo app_escape(ucfirst($event['resource'])); ?>
+                            <?php if ($event['resource_id'] !== null): ?>
+                                <span class="text-muted small">(WC #<?php echo (int) $event['resource_id']; ?>)</span>
+                            <?php endif; ?>
+                        </td>
+                        <td data-label="Status">
+                            <?php
+                            $statusBadgeColor = [
+                                'pending' => 'secondary',
+                                'processing' => 'info text-dark',
+                                'completed' => 'success',
+                                'failed' => 'danger',
+                            ][$event['status']] ?? 'secondary';
+                            ?>
+                            <span class="badge bg-<?php echo $statusBadgeColor; ?>"><?php echo app_escape($event['status']); ?></span>
+                            <?php if ($event['status'] === 'failed' && (int) $event['attempts'] >= WC_WEBHOOK_MAX_ATTEMPTS): ?>
+                                <span class="badge bg-dark">Attempts exhausted</span>
+                            <?php endif; ?>
+                        </td>
+                        <td data-label="Attempts"><?php echo (int) $event['attempts']; ?> / <?php echo WC_WEBHOOK_MAX_ATTEMPTS; ?></td>
+                        <td data-label="Last Error"><?php echo $event['last_error'] !== null ? app_escape($event['last_error']) : '-'; ?></td>
+                        <td data-label="Received"><?php echo app_escape($event['created_at']); ?></td>
+                        <td data-label="Payload">
+                            <details>
+                                <summary class="small">View</summary>
+                                <pre class="small bg-light p-2 rounded mt-2 mb-0" style="max-width: 360px; max-height: 240px; overflow: auto; white-space: pre-wrap;"><?php echo app_escape(json_encode(json_decode($event['payload_json'], true), JSON_PRETTY_PRINT)); ?></pre>
+                            </details>
+                        </td>
+                        <td data-label="" class="text-end">
+                            <?php if ($event['status'] !== 'completed'): ?>
+                                <form method="post" class="d-inline" onsubmit="return confirm('Retry this webhook event now?');">
+                                    <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                                    <input type="hidden" name="action" value="retry">
+                                    <input type="hidden" name="event_id" value="<?php echo (int) $event['id']; ?>">
+                                    <button type="submit" class="btn btn-sm btn-outline-primary">Retry</button>
+                                </form>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if ($events === []): ?>
+                    <tr>
+                        <td colspan="8">
+                            <div class="empty-state">
+                                <div class="empty-state-title">No Webhook Events<?php echo ($filterStatus !== null || $filterResource !== null) ? ' Match' : ' Yet'; ?></div>
+                                <p class="empty-state-text"><?php echo ($filterStatus !== null || $filterResource !== null) ? 'Try adjusting or clearing your filters.' : 'Inbound WooCommerce webhook deliveries will appear here once configured - see WooCommerce Sync for the receiver URL.'; ?></p>
+                            </div>
+                        </td>
+                    </tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
     </div>
 
     <?php
@@ -278,4 +283,87 @@ require_once __DIR__ . '/../../includes/header.php';
         <?php endif; ?>
     </div>
 </div>
+<script>
+    (function() {
+        var retryBtn = document.getElementById('retry-all-pending-webhooks-btn');
+        var statusContainer = document.getElementById('retry-pending-webhooks-status');
+        var csrfToken = <?php echo json_encode(app_csrf_token()); ?>;
+        var retryUrl = '/modules/webhooks/ajax/retry_pending.php';
+        var isRunning = false;
+
+        function escapeHtml(text) {
+            return String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function setStatus(message, type) {
+            if (!statusContainer) {
+                return;
+            }
+            var className = 'alert alert-' + (type || 'secondary');
+            statusContainer.innerHTML = '<div class="' + className + '">' + escapeHtml(message) + '</div>';
+        }
+
+        function processBatch(processedBefore, successBefore, failureBefore) {
+            var formData = new FormData();
+            formData.append('csrf_token', csrfToken);
+            formData.append('processed_before', processedBefore);
+            formData.append('success_before', successBefore);
+            formData.append('failure_before', failureBefore);
+
+            fetch(retryUrl, {
+                method: 'POST',
+                body: formData,
+                credentials: 'same-origin'
+            }).then(function(response) {
+                return response.json().then(function(json) {
+                    if (!response.ok) {
+                        throw new Error(json.error || response.statusText || 'Request failed');
+                    }
+                    return json;
+                });
+            }).then(function(data) {
+                if (data.errors && data.errors.length > 0) {
+                    console.warn('Retry pending webhook errors:', data.errors);
+                }
+
+                if (data.complete) {
+                    setStatus(data.total_processed + ' pending webhooks retried. ' + data.total_success + ' succeeded. ' + data.remaining_pending + ' remain pending.', 'success');
+                    retryBtn.disabled = false;
+                    isRunning = false;
+                    return;
+                }
+
+                var nextRetryIndex = Math.min(data.total_processed + 1, data.total_pending);
+                setStatus('Retrying webhook ' + nextRetryIndex + ' of ' + data.total_pending + '...', 'info');
+                window.setTimeout(function() {
+                    processBatch(data.total_processed, data.total_success, data.total_failure);
+                }, 100);
+            }).catch(function(error) {
+                setStatus('Retry failed: ' + error.message, 'danger');
+                retryBtn.disabled = false;
+                isRunning = false;
+            });
+        }
+
+        if (retryBtn) {
+            retryBtn.addEventListener('click', function() {
+                if (isRunning) {
+                    return;
+                }
+                if (!confirm('Retry all pending webhooks?')) {
+                    return;
+                }
+                isRunning = true;
+                retryBtn.disabled = true;
+                setStatus('Starting retry of pending webhooks...', 'info');
+                processBatch(0, 0, 0);
+            });
+        }
+    })();
+</script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>
