@@ -734,6 +734,129 @@ CREATE TABLE IF NOT EXISTS mewmii_order_events (
   CONSTRAINT fk_mewmii_order_events_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Customer Order Resolution System - purely additive, no existing table altered. See
+-- includes/order_resolution.php's own docblock for the "keep resolution status separate"
+-- reasoning (mewmii_orders.order_status/mewmii_order_items are untouched).
+CREATE TABLE IF NOT EXISTS resolution_requests (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  order_id INT UNSIGNED NOT NULL,
+  status VARCHAR(30) NOT NULL DEFAULT 'awaiting_customer_choice',
+  reason TEXT NULL,
+  token_hash CHAR(64) NOT NULL,
+  token_expires_at DATETIME NOT NULL,
+  created_by INT UNSIGNED NULL,
+  resolved_at DATETIME NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_resolution_requests_token_hash (token_hash),
+  CONSTRAINT fk_resolution_requests_order FOREIGN KEY (order_id) REFERENCES mewmii_orders(id) ON DELETE CASCADE,
+  CONSTRAINT fk_resolution_requests_creator FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_resolution_requests_order (order_id),
+  INDEX idx_resolution_requests_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS resolution_items (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  resolution_id INT UNSIGNED NOT NULL,
+  order_item_id INT UNSIGNED NOT NULL,
+  original_variation_id INT UNSIGNED NULL,
+  original_price DECIMAL(12,2) NOT NULL,
+  chosen_action VARCHAR(20) NULL,
+  replacement_variation_id INT UNSIGNED NULL,
+  replacement_price DECIMAL(12,2) NULL,
+  price_difference DECIMAL(12,2) NULL,
+  status VARCHAR(30) NOT NULL DEFAULT 'pending',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_resolution_items_resolution FOREIGN KEY (resolution_id) REFERENCES resolution_requests(id) ON DELETE CASCADE,
+  CONSTRAINT fk_resolution_items_order_item FOREIGN KEY (order_item_id) REFERENCES mewmii_order_items(id) ON DELETE CASCADE,
+  CONSTRAINT fk_resolution_items_original_variation FOREIGN KEY (original_variation_id) REFERENCES product_variations(id) ON DELETE SET NULL,
+  CONSTRAINT fk_resolution_items_replacement_variation FOREIGN KEY (replacement_variation_id) REFERENCES product_variations(id) ON DELETE SET NULL,
+  INDEX idx_resolution_items_resolution (resolution_id),
+  INDEX idx_resolution_items_order_item (order_item_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS payment_receipts (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  resolution_id INT UNSIGNED NOT NULL,
+  order_id INT UNSIGNED NOT NULL,
+  customer_id INT UNSIGNED NOT NULL,
+  amount DECIMAL(12,2) NOT NULL,
+  file_path VARCHAR(500) NOT NULL,
+  file_name VARCHAR(255) NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  verified_by INT UNSIGNED NULL,
+  verified_at DATETIME NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_payment_receipts_resolution FOREIGN KEY (resolution_id) REFERENCES resolution_requests(id) ON DELETE CASCADE,
+  CONSTRAINT fk_payment_receipts_order FOREIGN KEY (order_id) REFERENCES mewmii_orders(id) ON DELETE CASCADE,
+  CONSTRAINT fk_payment_receipts_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+  CONSTRAINT fk_payment_receipts_verifier FOREIGN KEY (verified_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_payment_receipts_resolution (resolution_id),
+  INDEX idx_payment_receipts_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS resolution_refunds (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  resolution_id INT UNSIGNED NOT NULL,
+  resolution_item_id INT UNSIGNED NULL,
+  order_id INT UNSIGNED NOT NULL,
+  customer_id INT UNSIGNED NOT NULL,
+  amount DECIMAL(12,2) NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  notes TEXT NULL,
+  processed_by INT UNSIGNED NULL,
+  processed_at DATETIME NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_resolution_refunds_resolution FOREIGN KEY (resolution_id) REFERENCES resolution_requests(id) ON DELETE CASCADE,
+  CONSTRAINT fk_resolution_refunds_item FOREIGN KEY (resolution_item_id) REFERENCES resolution_items(id) ON DELETE SET NULL,
+  CONSTRAINT fk_resolution_refunds_order FOREIGN KEY (order_id) REFERENCES mewmii_orders(id) ON DELETE CASCADE,
+  CONSTRAINT fk_resolution_refunds_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+  CONSTRAINT fk_resolution_refunds_processor FOREIGN KEY (processed_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_resolution_refunds_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS customer_wallets (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  customer_id INT UNSIGNED NOT NULL,
+  balance DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  currency VARCHAR(10) NOT NULL DEFAULT 'MYR',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_customer_wallets_customer (customer_id),
+  CONSTRAINT fk_customer_wallets_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS customer_wallet_transactions (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  customer_id INT UNSIGNED NOT NULL,
+  type VARCHAR(20) NOT NULL,
+  amount DECIMAL(12,2) NOT NULL,
+  reference_type VARCHAR(50) NULL,
+  reference_id INT UNSIGNED NULL,
+  note TEXT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_wallet_tx_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+  INDEX idx_wallet_tx_customer (customer_id),
+  INDEX idx_wallet_tx_reference (reference_type, reference_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS customer_notifications (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  customer_id INT UNSIGNED NOT NULL,
+  order_id INT UNSIGNED NULL,
+  resolution_id INT UNSIGNED NULL,
+  type VARCHAR(50) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  message TEXT NULL,
+  sent_at DATETIME NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_customer_notifications_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+  INDEX idx_customer_notifications_customer (customer_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS supplier_orders (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   supplier_id INT UNSIGNED NOT NULL,

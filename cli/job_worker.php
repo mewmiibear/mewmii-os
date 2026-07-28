@@ -40,6 +40,7 @@ require_once __DIR__ . '/../includes/bootstrap.php';
 require_once __DIR__ . '/../includes/job_queue.php';
 require_once __DIR__ . '/../includes/wc_client.php';
 require_once __DIR__ . '/../includes/product_image_queue.php';
+require_once __DIR__ . '/../includes/order_resolution.php';
 
 function job_worker_cli_log(string $message): void
 {
@@ -83,6 +84,12 @@ $handlers = [
     // synchronous path always used - only WHEN they run changed.
     PRODUCT_IMAGE_PROCESS_JOB_TYPE => static function (array $job, PDO $pdo): void {
         product_image_process_pending_job($job, $pdo);
+    },
+    // Customer Order Resolution System - best-effort customer notification delivery. See
+    // resolution_send_customer_notification_job()'s own docblock (includes/order_resolution.php)
+    // for the honest caveat about PHP's built-in mail().
+    CUSTOMER_NOTIFICATION_JOB_TYPE => static function (array $job, PDO $pdo): void {
+        resolution_send_customer_notification_job($job, $pdo);
     },
 ];
 

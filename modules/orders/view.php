@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../includes/order_fulfillment.php';
 require_once __DIR__ . '/../../includes/supplier_orders.php';
 require_once __DIR__ . '/../../includes/shipments.php';
 require_once __DIR__ . '/../../includes/wc_receipt_verification.php';
+require_once __DIR__ . '/../../includes/order_resolution.php';
 app_require_permission('orders.view');
 
 $appTitle = 'Order Detail';
@@ -88,6 +89,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ')->execute([$orderId, 'admin_note', $noteText, $_SESSION['user_id'] ?? null]);
 
             app_redirect('/modules/orders/view.php?id=' . $orderId . '&updated=1');
+        }
+    } elseif ($error === '' && !empty($_POST['create_resolution'])) {
+        // Customer Order Resolution System - deliberately OUTSIDE the historical-order
+        // restriction below (same carve-out reasoning as add_note): a resolution request is a
+        // separate system from order_status/payment_status and never touches either.
+        $selectedItemIds = array_map('intval', $_POST['resolution_item_ids'] ?? []);
+        $reason = trim((string) ($_POST['resolution_reason'] ?? ''));
+
+        if ($selectedItemIds === []) {
+            $error = 'Select at least one item.';
+        } elseif ($reason === '') {
+            $error = 'Enter a reason.';
+        } else {
+            try {
+                $result = resolution_create($pdo, $orderId, $selectedItemIds, $reason, $_SESSION['user_id'] ?? null);
+                $_SESSION['resolution_created_link'] = $result['url'];
+                app_redirect('/modules/orders/view.php?id=' . $orderId . '&resolution_created=1');
+            } catch (RuntimeException $exception) {
+                $error = $exception->getMessage();
+            }
+        }
+    } elseif ($error === '' && !empty($_POST['approve_payment_receipt'])) {
+        $receiptId = (int) ($_POST['receipt_id'] ?? 0);
+        try {
+            resolution_admin_approve_payment($pdo, $receiptId, (int) ($_SESSION['user_id'] ?? 0));
+            app_redirect('/modules/orders/view.php?id=' . $orderId . '&updated=1');
+        } catch (RuntimeException $exception) {
+            $error = $exception->getMessage();
+        }
+    } elseif ($error === '' && !empty($_POST['reject_payment_receipt'])) {
+        $receiptId = (int) ($_POST['receipt_id'] ?? 0);
+        $rejectReason = trim((string) ($_POST['receipt_reject_reason'] ?? ''));
+        try {
+            resolution_admin_reject_payment($pdo, $receiptId, (int) ($_SESSION['user_id'] ?? 0), $rejectReason !== '' ? $rejectReason : null);
+            app_redirect('/modules/orders/view.php?id=' . $orderId . '&updated=1');
+        } catch (RuntimeException $exception) {
+            $error = $exception->getMessage();
+        }
+    } elseif ($error === '' && !empty($_POST['update_refund_status'])) {
+        $refundId = (int) ($_POST['refund_id'] ?? 0);
+        $newRefundStatus = (string) ($_POST['new_refund_status'] ?? '');
+        $refundNotes = trim((string) ($_POST['refund_notes'] ?? ''));
+        try {
+            resolution_admin_update_refund_status($pdo, $refundId, $newRefundStatus, (int) ($_SESSION['user_id'] ?? 0), $refundNotes !== '' ? $refundNotes : null);
+            app_redirect('/modules/orders/view.php?id=' . $orderId . '&updated=1');
+        } catch (RuntimeException $exception) {
+            $error = $exception->getMessage();
         }
     } else {
         // Historical (imported) orders are read-only business records for everything below -
@@ -307,6 +355,20 @@ foreach ($items as &$item) {
 }
 unset($item);
 
+// Customer Order Resolution System - read-only data for this page's Resolutions section and
+// the per-item "Create Resolution" checkboxes. resolutionActiveItemIds hides the checkbox for
+// an item already covered by an unresolved resolution (matches resolution_create()'s own
+// server-side duplicate guard, just surfaced in the UI too).
+$resolutions = resolution_list_for_order($pdo, $orderId);
+foreach ($resolutions as &$resolutionRow) {
+    $resolutionRow['items'] = resolution_list_items($pdo, (int) $resolutionRow['id']);
+}
+unset($resolutionRow);
+$resolutionActiveItemIds = resolution_active_order_item_ids($pdo, $orderId);
+$resolutionFinancialSummary = resolution_order_financial_summary($pdo, $orderId);
+$resolutionCreatedLink = $_SESSION['resolution_created_link'] ?? null;
+unset($_SESSION['resolution_created_link']);
+
 // UI/UX Phase 5D: "why can't this order ship yet" context for any waiting_stock item - a
 // batched, read-only lookup of the same mewmii_inventory / supplier_order_items+
 // supplier_orders tables already used for this exact purpose on modules/inventory/index.php
@@ -466,6 +528,17 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="alert alert-success">Order status updated.</div>
 <?php endif; ?>
 
+<?php if (isset($_GET['resolution_created']) && $resolutionCreatedLink !== null): ?>
+    <div class="alert alert-warning">
+        <strong>Resolution request created.</strong> Share this secure link with the customer (also queued for best-effort email delivery - see the Resolutions section below for delivery status):
+        <div class="mt-2">
+            <code id="resolution-link-text"><?php echo app_escape($resolutionCreatedLink); ?></code>
+            <button type="button" class="btn btn-sm btn-outline-secondary ms-2" onclick="navigator.clipboard.writeText(document.getElementById('resolution-link-text').textContent)">Copy</button>
+        </div>
+        <div class="text-muted small mt-1">This link is shown once. It expires in <?php echo (int) RESOLUTION_TOKEN_TTL_DAYS; ?> days and accesses only this resolution request.</div>
+    </div>
+<?php endif; ?>
+
 <?php if (isset($_GET['delete_error'])): ?>
     <div class="alert alert-danger"><?php echo app_escape($_GET['delete_error'] === '1' ? 'Failed to delete order.' : $_GET['delete_error']); ?></div>
 <?php endif; ?>
@@ -523,9 +596,15 @@ require_once __DIR__ . '/../../includes/header.php';
 
         <div class="card p-4">
             <h5 class="mb-3">Items</h5>
+            <?php if ($canManage && $error === '' && !empty($order['is_historical']) === false): ?>
+            <form method="post" id="resolution-create-form">
+                <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                <input type="hidden" name="create_resolution" value="1">
+            <?php endif; ?>
             <table class="table table-hover align-middle">
                 <thead>
                     <tr>
+                        <?php if ($canManage): ?><th></th><?php endif; ?>
                         <th>SKU</th>
                         <th>Product</th>
                         <th>Qty</th>
@@ -539,6 +618,15 @@ require_once __DIR__ . '/../../includes/header.php';
                     <?php foreach ($items as $item): ?>
                         <?php $fulfillment = $item['fulfillment']; ?>
                         <tr>
+                            <?php if ($canManage): ?>
+                                <td>
+                                    <?php if (in_array((int) $item['id'], $resolutionActiveItemIds, true)): ?>
+                                        <span class="badge bg-warning text-dark" title="Already covered by an active resolution request">In Resolution</span>
+                                    <?php else: ?>
+                                        <input type="checkbox" class="form-check-input" name="resolution_item_ids[]" value="<?php echo (int) $item['id']; ?>" form="resolution-create-form">
+                                    <?php endif; ?>
+                                </td>
+                            <?php endif; ?>
                             <td><?php echo app_escape($item['sku']); ?></td>
                             <td>
                                 <?php echo app_escape($item['product_name']); ?>
@@ -606,6 +694,14 @@ require_once __DIR__ . '/../../includes/header.php';
                     <?php endif; ?>
                 </tbody>
             </table>
+            <?php if ($canManage && $error === '' && empty($order['is_historical'])): ?>
+                <div class="mt-3 pt-3 border-top">
+                    <label class="form-label small mb-1">Reason (e.g. "Supplier unavailable")</label>
+                    <textarea class="form-control form-control-sm mb-2" name="resolution_reason" form="resolution-create-form" rows="2" placeholder="Reason for resolution"></textarea>
+                    <button type="submit" form="resolution-create-form" class="btn btn-sm btn-warning" onclick="return document.querySelectorAll('input[name=\'resolution_item_ids[]\']:checked').length > 0 || alert('Select at least one item first.');">Create Resolution Request</button>
+                </div>
+                </form>
+            <?php endif; ?>
         </div>
     </div>
 
@@ -849,6 +945,116 @@ require_once __DIR__ . '/../../includes/header.php';
         <?php endif; ?>
     </div>
 </div>
+
+<?php if ($resolutions !== [] || $resolutionFinancialSummary['total_refunded'] > 0): ?>
+<div class="card p-4 mb-4">
+    <h5 class="mb-3">Resolutions</h5>
+
+    <?php if ($resolutionFinancialSummary['total_refunded'] > 0): ?>
+        <div class="alert alert-info py-2">
+            Original total: RM <?php echo number_format($resolutionFinancialSummary['original_total'], 2); ?>
+            &middot; Refunded: RM <?php echo number_format($resolutionFinancialSummary['total_refunded'], 2); ?>
+            &middot; <strong>Adjusted total: RM <?php echo number_format($resolutionFinancialSummary['adjusted_total'], 2); ?></strong>
+        </div>
+    <?php endif; ?>
+
+    <?php $resolutionStatusLabels = [
+        'awaiting_customer_choice' => 'Awaiting Customer Choice',
+        'awaiting_payment' => 'Awaiting Extra Payment',
+        'awaiting_payment_verification' => 'Awaiting Payment Verification',
+        'refund_pending' => 'Refund Pending',
+        'resolved' => 'Resolved',
+    ]; ?>
+
+    <?php foreach ($resolutions as $resolution): ?>
+        <div class="border rounded p-3 mb-3">
+            <div class="d-flex justify-content-between align-items-start mb-2">
+                <div>
+                    <span class="badge bg-<?php echo $resolution['status'] === 'resolved' ? 'success' : 'warning text-dark'; ?>">
+                        <?php echo app_escape($resolutionStatusLabels[$resolution['status']] ?? $resolution['status']); ?>
+                    </span>
+                    <span class="text-muted small ms-2">Created <?php echo app_escape($resolution['created_at']); ?></span>
+                </div>
+            </div>
+            <?php if (!empty($resolution['reason'])): ?>
+                <p class="small mb-2"><strong>Reason:</strong> <?php echo app_escape($resolution['reason']); ?></p>
+            <?php endif; ?>
+
+            <?php foreach ($resolution['items'] as $ritem): ?>
+                <div class="border-top pt-2 mt-2">
+                    <div class="fw-semibold"><?php echo app_escape($ritem['product_name']); ?> (<?php echo app_escape($ritem['sku']); ?>)</div>
+                    <?php if (!empty($ritem['order_item_variation_label'])): ?>
+                        <div class="text-muted small">Original variation: <?php echo app_escape($ritem['order_item_variation_label']); ?></div>
+                    <?php endif; ?>
+                    <div class="small">
+                        Original price: RM <?php echo number_format((float) $ritem['original_price'], 2); ?>
+                        <?php if ($ritem['chosen_action'] !== null): ?>
+                            &middot; Choice: <strong><?php echo app_escape(ucfirst(str_replace('_', ' ', $ritem['chosen_action']))); ?></strong>
+                        <?php endif; ?>
+                        <?php if ($ritem['replacement_price'] !== null): ?>
+                            &middot; Replacement: RM <?php echo number_format((float) $ritem['replacement_price'], 2); ?>
+                            (diff RM <?php echo number_format((float) $ritem['price_difference'], 2); ?>)
+                        <?php endif; ?>
+                    </div>
+                    <div class="small text-muted">Status: <?php echo app_escape(ucfirst(str_replace('_', ' ', $ritem['status']))); ?></div>
+
+                    <?php if ($ritem['latest_receipt'] !== null): ?>
+                        <div class="mt-2 p-2 bg-light rounded">
+                            <div class="small">
+                                Replacement payment: RM <?php echo number_format((float) $ritem['latest_receipt']['amount'], 2); ?>
+                                &middot; Receipt status: <span class="badge bg-<?php echo ['pending' => 'secondary', 'approved' => 'success', 'rejected' => 'danger'][$ritem['latest_receipt']['status']] ?? 'secondary'; ?>"><?php echo app_escape(ucfirst($ritem['latest_receipt']['status'])); ?></span>
+                                <?php if ($canManage): ?>
+                                    <a class="ms-2" href="/modules/orders/receipt_download.php?id=<?php echo (int) $ritem['latest_receipt']['id']; ?>" target="_blank" rel="noopener">View receipt</a>
+                                <?php endif; ?>
+                            </div>
+                            <?php if ($canManage && $ritem['latest_receipt']['status'] === 'pending'): ?>
+                                <div class="d-flex gap-2 mt-2">
+                                    <form method="post" onsubmit="return confirm('Approve this payment?');">
+                                        <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                                        <input type="hidden" name="approve_payment_receipt" value="1">
+                                        <input type="hidden" name="receipt_id" value="<?php echo (int) $ritem['latest_receipt']['id']; ?>">
+                                        <button type="submit" class="btn btn-sm btn-success">Approve payment</button>
+                                    </form>
+                                    <form method="post" onsubmit="return confirm('Reject this payment? The customer will be asked to upload again.');">
+                                        <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                                        <input type="hidden" name="reject_payment_receipt" value="1">
+                                        <input type="hidden" name="receipt_id" value="<?php echo (int) $ritem['latest_receipt']['id']; ?>">
+                                        <input type="text" name="receipt_reject_reason" class="form-control form-control-sm d-inline-block" style="width:auto;" placeholder="Rejection reason">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">Reject payment</button>
+                                    </form>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                    <?php endif; ?>
+
+                    <?php if ($ritem['refund'] !== null): ?>
+                        <div class="mt-2 p-2 bg-light rounded">
+                            <div class="small">
+                                Refund: RM <?php echo number_format((float) $ritem['refund']['amount'], 2); ?>
+                                &middot; Status: <span class="badge bg-<?php echo ['pending' => 'secondary', 'approved' => 'info text-dark', 'completed' => 'success', 'rejected' => 'danger'][$ritem['refund']['status']] ?? 'secondary'; ?>"><?php echo app_escape(ucfirst($ritem['refund']['status'])); ?></span>
+                            </div>
+                            <?php if ($canManage && in_array($ritem['refund']['status'], ['pending', 'approved'], true)): ?>
+                                <form method="post" class="d-flex gap-2 mt-2 align-items-center">
+                                    <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                                    <input type="hidden" name="update_refund_status" value="1">
+                                    <input type="hidden" name="refund_id" value="<?php echo (int) $ritem['refund']['id']; ?>">
+                                    <select name="new_refund_status" class="form-select form-select-sm" style="width:auto;">
+                                        <?php if ($ritem['refund']['status'] === 'pending'): ?><option value="approved">Approve</option><?php endif; ?>
+                                        <option value="completed">Mark Completed</option>
+                                        <option value="rejected">Reject</option>
+                                    </select>
+                                    <input type="text" name="refund_notes" class="form-control form-control-sm" style="width:auto;" placeholder="Notes (optional)">
+                                    <button type="submit" class="btn btn-sm btn-outline-primary">Update</button>
+                                </form>
+                            <?php endif; ?>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            <?php endforeach; ?>
+        </div>
+    <?php endforeach; ?>
+</div>
+<?php endif; ?>
 
 <script>
 (function () {

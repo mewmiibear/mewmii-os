@@ -3,6 +3,7 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/orders.php';
 require_once __DIR__ . '/../../includes/shipments.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
+require_once __DIR__ . '/../../includes/customer_wallet.php';
 app_require_permission('customers.view');
 
 /**
@@ -95,6 +96,13 @@ unset($storageItem);
 // Section 3: Shipments
 $shipments = shipment_list_for_customer($pdo, $customerId);
 
+// Customer Order Resolution System - wallet balance/history (Part 7: "Admin can view wallet
+// history"). wallet_get_or_create() never creates a row just from viewing this page unless the
+// wallet genuinely doesn't exist yet, in which case it starts at RM0.00 - same lazy-create
+// convention as everything else that touches customer_wallets.
+$wallet = wallet_get_or_create($pdo, $customerId);
+$walletTransactions = wallet_list_transactions($pdo, $customerId, 20);
+
 require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -134,6 +142,32 @@ require_once __DIR__ . '/../../includes/header.php';
             </div>
         </div>
     </div>
+</div>
+
+<div class="card p-4 mb-4">
+    <h5 class="mb-3">Store Credit Wallet</h5>
+    <div class="fs-4 mb-2">RM <?php echo app_escape(number_format((float) $wallet['balance'], 2)); ?></div>
+    <?php if ($walletTransactions !== []): ?>
+        <div class="table-responsive">
+        <table class="table table-sm">
+            <thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Note</th></tr></thead>
+            <tbody>
+                <?php foreach ($walletTransactions as $tx): ?>
+                    <tr>
+                        <td class="text-muted small"><?php echo app_escape($tx['created_at']); ?></td>
+                        <td><?php echo app_escape(ucfirst($tx['type'])); ?></td>
+                        <td class="<?php echo (float) $tx['amount'] < 0 ? 'text-danger' : 'text-success'; ?>">
+                            <?php echo (float) $tx['amount'] >= 0 ? '+' : ''; ?>RM <?php echo app_escape(number_format((float) $tx['amount'], 2)); ?>
+                        </td>
+                        <td class="text-muted small"><?php echo app_escape($tx['note'] ?? ''); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+        </div>
+    <?php else: ?>
+        <p class="text-muted small mb-0">No wallet activity yet.</p>
+    <?php endif; ?>
 </div>
 
 <div class="card p-4 mb-4">

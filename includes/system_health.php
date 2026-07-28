@@ -209,6 +209,7 @@ const SYSTEM_HEALTH_MIGRATIONS = [
     ['label' => 'Multi-Purpose Currency Rate Settings', 'migration' => 'migrate_currency_rate_types.php', 'table' => 'currency_rates', 'column' => 'rate_type'],
     ['label' => 'Customer delete-webhook lifecycle (archive/anonymise)', 'migration' => 'migrate_customer_delete_lifecycle.php', 'table' => 'customers', 'column' => 'archived_at'],
     ['label' => 'Unified Outbound Job Queue', 'migration' => 'migrate_outbound_jobs.php', 'table' => 'outbound_jobs', 'column' => null],
+    ['label' => 'Customer Order Resolution System', 'migration' => 'migrate_order_resolution.php', 'table' => 'resolution_requests', 'column' => null],
 ];
 
 // A subset of migrate_production_hardening.php's own performance indexes - grouped as one
