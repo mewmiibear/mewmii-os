@@ -192,13 +192,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             inventory_discard_pending_woocommerce_resync();
 
-            error_log('[supplier-orders/create] ' . get_class($exception) . ': ' . $exception->getMessage() . "\n" . $exception->getTraceAsString());
-
-            $configPath = dirname(__DIR__, 2) . '/config.php';
-            $appConfig = is_file($configPath) ? require $configPath : [];
-            $debugEnabled = !empty($appConfig['app']['debug']);
-
-            $error = 'Failed to create supplier order.' . ($debugEnabled ? ' Debug: ' . $exception->getMessage() : '');
+            // TEMPORARY DEBUG - dumps the raw runtime exception instead of the normal
+            // friendly/logged handling below, so the exact type/message/file/line/trace can be
+            // read directly off the page for one reproduction. Revert to the real catch body
+            // (see git history / prior version of this block) once the root cause is found.
+            die(
+                '<pre>' .
+                get_class($exception) . "\n\n" .
+                $exception->getMessage() . "\n\n" .
+                $exception->getFile() . ':' . $exception->getLine() .
+                "\n\n" .
+                $exception->getTraceAsString() .
+                '</pre>'
+            );
         }
 
         // The order is already durably committed at this point - a failure in the WooCommerce
