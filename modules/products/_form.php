@@ -388,7 +388,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                             <div class="col-md-4">
                                 <label class="form-label">Original Currency</label>
                                 <select class="form-select" name="original_currency" id="original-currency-select">
-                                    <?php foreach (CURRENCY_RATE_OPTIONS as $currencyOption): ?>
+                                    <?php foreach ($currencyOptions as $currencyOption): ?>
                                         <option value="<?php echo app_escape($currencyOption); ?>" <?php echo $form['original_currency'] === $currencyOption ? 'selected' : ''; ?>><?php echo app_escape($currencyOption); ?></option>
                                     <?php endforeach; ?>
                                     <option value="OTHER" <?php echo $form['original_currency'] === 'OTHER' ? 'selected' : ''; ?>>Other</option>
@@ -409,7 +409,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                             <div class="col-md-4">
                                 <label class="form-label">Market Currency</label>
                                 <select class="form-select" name="market_currency" id="market-currency-select">
-                                    <?php foreach (CURRENCY_RATE_OPTIONS as $currencyOption): ?>
+                                    <?php foreach ($currencyOptions as $currencyOption): ?>
                                         <option value="<?php echo app_escape($currencyOption); ?>" <?php echo $form['market_currency'] === $currencyOption ? 'selected' : ''; ?>><?php echo app_escape($currencyOption); ?></option>
                                     <?php endforeach; ?>
                                     <option value="OTHER" <?php echo $form['market_currency'] === 'OTHER' ? 'selected' : ''; ?>>Other</option>

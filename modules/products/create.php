@@ -13,11 +13,9 @@ $pdo = app_db();
 $canManage = true;
 
 // Phase 7C.1 (Product Cost Data Entry) - same dropdown-plus-"Other" convention already used
-// by modules/supplier-orders/create.php's SUPPLIER_ORDER_CURRENCY_OPTIONS, kept as its own
-// constant here since a product's cost currency is a separate field from any supplier order's
-// currency (one product can be costed in a currency that differs from its usual supplier's
-// default order currency).
-const PRODUCT_COST_CURRENCY_OPTIONS = ['MYR', 'JPY', 'CNY', 'USD', 'EUR', 'GBP'];
+// by modules/supplier-orders/create.php's SUPPLIER_ORDER_CURRENCY_OPTIONS. A product's cost
+// currency is a separate field from supplier order currency, but both dropdowns use the
+// configured currency settings list.
 
 $isEdit = false;
 $productId = null;
@@ -84,10 +82,13 @@ $form = [
 $selectedTagIds = [];
 
 $costCurrencyOptions = [SYSTEM_BASE_CURRENCY];
+$currencyOptions = [SYSTEM_BASE_CURRENCY];
 foreach (currency_rates_list_by_currency($pdo) as $currencyCode => $_currencyRows) {
     $costCurrencyOptions[] = $currencyCode;
+    $currencyOptions[] = $currencyCode;
 }
 $costCurrencyOptions = array_values(array_unique($costCurrencyOptions));
+$currencyOptions = array_values(array_unique($currencyOptions));
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // --- TEMPORARY TIMING INSTRUMENTATION (product save performance audit) ----------------

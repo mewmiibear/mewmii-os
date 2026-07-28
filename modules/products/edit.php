@@ -182,6 +182,12 @@ foreach (currency_rates_list_by_currency($pdo) as $currencyCode => $_currencyRow
 }
 $costCurrencyOptions = array_values(array_unique($costCurrencyOptions));
 
+$currencyOptions = [SYSTEM_BASE_CURRENCY];
+foreach (currency_rates_list_by_currency($pdo) as $currencyCode => $_currencyRows) {
+    $currencyOptions[] = $currencyCode;
+}
+$currencyOptions = array_values(array_unique($currencyOptions));
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // --- TEMPORARY TIMING INSTRUMENTATION (product save performance audit) ----------------
     // Same instrumentation as modules/products/create.php - see that file's own comment for
@@ -293,7 +299,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Original Price must be a valid non-negative number.';
         } elseif ($form['original_currency'] === 'OTHER' && ($originalCurrency === '' || strlen($originalCurrency) > 10)) {
             $error = 'Enter a valid Original Currency code (up to 10 characters).';
-        } elseif ($form['original_currency'] !== 'OTHER' && !in_array($form['original_currency'], CURRENCY_RATE_OPTIONS, true)) {
+        } elseif ($form['original_currency'] !== 'OTHER' && !in_array($form['original_currency'], $currencyOptions, true)) {
             $error = 'Invalid Original Currency.';
         }
     }
@@ -304,7 +310,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($error === '') {
         if ($form['market_currency'] === 'OTHER' && ($marketCurrency === '' || strlen($marketCurrency) > 10)) {
             $error = 'Enter a valid Market Currency code (up to 10 characters).';
-        } elseif ($form['market_currency'] !== 'OTHER' && !in_array($form['market_currency'], CURRENCY_RATE_OPTIONS, true)) {
+        } elseif ($form['market_currency'] !== 'OTHER' && !in_array($form['market_currency'], $currencyOptions, true)) {
             $error = 'Invalid Market Currency.';
         }
     }
