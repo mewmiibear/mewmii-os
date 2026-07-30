@@ -31,3 +31,18 @@ Reports
 # Phase 4
 
 AI
+
+Supplier Orders
+
+Core workflow:
+★★★★★
+
+Remaining improvements:
+- Activity viewer
+- Better supplier history
+- Supplier analytics
+- Bulk ordering
+- Automation suggestions
+
+Status:
+Stable / Incremental Improvement

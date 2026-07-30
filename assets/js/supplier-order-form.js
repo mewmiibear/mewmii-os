@@ -19,6 +19,12 @@
     }
     var config = JSON.parse(configEl.textContent || '{}');
     var products = config.products || [];
+    // Exchange rate suggestion only (see includes/currency_rates.php's 'supplier' rate type,
+    // batched server-side in modules/supplier-orders/create.php/edit.php) - a pre-fill hint,
+    // never the value actually saved. The invoice's real rate always wins: applySupplierRate-
+    // Suggestion() below only ever writes into an EMPTY exchange rate field, so a value the
+    // admin already typed, or an already-saved rate on an existing order, is never overwritten.
+    var supplierRateSuggestions = config.supplierRateSuggestions || {};
 
     function escapeHtml(value) {
         var div = document.createElement('div');
@@ -91,9 +97,20 @@
         return (!isNaN(rate) && rate > 0) ? rate : 1;
     }
 
+    function applySupplierRateSuggestion(code, isForeign) {
+        if (!exchangeRateInput || !isForeign || exchangeRateInput.value !== '') {
+            return;
+        }
+        var suggestion = supplierRateSuggestions[code];
+        if (suggestion) {
+            exchangeRateInput.value = suggestion;
+        }
+    }
+
     function applyCurrencyUi() {
         var isForeign = !!currencySelect && currencySelect.value !== 'MYR';
         var code = currentCurrencyCode();
+        applySupplierRateSuggestion(code, isForeign);
 
         if (currencyOtherInput) {
             currencyOtherInput.classList.toggle('d-none', currencySelect.value !== 'OTHER');

@@ -591,6 +591,93 @@ function supplier_order_convert_to_myr(float $foreignAmount, ?float $exchangeRat
 }
 
 /**
+ * Shared currency + line-item validation for modules/supplier-orders/create.php and edit.php -
+ * both pages posted an identical copy of this block. Extraction only; no behavior change -
+ * $error is taken as an input (may already be set by an earlier CSRF failure) and only ever
+ * added to, never cleared, exactly matching what each page did inline before. Requires
+ * SUPPLIER_ORDER_CURRENCY_OPTIONS to already be defined by the caller (both pages declare it
+ * themselves - it's page-level form configuration, not validation logic, so it stays put).
+ *
+ * Returns ['error', 'currency', 'exchange_rate', 'valid_items', 'existing_items'] - the exact
+ * same five outputs both pages already assigned individually.
+ */
+function supplier_order_validate_form(PDO $pdo, array $form, array $postedUnitKeys, array $postedQuantities, array $postedPrices, string $error): array
+{
+    $currency = $form['currency'] === 'OTHER' ? strtoupper($form['currency_other']) : strtoupper($form['currency']);
+    $exchangeRate = null;
+
+    if ($error === '') {
+        if ($form['currency'] === 'OTHER' && ($currency === '' || strlen($currency) > 10)) {
+            $error = 'Enter a valid currency code (up to 10 characters).';
+        } elseif ($form['currency'] !== 'OTHER' && !in_array($form['currency'], SUPPLIER_ORDER_CURRENCY_OPTIONS, true)) {
+            $error = 'Invalid currency.';
+        }
+    }
+    if ($error === '' && $currency !== SYSTEM_SELLING_CURRENCY) {
+        if ($form['exchange_rate'] === '' || !is_numeric($form['exchange_rate']) || (float) $form['exchange_rate'] <= 0) {
+            $error = 'Enter a valid exchange rate (1 ' . $currency . ' = ? ' . SYSTEM_SELLING_CURRENCY . ').';
+        } else {
+            $exchangeRate = (float) $form['exchange_rate'];
+        }
+    }
+
+    $sellableUnits = catalog_sellable_units($pdo);
+    $unitsByKey = array_column($sellableUnits, null, 'key');
+
+    $validItems = [];
+    $existingItems = [];
+
+    for ($i = 0; $i < count($postedUnitKeys); $i++) {
+        $rowUnitKey = trim((string) ($postedUnitKeys[$i] ?? ''));
+        $rowQuantity = trim((string) ($postedQuantities[$i] ?? ''));
+        // Unit cost as entered, in the order's own currency - converted to MYR below via
+        // supplier_order_convert_to_myr(), never re-derived a second way.
+        $rowPrice = trim((string) ($postedPrices[$i] ?? ''));
+
+        if ($rowUnitKey === '') {
+            continue;
+        }
+
+        $existingItems[] = [
+            'unit_key' => $rowUnitKey,
+            'label' => isset($unitsByKey[$rowUnitKey]) ? $unitsByKey[$rowUnitKey]['label'] : $rowUnitKey,
+            'sku' => isset($unitsByKey[$rowUnitKey]) ? $unitsByKey[$rowUnitKey]['sku'] : '',
+            'moq' => isset($unitsByKey[$rowUnitKey]) ? $unitsByKey[$rowUnitKey]['moq'] : null,
+            'quantity' => $rowQuantity,
+            'supplier_price' => $rowPrice,
+        ];
+
+        if ($error === '') {
+            if (!ctype_digit($rowQuantity) || (int) $rowQuantity < 1) {
+                $error = 'Enter a whole number quantity of at least 1 for every line.';
+            } elseif ($rowPrice !== '' && (!is_numeric($rowPrice) || (float) $rowPrice < 0)) {
+                $error = 'Unit cost must be a valid non-negative number.';
+            } elseif (!isset($unitsByKey[$rowUnitKey])) {
+                $error = 'A selected product no longer exists.';
+            } else {
+                $unit = $unitsByKey[$rowUnitKey];
+                $unitCostForeign = $rowPrice !== '' ? round((float) $rowPrice, 2) : 0.00;
+                $validItems[] = [
+                    'product_id' => $unit['product_id'],
+                    'variation_id' => $unit['variation_id'],
+                    'quantity' => (int) $rowQuantity,
+                    'unit_cost_foreign' => $unitCostForeign,
+                    'supplier_price' => supplier_order_convert_to_myr($unitCostForeign, $exchangeRate),
+                ];
+            }
+        }
+    }
+
+    return [
+        'error' => $error,
+        'currency' => $currency,
+        'exchange_rate' => $exchangeRate,
+        'valid_items' => $validItems,
+        'existing_items' => $existingItems,
+    ];
+}
+
+/**
  * Full add/edit/remove reconciliation for an existing supplier order - the only way its
  * line items change after creation (see modules/supplier-orders/edit.php). $newLines is
  * the same per-line shape modules/supplier-orders/create.php builds: a list of

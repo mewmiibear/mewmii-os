@@ -133,74 +133,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $form['exchange_rate'] = trim((string) ($_POST['exchange_rate'] ?? ''));
 
         // Phase 6B (Supplier Order currency) - same 'OTHER' + free-text collapse as create.php.
-        $currency = $form['currency'] === 'OTHER' ? strtoupper($form['currency_other']) : strtoupper($form['currency']);
-        $exchangeRate = null;
-
-        if ($error === '') {
-            if ($form['currency'] === 'OTHER' && ($currency === '' || strlen($currency) > 10)) {
-                $error = 'Enter a valid currency code (up to 10 characters).';
-            } elseif ($form['currency'] !== 'OTHER' && !in_array($form['currency'], SUPPLIER_ORDER_CURRENCY_OPTIONS, true)) {
-                $error = 'Invalid currency.';
-            }
-        }
-        if ($error === '' && $currency !== SYSTEM_SELLING_CURRENCY) {
-            if ($form['exchange_rate'] === '' || !is_numeric($form['exchange_rate']) || (float) $form['exchange_rate'] <= 0) {
-                $error = 'Enter a valid exchange rate (1 ' . $currency . ' = ? ' . SYSTEM_SELLING_CURRENCY . ').';
-            } else {
-                $exchangeRate = (float) $form['exchange_rate'];
-            }
-        }
-
-        $postedUnitKeys = $_POST['unit_key'] ?? [];
-        $postedQuantities = $_POST['quantity'] ?? [];
-        $postedPrices = $_POST['supplier_price'] ?? [];
-
-        $sellableUnits = catalog_sellable_units($pdo);
-        $unitsByKey = array_column($sellableUnits, null, 'key');
-
-        $validItems = [];
-        $existingItems = [];
-
-        for ($i = 0; $i < count($postedUnitKeys); $i++) {
-            $rowUnitKey = trim((string) ($postedUnitKeys[$i] ?? ''));
-            $rowQuantity = trim((string) ($postedQuantities[$i] ?? ''));
-            // Unit cost as entered, in the order's own currency - converted to MYR below via
-            // supplier_order_convert_to_myr(), same as modules/supplier-orders/create.php.
-            $rowPrice = trim((string) ($postedPrices[$i] ?? ''));
-
-            if ($rowUnitKey === '') {
-                continue;
-            }
-
-            $existingItems[] = [
-                'unit_key' => $rowUnitKey,
-                'label' => isset($unitsByKey[$rowUnitKey]) ? $unitsByKey[$rowUnitKey]['label'] : $rowUnitKey,
-                'sku' => isset($unitsByKey[$rowUnitKey]) ? $unitsByKey[$rowUnitKey]['sku'] : '',
-                'moq' => isset($unitsByKey[$rowUnitKey]) ? $unitsByKey[$rowUnitKey]['moq'] : null,
-                'quantity' => $rowQuantity,
-                'supplier_price' => $rowPrice,
-            ];
-
-            if ($error === '') {
-                if (!ctype_digit($rowQuantity) || (int) $rowQuantity < 1) {
-                    $error = 'Enter a whole number quantity of at least 1 for every line.';
-                } elseif ($rowPrice !== '' && (!is_numeric($rowPrice) || (float) $rowPrice < 0)) {
-                    $error = 'Unit cost must be a valid non-negative number.';
-                } elseif (!isset($unitsByKey[$rowUnitKey])) {
-                    $error = 'A selected product no longer exists.';
-                } else {
-                    $unit = $unitsByKey[$rowUnitKey];
-                    $unitCostForeign = $rowPrice !== '' ? round((float) $rowPrice, 2) : 0.00;
-                    $validItems[] = [
-                        'product_id' => $unit['product_id'],
-                        'variation_id' => $unit['variation_id'],
-                        'quantity' => (int) $rowQuantity,
-                        'unit_cost_foreign' => $unitCostForeign,
-                        'supplier_price' => supplier_order_convert_to_myr($unitCostForeign, $exchangeRate),
-                    ];
-                }
-            }
-        }
+        // Currency + line-item validation is shared with create.php - see
+        // supplier_order_validate_form().
+        $formResult = supplier_order_validate_form($pdo, $form, $_POST['unit_key'] ?? [], $_POST['quantity'] ?? [], $_POST['supplier_price'] ?? [], $error);
+        $error = $formResult['error'];
+        $currency = $formResult['currency'];
+        $exchangeRate = $formResult['exchange_rate'];
+        $validItems = $formResult['valid_items'];
+        $existingItems = $formResult['existing_items'];
 
         if ($error === '' && ($form['supplier_id'] === '' || (int) $form['supplier_id'] < 1)) {
             $error = 'Select a supplier.';
@@ -268,6 +208,11 @@ $suppliers = $suppliersStmt->fetchAll(PDO::FETCH_ASSOC);
 $pickerSuppliers = $suppliers;
 $pickerCategories = catalog_list_categories_tree($pdo);
 $pickerProducts = supplier_order_picker_products($pdo);
+
+// Exchange rate suggestion only - see modules/supplier-orders/create.php's identical comment.
+// Never overwrites this order's already-saved exchange_rate (see the JS side's guard); only
+// applies if the admin changes the currency and the field is empty.
+$supplierRateSuggestions = currency_rates_lookup_batch($pdo, 'supplier', SUPPLIER_ORDER_CURRENCY_OPTIONS);
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
@@ -426,6 +371,7 @@ require_once __DIR__ . '/../../includes/header.php';
         <?php echo json_encode([
             'products' => $pickerProducts,
             'existingItems' => $existingItems,
+            'supplierRateSuggestions' => $supplierRateSuggestions,
         ]); ?>
     </script>
     <?php
