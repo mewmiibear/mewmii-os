@@ -115,16 +115,71 @@ function migrate_runner_record(PDO $pdo, string $migration, string $status, stri
     ')->execute([$migration, $status, $checksum, $executionTimeMs, 'cli', $errorMessage]);
 }
 
+/**
+ * Whether exec() is actually usable, or null if so. Some shared hosts (Hostinger included, on
+ * some plans) disable exec()/shell_exec()/system()/passthru()/proc_open() via disable_functions
+ * in php.ini - when that happens, calling exec() does NOT throw; it silently no-ops and never
+ * populates its by-reference output parameters. That previously caused an uncaught TypeError
+ * (implode() given an unset variable) that crashed this whole runner on the first pending
+ * migration, before a single schema_migrations row could be written - a real production
+ * incident this check exists to prevent from recurring. Checked once, up front, before
+ * attempting anything - not per-migration - so a hosting restriction is reported once, clearly,
+ * instead of failing silently N times.
+ */
+function migrate_runner_check_exec_available(): ?string
+{
+    if (!function_exists('exec')) {
+        return 'exec() does not exist in this PHP build.';
+    }
+
+    $disabled = array_map('trim', explode(',', (string) ini_get('disable_functions')));
+    if (in_array('exec', $disabled, true)) {
+        return 'exec() is disabled via disable_functions in php.ini on this server.';
+    }
+
+    return null;
+}
+
+/**
+ * Best-effort guess at why a subprocess failed, shown alongside the raw captured output - not
+ * a substitute for reading the output, just a head start for the most common cases.
+ */
+function migrate_runner_guess_cause(?int $exitCode, string $output): string
+{
+    if ($exitCode === null) {
+        return 'No exit code was captured at all - exec() likely did not actually run (see the disable_functions check this runner performs before starting; if that passed, PHP_BINARY may not resolve to a valid executable on this server).';
+    }
+    if ($output === '' && $exitCode !== 0) {
+        return 'The subprocess produced no output at all despite a non-zero exit code - check that PHP_BINARY (' . PHP_BINARY . ') resolves correctly and the migration file is readable.';
+    }
+    if (stripos($output, 'Fatal error') !== false || stripos($output, 'Uncaught') !== false) {
+        return 'PHP fatal error inside the migration script itself - see the captured output above for the exact error and line.';
+    }
+    if ($exitCode === 255) {
+        return 'Exit code 255 typically means an uncaught PHP error/exception in the migration script.';
+    }
+
+    return 'See the captured output above for detail.';
+}
+
 /** Runs one migration file as its own subprocess - see this file's own docblock for why. */
 function migrate_runner_execute(string $path): array
 {
     $command = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($path) . ' 2>&1';
+    // Explicitly initialized before the call, not left to exec() to populate - exec() normally
+    // does populate these by reference, but if it's disabled it silently no-ops and never
+    // touches them at all. Initializing here means a disabled exec() degrades into a normal,
+    // recorded 'failed' result (caught by the exec-availability check below, in practice) rather
+    // than an uncaught TypeError from implode()/=== on an unset variable further down.
+    $outputLines = [];
+    $exitCode = null;
     $start = microtime(true);
     exec($command, $outputLines, $exitCode);
     $elapsedMs = (int) round((microtime(true) - $start) * 1000);
 
     return [
         'success' => $exitCode === 0,
+        'exit_code' => $exitCode,
         'output' => implode(PHP_EOL, $outputLines),
         'elapsed_ms' => $elapsedMs,
     ];
@@ -202,6 +257,27 @@ if (!$runMode) {
     exit(0);
 }
 
+// Environment validation - checked once, before attempting anything. See
+// migrate_runner_check_exec_available()'s own docblock for the incident this prevents.
+$execUnavailableReason = migrate_runner_check_exec_available();
+if ($execUnavailableReason !== null) {
+    migrate_runner_log('ERROR: Cannot run migrations - ' . $execUnavailableReason);
+    migrate_runner_log('');
+    migrate_runner_log('This migration runner requires subprocess execution (exec()) to run each of the 21');
+    migrate_runner_log('existing migration scripts safely in isolation - 20 of them independently define an');
+    migrate_runner_log('identical migrate_run() function at global scope, so require()-ing more than one into');
+    migrate_runner_log('this same process would fatal-error with "Cannot redeclare function". See this file\'s');
+    migrate_runner_log('own docblock and docs/MIGRATION_MANAGEMENT_PLAN.md section 2a for the full reasoning.');
+    migrate_runner_log('');
+    migrate_runner_log('Ask your hosting provider whether exec() can be enabled for CLI-invoked scripts');
+    migrate_runner_log('specifically - some hosts (Hostinger included, on some plans) allow it from SSH/CLI');
+    migrate_runner_log('while blocking it for web-triggered PHP. Run `php -i | grep disable_functions` to see');
+    migrate_runner_log('the exact current setting.');
+    migrate_runner_log('');
+    migrate_runner_log('No migration was executed and no schema_migrations row was written.');
+    exit(1);
+}
+
 migrate_runner_log('Running ' . count($pending) . ' pending migration(s)...');
 migrate_runner_log('');
 
@@ -215,15 +291,34 @@ foreach ($pending as $filename => $checksum) {
     $result = migrate_runner_execute(__DIR__ . '/' . $filename);
 
     if ($result['success']) {
-        migrate_runner_record($pdo, $filename, 'success', $checksum, $result['elapsed_ms'], null);
+        try {
+            migrate_runner_record($pdo, $filename, 'success', $checksum, $result['elapsed_ms'], null);
+        } catch (Throwable $exception) {
+            migrate_runner_log('   WARNING: migration succeeded but recording it to schema_migrations failed: ' . $exception->getMessage());
+        }
         migrate_runner_log('   OK (' . $result['elapsed_ms'] . 'ms)');
         $successCount++;
         $appliedNames[] = $filename;
     } else {
-        migrate_runner_record($pdo, $filename, 'failed', $checksum, $result['elapsed_ms'], $result['output']);
-        migrate_runner_log('   FAILED (' . $result['elapsed_ms'] . 'ms):');
-        foreach (explode(PHP_EOL, $result['output']) as $line) {
-            migrate_runner_log('     ' . $line);
+        // Record a failed result when possible - a DB hiccup while recording must never mask
+        // the real failure or crash the batch; the failure is still reported either way.
+        try {
+            migrate_runner_record($pdo, $filename, 'failed', $checksum, $result['elapsed_ms'], $result['output']);
+        } catch (Throwable $exception) {
+            migrate_runner_log('   WARNING: could not record this failure to schema_migrations: ' . $exception->getMessage());
+        }
+
+        migrate_runner_log('   FAILED (' . $result['elapsed_ms'] . 'ms)');
+        migrate_runner_log('   Migration:     ' . $filename);
+        migrate_runner_log('   Exit code:     ' . ($result['exit_code'] === null ? '(none captured)' : $result['exit_code']));
+        migrate_runner_log('   Possible cause: ' . migrate_runner_guess_cause($result['exit_code'], $result['output']));
+        migrate_runner_log('   Output:');
+        if ($result['output'] === '') {
+            migrate_runner_log('     (no output captured)');
+        } else {
+            foreach (explode(PHP_EOL, $result['output']) as $line) {
+                migrate_runner_log('     ' . $line);
+            }
         }
         $failedCount++;
     }

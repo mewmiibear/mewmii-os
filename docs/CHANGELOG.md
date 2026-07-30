@@ -4,6 +4,30 @@ All notable changes to Mewmii OS are recorded here, newest first.
 
 ## Unreleased
 
+### Migration Management System v1 — production crash fixed
+
+**Scope:** `database/migrate.php` only. No existing `database/migrate_*.php` file was modified. `docs/MIGRATION_MANAGEMENT_PLAN.md` (new §2b) and `docs/IMPLEMENTATION_STATUS.md` updated to match.
+
+**Incident:** running `php database/migrate.php --run` in production printed `-> migrate_additional_costs.php`, then terminated immediately with no further output and zero `schema_migrations` rows written.
+
+**Root cause:** `migrate_runner_execute()` called `exec($command, $outputLines, $exitCode)` without initializing `$outputLines`/`$exitCode` first. `exec()` populates those by reference when it actually runs — but shared hosts (Hostinger included, on some plans) commonly disable `exec()` via `disable_functions` in `php.ini`; when disabled, the call silently no-ops without touching those variables. The next line, `implode(PHP_EOL, $outputLines)`, then threw an uncaught TypeError on the unset variable, crashing the runner before any result could be recorded.
+
+**Confirmed by local reproduction**, not assumed: `implode(PHP_EOL, null)` (simulating `exec()` never populating its output) reproduced the exact failure —
+```
+PHP Fatal error:  Uncaught TypeError: implode(): Argument #1 ($array) must be of type array, string given
+EXIT CODE: 255
+```
+— matching the production symptom exactly (silent, immediate termination, no output, no recorded result).
+
+**Fix (`database/migrate.php`):**
+- Defensive initialization (`$outputLines = []; $exitCode = null;`) before every `exec()` call — a disabled `exec()` now degrades into a normal, recorded `'failed'` result instead of an uncaught crash.
+- New pre-flight check (`migrate_runner_check_exec_available()`), run once before attempting any migration in `--run` mode — stops immediately with a clear, actionable message (what's wrong, why subprocess execution is required, and to ask hosting support whether `exec()` can be allowlisted for CLI/SSH specifically) if `exec()` is unavailable, rather than failing silently on whichever migration sorts first.
+- Richer failure reporting — a failed migration now shows its exit code, full output, and a best-effort "possible cause" (`migrate_runner_guess_cause()`); both success and failure recording are individually try/caught so a database hiccup while *recording* a result can never itself crash the batch.
+
+**Kept unchanged, per explicit instruction:** the subprocess execution architecture itself, all 21 existing migration files (none modified), and the overall runner design — see `docs/MIGRATION_MANAGEMENT_PLAN.md` §2b for why subprocess execution remains necessary regardless of this incident (the `migrate_run()` function-redeclaration collision across 20 of 21 scripts is unrelated to and unaffected by this fix).
+
+**Testing performed:** `php -l` clean. Reproduced the disabled-`exec()` scenario locally via `php -d disable_functions=exec` against an isolated copy of the runner's pure functions (no database involved) — confirmed the pre-flight check now correctly detects and reports it (`exec() does not exist in this PHP build.`) instead of crashing. Separately verified the normal path (`exec()` available) still works correctly — `migrate_runner_execute()` against a deliberately-missing file correctly captured exit code `1` and the real "Could not open input file" output, with no crash. **Not tested:** a live `--run` against production or any database — not required to verify this specific fix, and no production migration was executed.
+
 ### Migration Management System v1 — implemented, not yet run against production
 
 **Scope:** `database/schema.sql` (new `schema_migrations` table definition), `database/migrate.php` (new runner). No existing `database/migrate_*.php` file was modified. `docs/MIGRATION_MANAGEMENT_PLAN.md` and `docs/IMPLEMENTATION_STATUS.md` updated to match.
