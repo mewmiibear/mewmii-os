@@ -24,7 +24,7 @@ mewmii-os/
 ├── modules/<domain>/<action>.php   ← one file = one URL = one endpoint (no router)
 ├── includes/*.php                  ← shared function libraries, required via require_once
 ├── database/schema.sql             ← authoritative CREATE TABLE source
-├── database/migrate_*.php          ← 19 standalone, hand-run migration scripts (see §6.5)
+├── database/migrate_*.php          ← 21 standalone, hand-run migration scripts (see §6.5)
 ├── cli/*.php                       ← 6 cron-invoked scripts (webhook processing, job worker,
 │                                      WooCommerce order/product sync, alert generation)
 ├── config.php / .env               ← config.php committed with real production values;
@@ -87,7 +87,7 @@ Concrete evidence of how deep this goes: `modules/inventory/index.php` contains 
 | Customer orders | `mewmii_orders`, `mewmii_order_items`, `mewmii_order_events`, `resolution_requests(_items)`, `resolution_refunds`, `payment_receipts`, `customer_wallets(_transactions)` |
 | Platform | `activity_logs`, `audit_logs`, `mewmii_notifications`, `customer_notifications`, `sync_logs`, `webhook_events`, `outbound_jobs`, `saved_views`, `settings` |
 
-**Schema governance gap (see §6.5 for the concrete incident):** `database/schema.sql` is the authoritative source for a *fresh* install, but there is no migration-version tracking table and no single command that brings an *existing* database up to date. Instead there are 19 separate `database/migrate_*.php` scripts, each idempotent on its own (checks `INFORMATION_SCHEMA` before altering), but nothing records which ones have actually been run against a given environment. This is not hypothetical — it is the exact root cause of a live production outage diagnosed this week (§6.5).
+**Schema governance gap (see §6.5 for the concrete incident):** `database/schema.sql` is the authoritative source for a *fresh* install, but there is no migration-version tracking table and no single command that brings an *existing* database up to date. Instead there are 21 separate `database/migrate_*.php` scripts, each idempotent on its own (checks `INFORMATION_SCHEMA` before altering), but nothing records which ones have actually been run against a given environment. This is not hypothetical — it is the exact root cause of a live production outage diagnosed this week (§6.5).
 
 ---
 
@@ -127,14 +127,14 @@ Push (Mewmii → Woo): auto-sync-on-save (`wc_client_auto_sync_product`), trigge
 
 ### 5.5 A real, currently-live incident that illustrates the biggest structural gap
 
-This week, supplier order creation broke in production with `Failed to create supplier order.` Root-causing it required temporarily dumping raw exceptions (now reverted) and turned up two successive missing-column errors: `Unknown column 'currency' in 'INSERT INTO'`, then `Unknown column 'soi.unit_cost_foreign' in 'SELECT'`. The code was correct throughout — `database/schema.sql` already declares both columns, and `database/migrate_supplier_order_currency.php` already exists and would add them safely and idempotently. **The live database was simply never migrated after that script was written.** This is not a one-off bug; it's the direct, observed consequence of §3's schema-governance gap: 19 migration scripts with no tracking of which have actually run, discovered only when a feature silently breaks in production. Any v2 plan must solve this class of problem structurally (a real migrations table + a single `migrate` command), not just patch this one instance.
+This week, supplier order creation broke in production with `Failed to create supplier order.` Root-causing it required temporarily dumping raw exceptions (now reverted) and turned up two successive missing-column errors: `Unknown column 'currency' in 'INSERT INTO'`, then `Unknown column 'soi.unit_cost_foreign' in 'SELECT'`. The code was correct throughout — `database/schema.sql` already declares both columns, and `database/migrate_supplier_order_currency.php` already exists and would add them safely and idempotently. **The live database was simply never migrated after that script was written.** This is not a one-off bug; it's the direct, observed consequence of §3's schema-governance gap: 21 migration scripts with no tracking of which have actually run, discovered only when a feature silently breaks in production. Any v2 plan must solve this class of problem structurally (a real migrations table + a single `migrate` command), not just patch this one instance.
 
 ---
 
 ## 6. Findings — Architectural Problems
 
 ### 6.1 [CRITICAL] No migration version tracking
-- **Problem:** 19 independent `database/migrate_*.php` scripts, each self-checking via `INFORMATION_SCHEMA`, but nothing records which have run against which environment.
+- **Problem:** 21 independent `database/migrate_*.php` scripts, each self-checking via `INFORMATION_SCHEMA`, but nothing records which have run against which environment.
 - **Current situation:** Deploying code assumes the DB is current; nothing enforces or verifies it.
 - **Risk:** Silent production breakage (already happened — §5.5), with the failure surfacing as a confusing runtime error rather than a deployment-time check.
 - **Recommendation:** A `schema_migrations` table + a single ordered runner script that applies whatever hasn't run yet, in sequence, logging what it did. Low effort relative to the risk it closes.

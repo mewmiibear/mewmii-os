@@ -17,6 +17,17 @@ Tracks the status of active improvement work, per module. Status values: Not Sta
 | **`database/migrate_supplier_order_currency.php` run against production** | **Blocked — needs manual execution** | Code has been correct since this was diagnosed; the live database is still missing `supplier_orders.currency`/`exchange_rate`/`foreign_total` and `supplier_order_items.unit_cost_foreign`/`unit_cost_myr` until this idempotent, pre-existing migration is actually run. This is the one item still blocking supplier order creation in production. |
 | Taxonomy-style CRUD duplication in `wc_client.php` dual data-access surface (audit §6.4) | Not Started | Identified in audit, not scoped into this round of work |
 
+## Migration Management System
+
+| Item | Status | Notes |
+|---|---|---|
+| Audit of all 21 existing `database/migrate_*.php` scripts | Completed | `docs/MIGRATION_SYSTEM_AUDIT.md` — full inventory, idempotency confirmed 21/21, found 4 scripts not covered by the existing `system_health.php` detection array (including the one behind this week's incident), and found all 21 scripts are reachable via unauthenticated direct URL |
+| Target system design (`schema_migrations` table, runner, naming convention, safety rules) | Completed | `docs/MIGRATION_MANAGEMENT_PLAN.md` — design only |
+| `schema_migrations` table | Completed | Added to `database/schema.sql`; self-bootstraps on any existing database via `database/migrate.php` |
+| `database/migrate.php` runner | Completed | CLI-only (deviation from original browser+CLI sketch — see plan §2a); discovers migrations from disk, preview-only by default, `--run` to execute, records results per migration |
+| **Run `database/migrate.php --run` against production** | **Not started — awaiting a separate go-ahead** | Explicitly not executed as part of this task, per instruction. Once run, it will apply all 21 pending migrations (including `migrate_supplier_order_currency.php` below) in one pass. |
+| `database/migrate_supplier_order_currency.php` run against production | Blocked — needs manual execution | Unchanged from Supplier Orders section above; still the one item actually blocking a live feature today. Will be resolved by the item above once approved. |
+
 ## Other modules
 
-Not yet tracked here — `docs/CURRENT_SYSTEM_AUDIT.md` covers the full-system findings (all modules), but per-module implementation tracking has only been set up for Supplier Orders so far, since that's the module actually worked on. Add a section per module here as work begins on it, rather than backfilling status for modules untouched by an actual implementation task.
+Not yet tracked here — `docs/CURRENT_SYSTEM_AUDIT.md` covers the full-system findings (all modules), but per-module implementation tracking has only been set up for Supplier Orders and Migration Management so far, since those are the areas actually worked on. Add a section per module here as work begins on it, rather than backfilling status for modules untouched by an actual implementation task.

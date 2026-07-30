@@ -586,6 +586,33 @@ CREATE TABLE IF NOT EXISTS sync_logs (
   INDEX idx_sync_logs_type_reference_created (sync_type, reference_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Migration Management System v1 (see docs/MIGRATION_MANAGEMENT_PLAN.md) - tracks which of
+-- database/migrate_*.php has actually been run against THIS database, closing the gap that
+-- caused a real production incident (see docs/MIGRATION_SYSTEM_AUDIT.md): migration scripts
+-- existing in the repo were being treated as equivalent to having actually been executed.
+-- Keyed by filename (not a generated sequence) so none of the existing migrate_*.php scripts
+-- ever need renaming. Populated/read exclusively by database/migrate.php - nothing else
+-- writes to this table. A fresh install already has this table via this file; an existing
+-- database gets it the first time database/migrate.php runs (CREATE TABLE IF NOT EXISTS,
+-- same idempotent pattern every migrate_*.php script already uses).
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  migration VARCHAR(191) NOT NULL UNIQUE,
+  status ENUM('success', 'failed') NOT NULL DEFAULT 'success',
+  -- SHA-256 of the migration file's contents at the time it was run - lets database/migrate.php
+  -- detect and warn if an already-applied script is edited afterward, rather than silently
+  -- trusting a stale record (a script that changes after being marked applied is never
+  -- auto-re-run; it's flagged for human review instead - see the design doc).
+  checksum CHAR(64) NULL,
+  executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  execution_time_ms INT UNSIGNED NULL,
+  -- 'cli' for this v1 (CLI-only) runner - reserved for a future admin identity if a browser
+  -- path is ever added.
+  executed_by VARCHAR(100) NULL,
+  -- Populated only when status = 'failed' - the captured output of the failed run.
+  error_message TEXT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Phase 6E (WooCommerce webhook integration) - the received-event queue for
 -- modules/webhooks/woocommerce.php (receiver) / cli/wc_webhook_process.php (processor).
 -- Distinct from sync_logs, which stays the per-item outcome log every sync entry point
