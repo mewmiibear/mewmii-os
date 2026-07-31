@@ -4,6 +4,35 @@ All notable changes to Mewmii OS are recorded here, newest first.
 
 ## Unreleased
 
+### Migration Management System v2 — architecture change: in-process execution (no exec/shell/subprocess/HTTP)
+
+**Reason:** production confirmed `exec()`, `shell_exec()`, `system()`, `passthru()`, and `popen()` are all disabled — the subprocess execution model from v1 could never work there, not just occasionally fail. An HTTP-loopback alternative was designed and explicitly rejected (unnecessary infrastructure complexity — a new web endpoint, token auth, curl/loopback dependency — for a database tool). Built instead: a one-time mechanical refactor removing the actual blocker (a function-name collision), enabling true in-process execution.
+
+**Scope:** `database/migrate_helpers.php` (new), all 21 `database/migrate_*.php` files (mechanically refactored — see below), `database/migrate.php` (rewritten). `docs/MIGRATION_MANAGEMENT_PLAN.md` (new §7/§8), `docs/IMPLEMENTATION_STATUS.md` updated.
+
+**What changed in the 21 migration files — confirmed mechanical only, no SQL/logic change:**
+- Removed each file's local declarations of shared helper functions (`migrate_run()`, `migrate_column_exists()`, `migrate_table_exists()`, `migrate_index_exists()`, `migrate_failures()` — up to 20 files duplicated these identically or near-identically) in favor of one `require_once __DIR__ . '/migrate_helpers.php';`. Genuinely migration-specific helpers (e.g. `migrate_catalog.php`'s `migrate_find_foreign_keys_on_column()`) were left in place, unshared.
+- Wrapped each file's existing top-level logic, unchanged, in a uniquely-named function derived from its filename (`migrate_supplier_order_currency.php` → `function migrate_supplier_order_currency(PDO $pdo): array`), per the approved "unique execution function name" requirement.
+- Each function now returns `['success' => bool, 'applied' => array, 'failures' => array, 'message' => string]` — built from each script's own pre-existing `$applied`/`$failures` variables; `message` summarizes the outcome (e.g. "3 statement(s) applied", "Already up to date", "N statement(s) failed").
+- Added a standalone-execution guard (`if (!defined('MIGRATE_RUNNER_ACTIVE')) { migrate_<name>(app_db()); }`) so `php database/migrate_X.php` run directly still works exactly as before.
+- **Verified, not assumed:** every shared helper's body was diffed byte-for-byte across every file that had it before touching anything. Found one real behavioral variant — 3 files' `migrate_run()` skipped recording into the failures registry — and confirmed those 3 files never read that registry either, so unifying was safe (adds unused bookkeeping only, no visible behavior change).
+
+**`database/migrate_helpers.php` (new):** the 5 unified helpers, plus `migrate_failures_reset()` — a real correctness fix this refactor required: `migrate_failures()`'s data lives in a `static` variable that persists for the process's lifetime, harmless when each migration ran in its own subprocess but a real cross-migration bleed risk once several run back-to-back in one process. The runner calls this before each migration; no migration file does.
+
+**`database/migrate.php` (rewritten):** discovery/pending-detection/`schema_migrations` schema/CLI-only guard/CLI usage all unchanged. Execution is now `require_once` (declares the function) + a direct function call, each wrapped in its own `try`/`catch(Throwable)` so one migration's genuine bug can't crash the batch. The subprocess-era `migrate_runner_check_exec_available()` pre-flight check and `migrate_runner_guess_cause()` diagnostic were removed as obsolete — there's no `exec()` call left to diagnose.
+
+**Bug found and fixed during testing (not before):** the discovery glob (`migrate_*.php`) also matched `migrate_helpers.php` itself, which would have been treated as a fake 22nd migration and failed (no `migrate_helpers()` function exists). Fixed by explicitly excluding it in `migrate_runner_discover()`.
+
+**Future rollback convention (documented only, per approved scope — not implemented):** a migration may optionally define `rollback_<migration_name>()` alongside `migrate_<migration_name>()`. Nothing in the runner or helpers currently looks for or calls one — pure naming reservation, documented in both files' docblocks and in `docs/MIGRATION_MANAGEMENT_PLAN.md` §7.6.
+
+**Testing performed:**
+- `php -l` on all 23 touched/new files — clean.
+- Fresh local database seeded from `install.sql`: `database/migrate.php --run` — **all 21 migrations succeeded in one PHP process**, including the two most complex (`migrate_catalog.php`, which also runs the entirety of `schema.sql` as its own first step; `migrate_production_hardening.php`, which contains a multi-table customer-deduplication routine) — this is the exact scenario (multiple migrations, one process) that used to fatal-error before the refactor.
+- Idempotency verified: immediately re-ran (preview and `--run`) — all 21 correctly `Completed`, 0 pending, no errors, no duplicate application.
+- Standalone execution verified individually for all 21: reset to a fresh pre-migration database, ran every `migrate_X.php` directly (not via the runner) — all exited 0 with expected output, auto-run guard fired correctly every time.
+- Verified against real `INFORMATION_SCHEMA` state, not just log output: confirmed `supplier_orders.currency`, `product_variations.weight_mode`, `currency_rates.rate_type`, the `resolution_requests` table, and the `supplier_orders.purchase_number` UNIQUE index were all genuinely present after the run.
+- All testing used a local, throwaway MariaDB instance, torn down afterward — no production database was touched.
+
 ### Migration Management System v1 — production crash fixed
 
 **Scope:** `database/migrate.php` only. No existing `database/migrate_*.php` file was modified. `docs/MIGRATION_MANAGEMENT_PLAN.md` (new §2b) and `docs/IMPLEMENTATION_STATUS.md` updated to match.

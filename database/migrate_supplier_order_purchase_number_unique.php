@@ -8,8 +8,9 @@
  * Mewmii OS database regardless of when its supplier_orders table was first created. Brand-new
  * installs don't need this - database/schema.sql already creates the column UNIQUE.
  *
- * Run once via browser (https://yourdomain/database/migrate_supplier_order_purchase_number_unique.php)
- * or CLI (`php database/migrate_supplier_order_purchase_number_unique.php`).
+ * Run via database/migrate.php (discovers and runs this in-process), or standalone via browser
+ * (https://yourdomain/database/migrate_supplier_order_purchase_number_unique.php) or CLI
+ * (`php database/migrate_supplier_order_purchase_number_unique.php`).
  *
  * If this reports a duplicate-key failure when adding the index, some existing rows already
  * share a purchase_number - find them first with:
@@ -18,9 +19,12 @@
  */
 
 require_once __DIR__ . '/../includes/bootstrap.php';
+require_once __DIR__ . '/migrate_helpers.php';
 
-$pdo = app_db();
-
+/**
+ * Unique to this migration - not shared with any other file, so it stays local rather than
+ * moving to migrate_helpers.php.
+ */
 function migrate_unique_constraint_exists(PDO $pdo, string $table, string $column): bool
 {
     $stmt = $pdo->prepare('
@@ -32,18 +36,48 @@ function migrate_unique_constraint_exists(PDO $pdo, string $table, string $colum
     return (int) $stmt->fetchColumn() > 0;
 }
 
-echo 'Mewmii OS supplier_orders.purchase_number uniqueness check starting...' . PHP_EOL;
+function migrate_supplier_order_purchase_number_unique(PDO $pdo): array
+{
+    echo 'Mewmii OS supplier_orders.purchase_number uniqueness check starting...' . PHP_EOL;
 
-if (migrate_unique_constraint_exists($pdo, 'supplier_orders', 'purchase_number')) {
-    echo 'Already has a UNIQUE constraint - nothing to do.' . PHP_EOL;
-} else {
-    try {
-        $pdo->exec('ALTER TABLE supplier_orders ADD UNIQUE INDEX idx_supplier_orders_purchase_number_unique (purchase_number)');
-        echo 'Added UNIQUE index idx_supplier_orders_purchase_number_unique on supplier_orders.purchase_number.' . PHP_EOL;
-    } catch (PDOException $exception) {
-        echo '! FAILED: ' . $exception->getMessage() . PHP_EOL;
-        echo 'If this is a duplicate-entry error, see this file\'s doc comment for the query to find and resolve the conflicting rows, then re-run this script.' . PHP_EOL;
+    // This migration's original shape doesn't use the shared $applied/$failures arrays (it's a
+    // single, simple check-then-ALTER, not a list of statements) - adapted here into the same
+    // result shape every other migration returns, without changing what it actually does.
+    $applied = [];
+    $failures = [];
+
+    if (migrate_unique_constraint_exists($pdo, 'supplier_orders', 'purchase_number')) {
+        echo 'Already has a UNIQUE constraint - nothing to do.' . PHP_EOL;
+    } else {
+        try {
+            $pdo->exec('ALTER TABLE supplier_orders ADD UNIQUE INDEX idx_supplier_orders_purchase_number_unique (purchase_number)');
+            echo 'Added UNIQUE index idx_supplier_orders_purchase_number_unique on supplier_orders.purchase_number.' . PHP_EOL;
+            $applied[] = 'supplier_orders.purchase_number_unique';
+        } catch (PDOException $exception) {
+            echo '! FAILED: ' . $exception->getMessage() . PHP_EOL;
+            echo 'If this is a duplicate-entry error, see this file\'s doc comment for the query to find and resolve the conflicting rows, then re-run this script.' . PHP_EOL;
+            $failures['supplier_orders.purchase_number_unique'] = $exception->getMessage();
+        }
     }
+
+    echo 'Done.' . PHP_EOL;
+
+    if ($failures !== []) {
+        $resultMessage = count($failures) . ' statement(s) failed';
+    } elseif ($applied === []) {
+        $resultMessage = 'Already up to date';
+    } else {
+        $resultMessage = count($applied) . ' statement(s) applied';
+    }
+
+    return [
+        'success' => $failures === [],
+        'applied' => $applied,
+        'failures' => $failures,
+        'message' => $resultMessage,
+    ];
 }
 
-echo 'Done.' . PHP_EOL;
+if (!defined('MIGRATE_RUNNER_ACTIVE')) {
+    migrate_supplier_order_purchase_number_unique(app_db());
+}

@@ -1,7 +1,9 @@
 # Migration Management System — Design
 
-**Status:** v1 implemented (see §2a for two real deviations from the original design, discovered during implementation and made without needing to modify any existing migration file). `schema_migrations` and `database/migrate.php` exist. Not yet run against production.
+**Status:** v2 implemented and tested locally. `schema_migrations` and `database/migrate.php` exist, using **in-process execution** (§7) — not subprocess execution as §2/§2a/§2b describe. Not yet run against production. Read §7 first; §2/§2a/§2b are kept as historical record of how the design got here, not the current behavior.
 **Depends on:** `docs/MIGRATION_SYSTEM_AUDIT.md` — every decision below is a direct answer to a gap that audit found in the real system, not a generic best-practice import.
+
+**Architecture history, in order:** §2 (original sketch: subprocess via `exec()`) → §2a (two deviations found during implementation, still subprocess-based) → §2b (a production crash in the subprocess approach, fixed while keeping subprocess execution) → production confirmed `exec()`/`shell_exec()`/`system()`/`passthru()`/`popen()` are **all** disabled, meaning subprocess execution can never work on this host at all → an HTTP-loopback alternative was designed and then explicitly rejected for adding infrastructure complexity (HTTP, token auth, a new web endpoint, loopback dependency) to what should be a simple database tool → **§7: the actual, current architecture** — a one-time mechanical refactor of all 21 migration files enabling true in-process execution, no subprocess, no HTTP, no shell of any kind.
 
 **Design principle governing every choice below:** reuse what already works (idempotency convention, `app_require_permission()`, existing filenames) and add the smallest amount of new machinery that closes the actual gap — a tracking table and one runner script. No ORM, no CI/CD, no rollback engine, no renaming of the 21 existing scripts. This is a small team on shared hosting with no CI/CD (confirmed in `DEPLOYMENT.md`); the design fits that reality rather than importing a framework-scale migration system.
 
@@ -30,7 +32,9 @@ schema_migrations
 - **`executed_by`** reuses the exact pattern `activity_log()` already uses (`$_SESSION['user_id']` when available) rather than inventing a new identity concept.
 - **Deliberately omitted: a `down`/rollback script reference, and a dependency/`depends_on` column.** See §4 (Rollback Strategy) and §2 (dependency handling) for why — both would be solving problems this codebase doesn't actually have today, which is exactly what the task brief asked to avoid.
 
-## 2. Migration runner
+## 2. Migration runner (historical — superseded by §7, kept for the design record)
+
+> **This section, §2a, and §2b describe the subprocess-based execution model as originally designed and then patched. Production confirmed `exec()`/`shell_exec()`/`system()`/`passthru()`/`popen()` are all disabled, so this model can never actually run there. §7 describes what's actually implemented now.**
 
 **New file: `database/migrate.php`.** Lives alongside the existing 21 scripts, following the same "run via browser or CLI" convention already established — no new deployment mechanism.
 
@@ -97,12 +101,90 @@ This is why §1's tracking table keys on filename rather than a generated ID —
 
 ---
 
-## 6. Summary of what this design deliberately does NOT add
+## 7. Architecture v2 (current) — in-process execution via a one-time mechanical refactor
+
+**Why subprocess execution (§2/§2a/§2b) had to be abandoned, not just patched again:** production confirmed `exec()`, `shell_exec()`, `system()`, `passthru()`, and `popen()` are **all** disabled — standard practice on this class of shared hosting. §2b's fix made the runner *fail cleanly* when this happens; it could never make subprocess execution *work*. There is no PHP-level workaround for a disabled process-spawning function — the only way to run PHP code with real isolation without one is a genuinely separate execution context, and on stock PHP-FPM/CGI hosting the only such mechanism left is a separate HTTP request.
+
+**An HTTP-loopback design was fully specified and then explicitly rejected.** The runner would have made an authenticated HTTPS request to the application's own domain per migration, hitting a new endpoint that `require`s exactly one migration file per request (PHP-FPM resets its symbol table between requests, giving real isolation without any subprocess). This worked on paper and required zero changes to the 21 existing files — but it meant a new web-reachable endpoint, a shared-secret token auth scheme, a curl/loopback-HTTP dependency, and materially more moving parts for what should be a simple database tool. Rejected for exactly that reason: unnecessary infrastructure complexity for a migration runner.
+
+**What was built instead: eliminate the collision at the source, then run everything in one process for real.**
+
+### 7.1 The collision, precisely
+
+20 of the 21 existing migration files independently declared an identical `migrate_run()` function (18 also declared `migrate_column_exists()`, etc.) at global scope. PHP has no mechanism to undeclare a function once registered — `require`-ing two files that both declare the same function name fatal-errors with "Cannot redeclare function," full stop, regardless of execution model. This was the actual, permanent blocker — not `exec()` being disabled, which only made it impossible to route around with a subprocess.
+
+### 7.2 The fix — three mechanical changes across the 21 files
+
+Verified byte-for-byte before changing anything (see `docs/MIGRATION_SYSTEM_AUDIT.md`'s inventory and the exact diffs run during implementation): the shared helpers were identical or trivially cosmetic-different (one parameter name) across every file that had them, with exactly one real behavioral variant (3 files' `migrate_run()` skipped recording into the failures registry — confirmed those 3 files never read that registry either, so unifying on the fuller version only adds unused bookkeeping, never changes visible behavior).
+
+1. **Extracted the shared helpers into `database/migrate_helpers.php`** — `migrate_column_exists()`, `migrate_table_exists()`, `migrate_index_exists()`, `migrate_failures()`, `migrate_run()`, plus one new function, `migrate_failures_reset()` (see below). Every migration file now does `require_once __DIR__ . '/migrate_helpers.php';` instead of locally re-declaring these. A handful of genuinely migration-specific helper functions (e.g. `migrate_catalog.php`'s `migrate_find_foreign_keys_on_column()`, `migrate_currency_rate_types.php`'s `migrate_find_single_column_unique_index()`) were **not** shared — they're unique to one file and stay there.
+2. **Wrapped each migration's own top-level logic in a uniquely-named function**, `migrate_<name>()`, derived directly from the filename (`migrate_supplier_order_currency.php` → `migrate_supplier_order_currency()`) — this is the "unique execution function name" requirement, and it's what makes `require`-ing a file side-effect-free: the file now only *declares* its function, it doesn't run anything until that function is explicitly called. Every function returns a structured result:
+   ```php
+   [
+       'success'  => bool,           // true only if $failures is empty
+       'applied'  => array,          // labels of statements that succeeded
+       'failures' => array,          // label => error message, for statements that failed
+       'message'  => string,         // e.g. "3 statement(s) applied", "Already up to date"
+   ]
+   ```
+   This is a genuinely new piece of information every migration now exposes (none returned anything before, since none were wrapped in a function) — but it's built entirely from `$applied`/`$failures`, the exact variables each script already computed internally; nothing new is calculated.
+3. **Added a standalone-execution guard** at the bottom of every file: `if (!defined('MIGRATE_RUNNER_ACTIVE')) { migrate_<name>(app_db()); }`. `database/migrate.php` defines that constant before requiring any migration file, so the guard is skipped there (the runner calls the function itself, explicitly). Run directly — `php database/migrate_X.php`, or via browser — the constant is undefined, so the bottom guard fires and the file behaves exactly as it always did, echoing its own progress to output. **This is what keeps every migration standalone-runnable**, unchanged from before this refactor.
+
+**Not changed in any of the 21 files:** any SQL statement, table name, column name, or control-flow condition. Confirmed by direct review of every file during implementation, and by testing (§7.4).
+
+### 7.3 The rewritten runner
+
+`database/migrate.php`'s discovery, pending/completed/modified-since-applied detection, `schema_migrations` schema, CLI-only guard, and CLI usage (`php database/migrate.php` / `--run`) are **unchanged** from §1–§4 above. What changed is purely how a pending migration is executed:
+
+```
+define('MIGRATE_RUNNER_ACTIVE', true);        // before requiring anything
+
+For each pending migration $filename:
+    migrate_failures_reset();                  // see below - prevents cross-migration bleed
+    ob_start();
+    try {
+        require_once $filename;                 // declares migrate_<name>(), does not run it
+        $result = migrate_<name>($pdo);          // ['success' => ..., 'applied' => ..., ...]
+        $output = ob_get_clean();
+    } catch (Throwable $e) {                    // one migration's real bug can't crash the batch
+        $output = ob_get_clean();
+        $result = ['success' => false, ...];
+    }
+    record to schema_migrations exactly as before (checksum, status, execution_time_ms, output)
+```
+
+**`migrate_failures_reset()` — the one real correctness fix this refactor required, beyond pure mechanics.** `migrate_failures()`'s data lives in a `static` variable, which persists for the life of the PHP process. That was harmless when every migration ran in its own subprocess (a fresh process = a fresh static) — but with several migrations now running back-to-back in *one* process, migration B could silently inherit migration A's stale failures without this reset. `database/migrate.php` calls it immediately before invoking each migration's function; no migration file calls it, and none needs to.
+
+Every migration's function call is individually wrapped in `try`/`catch (Throwable)` in the runner's own loop — a genuine bug in one migration (not the per-statement failures each script already catches internally, but an actual uncaught error) is now caught by the runner and recorded as a failure, and the batch continues to the next migration, rather than taking down the whole run.
+
+### 7.4 What this makes obsolete from earlier sections
+
+- §2b's `migrate_runner_check_exec_available()` pre-flight check and `migrate_runner_guess_cause()` diagnostic — both were specifically about diagnosing subprocess/`exec()` failures. There is no `exec()` call anywhere in the new runner, so neither applies; both were removed rather than kept as dead code.
+- Any reference to `PHP_BINARY`, shell command construction, or captured subprocess exit codes.
+
+### 7.5 Testing performed
+
+- `php -l` on all 23 touched/new files (`migrate.php`, `migrate_helpers.php`, all 21 migrations) — clean.
+- Against a fresh local database seeded from `install.sql`: ran `database/migrate.php --run` — **all 21 migrations succeeded in a single PHP process** (the exact scenario that used to fatal-error before this refactor), including the two most complex files (`migrate_catalog.php`, which also executes the *entirety* of `schema.sql` via `$pdo->exec(file_get_contents(...))` as its own first step, and `migrate_production_hardening.php`, which contains a multi-table customer-deduplication routine).
+- **Idempotency verified**: re-ran the runner (both preview and `--run`) immediately after — all 21 correctly reported as already-`Completed`, 0 pending, no errors, no duplicate application.
+- **Standalone execution verified for all 21 individually**: reset to a fresh pre-migration database and ran every `migrate_X.php` file directly (`php database/migrate_X.php`, not via the runner) in sequence — all exited 0 with their expected "Done." message; the `MIGRATE_RUNNER_ACTIVE`-gated auto-run guard fired correctly in every case.
+- **Verified against the live database schema, not just log output**: queried `INFORMATION_SCHEMA` directly after a run and confirmed `supplier_orders.currency`, `product_variations.weight_mode`, `currency_rates.rate_type`, the `resolution_requests` table, and the `supplier_orders.purchase_number` UNIQUE index were all genuinely present — the migrations' real DDL executed, not just their echoed claims.
+- One real bug found and fixed *during* this testing (not before): the discovery glob (`migrate_*.php`) also matched `migrate_helpers.php` itself, which would have been "run" as a fake 22nd migration and failed (no `migrate_helpers()` function to call). Fixed by explicitly excluding it in `migrate_runner_discover()`.
+- Not tested: execution against production, or any real production data — only a local, throwaway MariaDB instance was used, torn down after.
+
+### 7.6 Future rollback convention (documented only — not implemented)
+
+A future migration **may** optionally define `rollback_<migration_name>()` alongside its `migrate_<migration_name>()` function (e.g. `migrate_foo()` paired with `rollback_foo()`). **Nothing in `database/migrate_helpers.php` or `database/migrate.php` currently looks for or calls such a function** — this is purely a naming reservation, documented in both files' own docblocks, so that if rollback support is ever actually built, no migration written under this convention needs restructuring to adopt it. Do not add a `rollback_*()` function speculatively; only add one when a specific migration genuinely needs to be reversible and rollback execution has actually been implemented in the runner. This does not change §4's rollback-strategy reasoning (forward-only remains the working default) — it only keeps the door open cheaply.
+
+---
+
+## 8. Summary of what this design deliberately does NOT add
 
 Per the task's explicit constraint ("do not introduce unnecessary complexity"):
 
-- No rollback/down migrations (§4 — forward-only, matches 21/21 existing scripts' actual shape).
-- No renaming of any existing file (§1/§3 — filename-keyed tracking makes this unnecessary).
+- No rollback/down migration *execution* (§4, §7.6 — forward-only remains the default; the naming convention is reserved, not built).
+- No renaming of any existing file (§1/§3 — filename-keyed tracking makes this unnecessary; §7 confirms this held even through the architecture change).
 - No new deployment pipeline, CI, or staging environment (none exists today; out of scope).
 - No dependency graph / `depends_on` metadata — only one real dependency exists across all 21 scripts (`migrate_currency_rate_types.php` → `migrate_currency_rates.php`), and it already fails safely and informatively if run out of order, since the dependent script's own `ALTER` would simply error against a nonexistent table.
-- No change to how migrations are written internally — the idempotent-check convention is already 100% adopted and stays exactly as-is.
+- No HTTP endpoint, token auth, or loopback dependency (§7 — the alternative that was designed and explicitly rejected).
+- No change to any migration's actual SQL/business logic — the refactor is 100% mechanical (extraction + function-wrapping), confirmed by review and by testing.

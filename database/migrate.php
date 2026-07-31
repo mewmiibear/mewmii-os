@@ -17,18 +17,36 @@
  *   php database/migrate.php --run       Actually executes every pending migration, in
  *                                        filename order, and records the result of each.
  *
- * Execution model: each pending migration is run as its own separate `php` subprocess (via
- * PHP_BINARY), NOT `require`-d into this process. This is not a stylistic choice - it's
- * required. 20 of the 21 existing migrate_*.php scripts independently define an identical
- * migrate_run() helper function (and 18 define migrate_column_exists(), etc.) at global scope;
- * `require`-ing two of them into the same PHP process would fatal-error with "Cannot redeclare
- * function migrate_run()" on the second one. Running each as its own process sidesteps this
- * completely and requires zero changes to any of the 21 existing scripts.
+ * EXECUTION MODEL (v2 - in-process, no subprocess): each pending migration's file is
+ * `require_once`-d (declaring its function, e.g. migrate_additional_costs()) and then that
+ * function is called directly, in this same PHP process. This replaced an earlier subprocess-
+ * based design (`exec(PHP_BINARY ...)`) that could never work here - production confirmed
+ * exec()/shell_exec()/system()/passthru()/popen() are ALL disabled (standard on this class of
+ * shared hosting). See docs/MIGRATION_MANAGEMENT_PLAN.md for the full comparison of approaches
+ * considered and why this one was chosen.
  *
- * A migration is recorded 'success' if its subprocess exits 0, 'failed' otherwise (PHP CLI
- * exits non-zero on an uncaught error/exception) - the full captured output is stored either
- * way (in error_message on failure) so a human can always see exactly what a script printed,
- * matching how these scripts have always been read when run manually.
+ * This only works because every one of the 21 existing migrate_*.php files was mechanically
+ * refactored (see docs/MIGRATION_SYSTEM_AUDIT.md's inventory) to:
+ *   1. require database/migrate_helpers.php instead of locally re-declaring migrate_run() /
+ *      migrate_column_exists() / etc. (up to 20 files declared identical copies of these -
+ *      requiring two such files into one process used to fatal-error with "Cannot redeclare
+ *      function").
+ *   2. Wrap the migration's own top-level logic in a uniquely-named function (migrate_<name>(),
+ *      derived directly from the filename) instead of running at require-time - so requiring
+ *      a file only DECLARES its function, never executes it as a side effect.
+ *   3. Guard standalone execution behind `if (!defined('MIGRATE_RUNNER_ACTIVE'))` at the
+ *      bottom, so `php database/migrate_X.php` run directly (browser or CLI) still works
+ *      exactly as before this refactor - MIGRATE_RUNNER_ACTIVE is defined below, before any
+ *      migration file is required, specifically so that auto-run guard is skipped here.
+ * No SQL statement, table/column name, or control-flow condition changed in any of the 21
+ * files as part of this refactor - see each file's own docblock and
+ * docs/MIGRATION_SYSTEM_AUDIT.md for confirmation.
+ *
+ * A migration is recorded 'success' if its function returns ['success' => true, ...] AND
+ * nothing thrown; 'failed' otherwise. Every migration's function call is individually wrapped
+ * in its own try/catch(Throwable), so one migration's genuine bug (an uncaught error, not just
+ * a caught-and-logged failed SQL statement) can never crash the rest of the batch - matching
+ * the resilience the old per-subprocess model had implicitly, now provided explicitly.
  *
  * CLI-only, same protection as every script in cli/ (see cli/job_worker.php's identical
  * PHP_SAPI check) - a direct web request 403s before bootstrap.php or the database are ever
@@ -38,9 +56,15 @@
  * separate, not-yet-approved follow-up, not silently bundled into this change.
  *
  * Does NOT implement: rollback/down migrations, a dependency graph, or CI integration - see
- * docs/MIGRATION_MANAGEMENT_PLAN.md §6 for why none of those are needed at Mewmii OS's current
+ * docs/MIGRATION_MANAGEMENT_PLAN.md for why none of those are needed at Mewmii OS's current
  * scale (all 21 existing migrations are purely additive; only one real dependency pair exists
  * in the whole set, and it already fails safely/informatively if run out of order).
+ *
+ * FUTURE ROLLBACK CONVENTION (not implemented - see database/migrate_helpers.php's own
+ * docblock and docs/MIGRATION_MANAGEMENT_PLAN.md for the full reasoning): a future migration
+ * MAY optionally define a matching rollback_<migration_name>() function. This runner does not
+ * currently look for or call any such function - reserving the name is purely so that, if
+ * rollback support is ever built, no existing or new migration needs restructuring to adopt it.
  */
 
 if (PHP_SAPI !== 'cli') {
@@ -48,8 +72,11 @@ if (PHP_SAPI !== 'cli') {
     exit(1);
 }
 
+define('MIGRATE_RUNNER_ACTIVE', true);
+
 require_once __DIR__ . '/../includes/bootstrap.php';
 require_once __DIR__ . '/../includes/activity_log.php';
+require_once __DIR__ . '/migrate_helpers.php';
 
 function migrate_runner_log(string $message): void
 {
@@ -75,14 +102,28 @@ function migrate_runner_ensure_tracking_table(PDO $pdo): void
 /**
  * Every database/migrate_*.php file on disk, sorted by filename - discovery, never a
  * maintained list. This runner's own filename ('migrate.php', no underscore) never matches
- * the 'migrate_*.php' glob pattern, so no explicit self-exclusion is needed.
+ * the 'migrate_*.php' glob pattern, so it needs no exclusion - but 'migrate_helpers.php' DOES
+ * match the pattern (it also starts with 'migrate_') despite not being a real migration (it
+ * declares shared helper functions, not a migrate_<name>() entry point), so it's excluded
+ * explicitly here.
  */
 function migrate_runner_discover(): array
 {
     $files = glob(__DIR__ . '/migrate_*.php') ?: [];
+    $files = array_filter($files, static fn (string $path): bool => basename($path) !== 'migrate_helpers.php');
     sort($files, SORT_STRING);
 
     return array_map('basename', $files);
+}
+
+/**
+ * The function a migration file is expected to declare, derived directly from its filename
+ * (migrate_foo.php -> migrate_foo()) - see this file's own docblock for why every one of the
+ * 21 existing migrations follows this convention exactly.
+ */
+function migrate_runner_function_name(string $filename): string
+{
+    return substr($filename, 0, -4);
 }
 
 /** Every row already recorded, keyed by filename - one query, not one per discovered file. */
@@ -116,73 +157,58 @@ function migrate_runner_record(PDO $pdo, string $migration, string $status, stri
 }
 
 /**
- * Whether exec() is actually usable, or null if so. Some shared hosts (Hostinger included, on
- * some plans) disable exec()/shell_exec()/system()/passthru()/proc_open() via disable_functions
- * in php.ini - when that happens, calling exec() does NOT throw; it silently no-ops and never
- * populates its by-reference output parameters. That previously caused an uncaught TypeError
- * (implode() given an unset variable) that crashed this whole runner on the first pending
- * migration, before a single schema_migrations row could be written - a real production
- * incident this check exists to prevent from recurring. Checked once, up front, before
- * attempting anything - not per-migration - so a hosting restriction is reported once, clearly,
- * instead of failing silently N times.
+ * Runs one migration in-process: requires its file (declares migrate_<name>(), MIGRATE_RUNNER_
+ * ACTIVE already stops it from auto-running), resets the shared failures registry first (see
+ * migrate_failures_reset()'s own docblock for why that's necessary now that migrations run
+ * back to back in one process), calls the function, and captures everything it echoes via
+ * output buffering - the in-process equivalent of the old subprocess model's captured stdout.
  */
-function migrate_runner_check_exec_available(): ?string
+function migrate_runner_execute(PDO $pdo, string $filename): array
 {
-    if (!function_exists('exec')) {
-        return 'exec() does not exist in this PHP build.';
-    }
+    $path = __DIR__ . '/' . $filename;
+    $functionName = migrate_runner_function_name($filename);
 
-    $disabled = array_map('trim', explode(',', (string) ini_get('disable_functions')));
-    if (in_array('exec', $disabled, true)) {
-        return 'exec() is disabled via disable_functions in php.ini on this server.';
-    }
+    migrate_failures_reset();
 
-    return null;
-}
-
-/**
- * Best-effort guess at why a subprocess failed, shown alongside the raw captured output - not
- * a substitute for reading the output, just a head start for the most common cases.
- */
-function migrate_runner_guess_cause(?int $exitCode, string $output): string
-{
-    if ($exitCode === null) {
-        return 'No exit code was captured at all - exec() likely did not actually run (see the disable_functions check this runner performs before starting; if that passed, PHP_BINARY may not resolve to a valid executable on this server).';
-    }
-    if ($output === '' && $exitCode !== 0) {
-        return 'The subprocess produced no output at all despite a non-zero exit code - check that PHP_BINARY (' . PHP_BINARY . ') resolves correctly and the migration file is readable.';
-    }
-    if (stripos($output, 'Fatal error') !== false || stripos($output, 'Uncaught') !== false) {
-        return 'PHP fatal error inside the migration script itself - see the captured output above for the exact error and line.';
-    }
-    if ($exitCode === 255) {
-        return 'Exit code 255 typically means an uncaught PHP error/exception in the migration script.';
-    }
-
-    return 'See the captured output above for detail.';
-}
-
-/** Runs one migration file as its own subprocess - see this file's own docblock for why. */
-function migrate_runner_execute(string $path): array
-{
-    $command = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($path) . ' 2>&1';
-    // Explicitly initialized before the call, not left to exec() to populate - exec() normally
-    // does populate these by reference, but if it's disabled it silently no-ops and never
-    // touches them at all. Initializing here means a disabled exec() degrades into a normal,
-    // recorded 'failed' result (caught by the exec-availability check below, in practice) rather
-    // than an uncaught TypeError from implode()/=== on an unset variable further down.
-    $outputLines = [];
-    $exitCode = null;
     $start = microtime(true);
-    exec($command, $outputLines, $exitCode);
-    $elapsedMs = (int) round((microtime(true) - $start) * 1000);
+    ob_start();
 
-    return [
-        'success' => $exitCode === 0,
-        'exit_code' => $exitCode,
-        'output' => implode(PHP_EOL, $outputLines),
-        'elapsed_ms' => $elapsedMs,
-    ];
+    try {
+        require_once $path;
+
+        if (!function_exists($functionName)) {
+            ob_end_clean();
+
+            return [
+                'success' => false,
+                'output' => '',
+                'error' => "Expected function {$functionName}() was not declared after requiring {$filename} - this migration doesn't follow the migrate_<name>() naming convention.",
+                'elapsed_ms' => (int) round((microtime(true) - $start) * 1000),
+            ];
+        }
+
+        $result = $functionName($pdo);
+        $output = ob_get_clean();
+
+        return [
+            'success' => (bool) ($result['success'] ?? false),
+            'output' => $output,
+            'error' => null,
+            'elapsed_ms' => (int) round((microtime(true) - $start) * 1000),
+        ];
+    } catch (Throwable $exception) {
+        // A genuine bug in one migration (not just a caught-and-logged failed SQL statement,
+        // which the migration's own function already handles internally) must never take down
+        // the rest of the batch - caught here, recorded, and the runner's own loop continues.
+        $output = ob_get_clean();
+
+        return [
+            'success' => false,
+            'output' => $output,
+            'error' => get_class($exception) . ': ' . $exception->getMessage(),
+            'elapsed_ms' => (int) round((microtime(true) - $start) * 1000),
+        ];
+    }
 }
 
 $pdo = app_db();
@@ -257,27 +283,6 @@ if (!$runMode) {
     exit(0);
 }
 
-// Environment validation - checked once, before attempting anything. See
-// migrate_runner_check_exec_available()'s own docblock for the incident this prevents.
-$execUnavailableReason = migrate_runner_check_exec_available();
-if ($execUnavailableReason !== null) {
-    migrate_runner_log('ERROR: Cannot run migrations - ' . $execUnavailableReason);
-    migrate_runner_log('');
-    migrate_runner_log('This migration runner requires subprocess execution (exec()) to run each of the 21');
-    migrate_runner_log('existing migration scripts safely in isolation - 20 of them independently define an');
-    migrate_runner_log('identical migrate_run() function at global scope, so require()-ing more than one into');
-    migrate_runner_log('this same process would fatal-error with "Cannot redeclare function". See this file\'s');
-    migrate_runner_log('own docblock and docs/MIGRATION_MANAGEMENT_PLAN.md section 2a for the full reasoning.');
-    migrate_runner_log('');
-    migrate_runner_log('Ask your hosting provider whether exec() can be enabled for CLI-invoked scripts');
-    migrate_runner_log('specifically - some hosts (Hostinger included, on some plans) allow it from SSH/CLI');
-    migrate_runner_log('while blocking it for web-triggered PHP. Run `php -i | grep disable_functions` to see');
-    migrate_runner_log('the exact current setting.');
-    migrate_runner_log('');
-    migrate_runner_log('No migration was executed and no schema_migrations row was written.');
-    exit(1);
-}
-
 migrate_runner_log('Running ' . count($pending) . ' pending migration(s)...');
 migrate_runner_log('');
 
@@ -288,7 +293,8 @@ $appliedNames = [];
 foreach ($pending as $filename => $checksum) {
     migrate_runner_log('-> ' . $filename);
 
-    $result = migrate_runner_execute(__DIR__ . '/' . $filename);
+    $result = migrate_runner_execute($pdo, $filename);
+    $diagnostic = trim($result['output'] . ($result['error'] !== null ? PHP_EOL . '! ' . $result['error'] : ''));
 
     if ($result['success']) {
         try {
@@ -303,15 +309,16 @@ foreach ($pending as $filename => $checksum) {
         // Record a failed result when possible - a DB hiccup while recording must never mask
         // the real failure or crash the batch; the failure is still reported either way.
         try {
-            migrate_runner_record($pdo, $filename, 'failed', $checksum, $result['elapsed_ms'], $result['output']);
+            migrate_runner_record($pdo, $filename, 'failed', $checksum, $result['elapsed_ms'], $diagnostic);
         } catch (Throwable $exception) {
             migrate_runner_log('   WARNING: could not record this failure to schema_migrations: ' . $exception->getMessage());
         }
 
         migrate_runner_log('   FAILED (' . $result['elapsed_ms'] . 'ms)');
-        migrate_runner_log('   Migration:     ' . $filename);
-        migrate_runner_log('   Exit code:     ' . ($result['exit_code'] === null ? '(none captured)' : $result['exit_code']));
-        migrate_runner_log('   Possible cause: ' . migrate_runner_guess_cause($result['exit_code'], $result['output']));
+        migrate_runner_log('   Migration: ' . $filename);
+        if ($result['error'] !== null) {
+            migrate_runner_log('   Error:     ' . $result['error']);
+        }
         migrate_runner_log('   Output:');
         if ($result['output'] === '') {
             migrate_runner_log('     (no output captured)');
@@ -332,7 +339,11 @@ if ($failedCount > 0) {
 }
 
 if ($appliedNames !== []) {
-    activity_log($pdo, 'schema_migrations', 'run', null, $successCount . ' migration(s) applied via database/migrate.php: ' . implode(', ', $appliedNames));
+    try {
+        activity_log($pdo, 'schema_migrations', 'run', null, $successCount . ' migration(s) applied via database/migrate.php: ' . implode(', ', $appliedNames));
+    } catch (Throwable $exception) {
+        // Never let activity logging block the runner from exiting cleanly.
+    }
 }
 
 exit($failedCount > 0 ? 1 : 0);

@@ -7,50 +7,58 @@
  * only this one index; no column, no row, and no existing query is changed. Safe to run
  * multiple times: checks INFORMATION_SCHEMA before altering anything.
  *
- * Run once via browser (https://yourdomain/database/migrate_sync_logs_index.php) or CLI
+ * Run via database/migrate.php (discovers and runs this in-process), or standalone via browser
+ * (https://yourdomain/database/migrate_sync_logs_index.php) or CLI
  * (`php database/migrate_sync_logs_index.php`) against an EXISTING Mewmii OS database.
  * Brand-new installs don't need this - database/schema.sql already creates this index.
  */
 
 require_once __DIR__ . '/../includes/bootstrap.php';
+require_once __DIR__ . '/migrate_helpers.php';
 
-$pdo = app_db();
-
-function migrate_index_exists(PDO $pdo, string $table, string $indexName): bool
+function migrate_sync_logs_index(PDO $pdo): array
 {
-    $stmt = $pdo->prepare('
-        SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS
-        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?
-    ');
-    $stmt->execute([$table, $indexName]);
+    echo 'Mewmii OS sync_logs index migration starting...' . PHP_EOL;
 
-    return (int) $stmt->fetchColumn() > 0;
-}
+    $applied = [];
 
-function migrate_run(PDO $pdo, string $label, string $sql, array &$applied): void
-{
-    try {
-        $pdo->exec($sql);
-        $applied[] = $label;
-    } catch (PDOException $exception) {
-        echo '  ! FAILED: ' . $label . ' - ' . $exception->getMessage() . PHP_EOL;
+    if (!migrate_index_exists($pdo, 'sync_logs', 'idx_sync_logs_type_reference_created')) {
+        migrate_run($pdo, 'sync_logs.idx_sync_logs_type_reference_created',
+            'ALTER TABLE sync_logs ADD INDEX idx_sync_logs_type_reference_created (sync_type, reference_id, created_at)', $applied);
     }
+
+    echo count($applied) . ' migration statement(s) applied:' . PHP_EOL;
+    foreach ($applied as $item) {
+        echo '  - ' . $item . PHP_EOL;
+    }
+
+    if ($applied === []) {
+        echo 'Database was already up to date - nothing to do.' . PHP_EOL;
+    }
+
+    // This file historically didn't call migrate_failures() at all (its own migrate_run()
+    // variant didn't record into the shared registry) - now that migrate_run() is shared and
+    // always records, we read it here too so the returned result is accurate. See
+    // database/migrate_helpers.php's own docblock for why this is safe: it only adds
+    // visibility this file never had before, never changes what it does.
+    $failures = migrate_failures();
+
+    if ($failures !== []) {
+        $resultMessage = count($failures) . ' statement(s) failed';
+    } elseif ($applied === []) {
+        $resultMessage = 'Already up to date';
+    } else {
+        $resultMessage = count($applied) . ' statement(s) applied';
+    }
+
+    return [
+        'success' => $failures === [],
+        'applied' => $applied,
+        'failures' => $failures,
+        'message' => $resultMessage,
+    ];
 }
 
-echo 'Mewmii OS sync_logs index migration starting...' . PHP_EOL;
-
-$applied = [];
-
-if (!migrate_index_exists($pdo, 'sync_logs', 'idx_sync_logs_type_reference_created')) {
-    migrate_run($pdo, 'sync_logs.idx_sync_logs_type_reference_created',
-        'ALTER TABLE sync_logs ADD INDEX idx_sync_logs_type_reference_created (sync_type, reference_id, created_at)', $applied);
-}
-
-echo count($applied) . ' migration statement(s) applied:' . PHP_EOL;
-foreach ($applied as $item) {
-    echo '  - ' . $item . PHP_EOL;
-}
-
-if ($applied === []) {
-    echo 'Database was already up to date - nothing to do.' . PHP_EOL;
+if (!defined('MIGRATE_RUNNER_ACTIVE')) {
+    migrate_sync_logs_index(app_db());
 }
