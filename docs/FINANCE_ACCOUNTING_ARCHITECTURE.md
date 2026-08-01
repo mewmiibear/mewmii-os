@@ -57,8 +57,9 @@ Finance
 ├── Expenses            (new — the core data-entry surface)
 ├── Income               (new, but narrow — see below)
 ├── Supplier Payments    (renamed from "Payments" — see below)
-├── Bank Accounts        (new — reference list, not reconciliation)
-├── Assets               (new)
+├── Budget               (new — see §11)
+├── Bank Accounts        (new — reference list, reconciliation-ready — see §14)
+├── Assets               (new — see §13)
 ├── Profit & Loss         (report — reads Orders + product_cost.php + Expenses)
 └── Cash Flow             (report — reads actual money movement, see §5)
 ```
@@ -98,7 +99,7 @@ The UI-level design (not implementation): when recording a purchase, the form as
 Supplier Orders → Landed Cost (existing, includes/product_cost.php) → COGS in P&L
 Customer Orders → mewmii_order_items.subtotal (existing) → Revenue in P&L
 Manual Expenses → Operating Expenses in P&L
-Shipping (once a cost column exists — see FINANCE_DATABASE_DESIGN.md §4) → COGS or Operating Expenses (design question, §8)
+Shipping (once a cost column exists — see FINANCE_DATABASE_DESIGN.md §4) → COGS or Operating Expense, per cost type — see §8
 Payment Gateway (once fee capture exists) → Operating Expenses (transaction fees)
 resolution_refunds (existing, status='completed') → reduces Net Revenue in P&L, appears as cash-out in Cash Flow
 supplier_order_payments (existing) → Supplier Payments nav rollup + Cash Flow
