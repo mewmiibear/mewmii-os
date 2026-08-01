@@ -40,3 +40,26 @@ function ajax_require_csrf(): void
         ajax_json(['error' => $exception->getMessage()], 400);
     }
 }
+
+/**
+ * Mewmii OS v2 Phase 2 - sibling of ajax_require_permission() for endpoints that return an
+ * HTML fragment instead of JSON (the Drawer framework's content endpoints - see
+ * docs/PHASE2_READINESS_REVIEW.md §2/§7 for why the Drawer deliberately returns HTML, not
+ * JSON). Same app_has_permission() check, same 401/403 status codes; only the response body
+ * changes, so it can be injected directly into the Drawer as a readable in-panel state
+ * instead of a JSON object the Drawer would have no generic way to render.
+ */
+function ajax_require_permission_html(string $permission): void
+{
+    if (!app_is_logged_in()) {
+        http_response_code(401);
+        echo '<div class="p-3 text-muted">Please log in to view this.</div>';
+        exit;
+    }
+
+    if (!app_has_permission($permission)) {
+        http_response_code(403);
+        echo '<div class="p-3 text-muted">You do not have permission to view this.</div>';
+        exit;
+    }
+}

@@ -790,6 +790,7 @@ require_once __DIR__ . '/../../includes/header.php';
                     <td data-label="" class="text-end">
                         <div class="d-flex gap-1 justify-content-end">
                             <?php if (!$isVariable): ?>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" title="Quick View" onclick="DrawerUI.open({url: '/modules/inventory/ajax/drawer.php?product_id=<?php echo (int) $product['id']; ?>', title: '<?php echo app_escape(addslashes($product['name'])); ?>'})">&#128269;</button>
                                 <?php if ($canManage): ?>
                                     <button type="button" class="btn btn-sm btn-outline-primary" title="Adjust Stock" onclick="InventoryUI.openAdjustModal('<?php echo (int) $product['id']; ?>:0')">&plusmn;</button>
                                 <?php endif; ?>
@@ -847,6 +848,7 @@ require_once __DIR__ . '/../../includes/header.php';
                             <td data-label="Last Updated" class="text-muted small"><?php echo $variation['updated_at'] !== null ? app_escape($variation['updated_at']) : '&mdash;'; ?></td>
                             <td data-label="" class="text-end">
                                 <div class="d-flex gap-1 justify-content-end">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" title="Quick View" onclick="DrawerUI.open({url: '/modules/inventory/ajax/drawer.php?product_id=<?php echo (int) $product['id']; ?>&variation_id=<?php echo (int) $variation['variation_id']; ?>', title: '<?php echo app_escape(addslashes($product['name'])); ?>'})">&#128269;</button>
                                     <?php if ($canManage): ?>
                                         <button type="button" class="btn btn-sm btn-outline-primary" title="Adjust Stock" onclick="InventoryUI.openAdjustModal('<?php echo app_escape($unitKey); ?>')">&plusmn;</button>
                                     <?php endif; ?>

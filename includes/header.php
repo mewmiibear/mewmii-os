@@ -407,6 +407,14 @@ $appTitle = 'Mewmii OS';
             display: block;
         }
 
+        /* --- Drawer (Mewmii OS v2 Phase 2) - fixed width on tablet/desktop, matching the
+           global search dropdown's own max-width (line ~502); full-width below the same
+           575.98px breakpoint every other small-viewport rule below already uses, not a new
+           breakpoint value. */
+        .app-drawer {
+            width: 420px;
+        }
+
         /* --- Global responsive tweaks (Responsive Improvement pass) - small-viewport-only
            spacing/width adjustments layered on top of existing desktop rules; nothing here
            changes anything at >=992px, so desktop UI is unaffected. */
@@ -432,6 +440,10 @@ $appTitle = 'Mewmii OS';
 
             .page-header .action-bar {
                 justify-content: flex-start;
+            }
+
+            .app-drawer {
+                width: 100vw;
             }
         }
 
@@ -519,7 +531,18 @@ $appTitle = 'Mewmii OS';
     <?php if (app_is_logged_in()): ?>
         <script src="/assets/js/global_search.js"></script>
         <script src="/assets/js/sidebar.js"></script>
+        <script src="/assets/js/drawer.js?v=<?php echo filemtime(__DIR__ . '/../assets/js/drawer.js'); ?>"></script>
         <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+        <!-- Mewmii OS v2 Phase 2 - the one shared Drawer container every module's Quick View
+             loads into (docs/PHASE2_IMPLEMENTATION.md). A real bootstrap.Offcanvas instance -
+             see assets/js/drawer.js for why this isn't hand-rolled like the sidebar above. -->
+        <div class="offcanvas offcanvas-end app-drawer" tabindex="-1" id="app-drawer" aria-labelledby="app-drawer-title">
+            <div class="offcanvas-header">
+                <h5 class="offcanvas-title" id="app-drawer-title"></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+            </div>
+            <div class="offcanvas-body p-0" id="app-drawer-body"></div>
+        </div>
     <?php endif; ?>
     <div class="container-fluid">
         <div class="row">

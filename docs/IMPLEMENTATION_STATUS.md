@@ -2,6 +2,17 @@
 
 Tracks the status of active improvement work, per module. Status values: Not Started, Planning, In Progress, Testing, Completed, Blocked.
 
+## Finance & Accounting
+
+| Item | Status | Notes |
+|---|---|---|
+| Current-system finance capability audit | Completed | Full codebase audit — see `docs/FINANCE_ACCOUNTING_ARCHITECTURE.md` §1. Found rich existing revenue/COGS/supplier-payment/refund/currency data, and confirmed-zero shipping-cost/gateway-fee/expense/asset/tax capability |
+| `docs/FINANCE_ACCOUNTING_ARCHITECTURE.md` | Completed | Architecture, navigation (2 refinements to the user's proposal), Expense-vs-Asset rule, integration points, P&L-vs-Cash-Flow distinction, future-compatibility |
+| `docs/FINANCE_WORKFLOW.md` | Completed | Workflow-First-principled walkthroughs for every Finance workflow, tied to existing pages wherever one already exists |
+| `docs/FINANCE_DATABASE_DESIGN.md` | Completed | Design sketch only — no migration file, `database/schema.sql` untouched. Proposes `expense_categories`/`expenses`/`assets`/attachment tables/`bank_accounts`/`manual_income`, recommends replacing (not retrofitting) the dead `expenses`/`invoices` scaffolding |
+| `docs/TAX_REPORTING_DESIGN.md` | Completed | 6 LHDN-oriented report designs, information organization only — no tax calculation logic |
+| **Finance implementation (any code, migration, or schema change)** | **Not Started — awaiting approval** | Explicit user instruction: design phase only. No code was written for this phase |
+
 ## Mewmii OS v2
 
 | Item | Status | Notes |
@@ -19,7 +30,15 @@ Tracks the status of active improvement work, per module. Status values: Not Sta
 | **Phase 1 Step 3 — Dashboard Mission Control** | Completed | `index.php` fully rewritten per `docs/DASHBOARD_PHILOSOPHY.md`: Status Line (3-tier rule-based health), My Day (6 of 7 named task sources — open customer resolutions deferred pending an admin list page), Today's Business (now genuinely today/this-month, not a 30-day window). Tested against seeded real data: health-tier transitions (healthy → attention → critical), all 5 My Day task types, Today's Business figures — all verified correct via live HTTP requests |
 | Overdue-supplier-orders dedup (`includes/purchase_planning.php`, `includes/notifications.php`) | Completed | New `supplier_orders_overdue()` function; both `index.php` and the `supplier_order_overdue` alert generator now call it instead of each maintaining a copy of the same predicate |
 | **Bug fix found during Phase 1 testing:** `purchase_planning_needs()` crash | Completed | Pre-existing bug, unrelated to Phase 1 itself — fatally errored whenever a ready-stock product's `available_quantity` exceeded its `target_stock_level` (unsigned-subtraction overflow under MariaDB strict mode). Affects 3 call sites (dashboard, `modules/purchase-planning/generate.php`, `modules/inventory/index.php`'s needs-ordering filter). Fixed via `CAST(... AS SIGNED)` on the affected operands — no change to which rows are returned for any previously-working case |
-| Phase 2 implementation (Drawer, Activity Feed viewer, Bulk Actions) | Not Started | Depends on Phase 1 (complete) |
+| `docs/PHASE2_READINESS_REVIEW.md` | Completed | Audited existing modal/AJAX/JS/CSS/permission/responsive patterns; determined the Drawer should be built on `bootstrap.Offcanvas` (already loaded, unused) and content endpoints should return HTML fragments, not JSON — gate passed before Phase 2 code changed |
+| **Phase 2 Step 1 — Shared Drawer framework** | Completed | `assets/js/drawer.js` (`window.DrawerUI.open()`/`.close()`), `#app-drawer` Offcanvas container + CSS in `includes/header.php`, new `ajax_require_permission_html()` in `includes/ajax_helpers.php`. Strict 3-layer architecture (Framework → Controller → View) per explicit user refinement — see `docs/PHASE2_IMPLEMENTATION.md` |
+| **Phase 2 Step 2 — Inventory pilot** | Completed | `modules/inventory/ajax/drawer.php` (Controller) + `modules/inventory/views/drawer.php` (View, first use of the new `modules/<domain>/views/` convention) + a Quick View trigger on both the simple-product and variation rows in `modules/inventory/index.php`. Related actions reuse the page's existing `InventoryUI.openAdjustModal()`/`openHistoryModal()` directly — zero duplicated modal/history logic |
+| New function (`includes/inventory.php`) | Completed | `inventory_transactions_recent()` — small, unenriched read for the Drawer's history preview; the full resolved history stays exclusively in the existing History modal, reused not duplicated |
+| **Bug caught before shipping (Phase 2):** `drawer.js` status-code handling | Completed | Initial version only special-cased 401/403 as "displayable content"; the Controller also uses 400/404 for deliberate fragments. Caught via design-doc review before testing, fixed to treat any 2xx/4xx as displayable, confirmed by the 400/404 tests |
+| Phase 2 Step 1/2 testing | Completed | Real HTTP testing against a throwaway DB: Quick View rendering, Controller output matched seeded data exactly (simple product + variation), permission denial (403, plus page-level defense-in-depth), not-found (404), missing-param (400), and a 4-page regression check on the shared `header.php` change (zero PHP errors). Not verified: real-browser Esc/focus-trap/backdrop/mobile-viewport behavior (relies on Bootstrap's own Offcanvas, not custom code) — no browser available in this environment |
+| `docs/PHASE2_IMPLEMENTATION.md` | Completed | Architecture, lifecycle, file locations, reusable APIs, and a worked "how to add a Drawer to a new module" extension guide |
+| Phase 2 Step 3 — Activity Feed viewer | Not Started | Explicitly deferred — user instruction: do not begin further Phase 2/3 work until this round's implementation review is complete |
+| Phase 2 — Drawer expansion to other modules (Supplier Orders, Customer Orders, Products, etc.) | Not Started | Explicitly deferred — same reason |
 | Phase 3 implementation (per-module redesign: Inventory → Supplier Orders → Customer Orders → Products/Catalog → Suppliers → Shipments → Reports) | Not Started | Each module goes through its own full audit → design → approval → implement → review → document cycle individually, not as one pass |
 
 ## Supplier Orders

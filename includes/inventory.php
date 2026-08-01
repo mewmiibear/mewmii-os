@@ -652,3 +652,28 @@ function product_effective_stock(PDO $pdo, int $productId): array
 
     return $stmt->fetch(PDO::FETCH_ASSOC) ?: ['available_quantity' => 0, 'reserved_quantity' => 0, 'incoming_quantity' => 0, 'arrived_quantity' => 0];
 }
+
+/**
+ * Mewmii OS v2 Phase 2 - a small, read-only preview for the Inventory Drawer's Quick View
+ * (modules/inventory/views/drawer.php). Deliberately NOT modules/inventory/ajax/history.php's
+ * full query reused as-is: that endpoint also resolves reference_type into an order link or
+ * a user's name (its own 40-line enrichment block), which is the right amount of detail for
+ * the full, explicitly-opened History modal but more than a "glance before you leave the
+ * page" preview needs. This returns the same raw columns over the same table/WHERE shape,
+ * unenriched - the Drawer's "View Full History" action opens the real History modal
+ * (InventoryUI.openHistoryModal(), unchanged) for anything beyond a glance, so the
+ * enrichment logic is never duplicated, only the plain read is.
+ */
+function inventory_transactions_recent(PDO $pdo, int $productId, ?int $variationId, int $limit = 5): array
+{
+    $stmt = $pdo->prepare("
+        SELECT transaction_type, quantity, balance_after, created_at
+        FROM inventory_transactions
+        WHERE product_id = ? AND variation_id <=> ?
+        ORDER BY created_at DESC, id DESC
+        LIMIT {$limit}
+    ");
+    $stmt->execute([$productId, $variationId]);
+
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
