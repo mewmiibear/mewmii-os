@@ -6,6 +6,7 @@ require_once __DIR__ . '/includes/customer_storage.php';
 require_once __DIR__ . '/includes/orders.php';
 require_once __DIR__ . '/includes/wc_order_import.php';
 require_once __DIR__ . '/includes/dashboard.php';
+require_once __DIR__ . '/includes/notifications.php';
 
 app_require_permission('dashboard.view');
 
@@ -14,22 +15,19 @@ $appTitle = 'Dashboard';
 $pdo = app_db();
 
 /**
- * Operations Command Centre (UI/UX Phase 5A restructure) - answers one question, "what needs
- * my attention today", via: a Top Summary strip (Orders Today, Pending Actions, Inventory
- * Health, Purchasing, Sync Health), a consolidated Needs Attention list (receipts waiting, low
- * stock, supplier issues, shipment issues), and a Recent Activity timeline - followed by the
- * pre-existing Quick Actions and Business Snapshot (unchanged, kept below). Replaces the
- * earlier Phase 3 version's 6 full sections (Receipt Verification/Purchasing/Fulfilment/
- * Customer Actions/Inventory/WooCommerce), each with its own card row - same underlying data,
- * consolidated into fewer, denser surfaces per the Phase 5 UI/UX audit's explicit goal of not
- * overwhelming the page with boxes. Every number is either a direct reuse of an existing
- * function (purchase_planning_needs(), inventory_allocation_queue(), inventory_reservation_
- * queue(), wc_order_import_get_setting()/wc_order_import_sync_health() - all unchanged) or a
- * plain read-only COUNT/GROUP BY aggregate over existing tables - no calculation, formula, or
- * write path here or anywhere else was touched. Each section's data (and underlying query) is
- * only fetched at all for a user who holds the permission its linked destination page actually
- * requires - see the per-section $can* flags below - so neither the query cost nor the data is
- * paid for/shown to a user who can't act on it anyway.
+ * Dashboard Mission Control (Mewmii OS v2 Phase 1 - see docs/DASHBOARD_PHILOSOPHY.md, the
+ * permanent governing spec for this page). Replaces the earlier "Operations Command Centre"
+ * layout (stat-card strip + Operations Overview + Purchasing Intelligence + Needs Attention +
+ * Notifications card + Business Snapshot detail) with three things only: a Status Line (silent
+ * when healthy), My Day (a live, auto-generated task list - no new schema, no stored
+ * "completed" state, a task exists only because its underlying condition is currently true),
+ * and Today's Business (3 numbers). Per DASHBOARD_PHILOSOPHY.md §8, several sections that used
+ * to live here moved out: Top Selling Products/Business Snapshot detail -> Reports, Notifications
+ * card -> the header badge (includes/header.php, Phase 1 Step 2) + /modules/notifications/,
+ * Sync Health/Inventory Health permanent cards -> folded silently into the Status Line's health
+ * tier. Every figure below is still either a direct call to an existing function or a plain
+ * read-only aggregate over an existing table - nothing here introduces new business logic; see
+ * docs/PHASE1_READINESS_REVIEW.md §1 for the reuse audit this restructure was built against.
  */
 
 // --- Permission flags: one per destination permission domain this dashboard links into -----
@@ -39,28 +37,14 @@ $canViewSupplierOrders = app_has_permission('supplier-orders.view');
 $canManageSupplierOrders = app_has_permission('supplier-orders.manage');
 $canViewInventory = app_has_permission('inventory.view');
 $canManageInventory = app_has_permission('inventory.manage');
-$canViewShipMyBox = app_has_permission('ship-my-box.view');
-$canViewShipments = app_has_permission('shipments.view');
 $canManageShipments = app_has_permission('shipments.manage');
-$canViewCustomers = app_has_permission('customers.view');
+$canViewProducts = app_has_permission('products.view');
+$canManageProducts = app_has_permission('products.manage');
+$canManageCustomers = app_has_permission('customers.manage');
+$canManageIntegrations = app_has_permission('settings.manage');
 
-// --- 1. Orders --------------------------------------------------------------------------
-// order_status is exclusively written by order_recompute_status() (includes/order_
-// fulfillment.php, unchanged) - this is a pure read of that already-computed column, one
-// GROUP BY query, no per-order loop. is_historical = 0 excludes imported records, which
-// order_recompute_status() never touches anyway (matches the exclusion already used
-// everywhere else in this app, e.g. inventory_unit_outstanding_demand()).
-// Mapping to the real order_status values (see includes/orders.php's order_status_label()):
-//   Waiting for Stock -> 'waiting_stock'      (at least one item still unreserved/unallocated)
-//   Ready to Pack      -> 'waiting_ship_my_box' (every item ready, no shipment started yet)
-//   Ready to Ship       -> 'ready_to_ship'      (a shipment already exists, not yet shipped)
-// UI/UX Phase 5D: 'pending' and 'partially_fulfilled' added to the existing IN() list below -
-// same query, same GROUP BY, just two more of the same order_status values already being
-// counted here. Powers the new Operations Overview row's "Pending Customer Orders" (pending)
-// and extends "Orders Waiting Fulfillment" to include partially_fulfilled orders it was
-// previously missing.
+// --- Orders: status counts feed both My Day (ready-to-ship) and the Shortcuts badges --------
 $orderStatusCounts = ['pending' => 0, 'waiting_stock' => 0, 'waiting_ship_my_box' => 0, 'ready_to_ship' => 0, 'partially_fulfilled' => 0];
-$ordersTodayCount = 0;
 if ($canViewOrders) {
     $orderStatusStmt = $pdo->query("
         SELECT order_status, COUNT(*) AS cnt
@@ -71,41 +55,19 @@ if ($canViewOrders) {
     foreach ($orderStatusStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $orderStatusCounts[$row['order_status']] = (int) $row['cnt'];
     }
-
-    // UI/UX Phase 5A: new for the Top Summary strip - a plain COUNT of today's orders, same
-    // is_historical exclusion every other order query on this page already uses. Not reused
-    // anywhere else, but not a calculation either - just a date filter.
-    $ordersTodayStmt = $pdo->query("
-        SELECT COUNT(*) FROM mewmii_orders WHERE is_historical = 0 AND DATE(created_at) = CURDATE()
-    ");
-    $ordersTodayCount = (int) $ordersTodayStmt->fetchColumn();
 }
 
-// --- 2. Purchasing ------------------------------------------------------------------------
-// purchase_planning_needs()/purchase_planning_untargeted_demand() (includes/purchase_
-// planning.php) are called exactly once each, unchanged, and their already-computed arrays
-// are reused/sliced in PHP below - no second query re-derives what they already calculated.
+// --- Purchasing: purchase_planning_needs() (includes/purchase_planning.php), unchanged, called
+// exactly once - its already-computed array is grouped by supplier in PHP below for My Day, no
+// second query re-derives what it already calculated.
 $purchasePlanningNeeds = [];
 $purchasePlanningCount = 0;
-$purchasePlanningValue = 0.0;
-$belowTargetCount = 0;
 if ($canManageSupplierOrders) {
     $purchasePlanningNeeds = purchase_planning_needs($pdo);
     $purchasePlanningCount = count($purchasePlanningNeeds);
-    foreach ($purchasePlanningNeeds as $need) {
-        $purchasePlanningValue += (int) $need['suggested_quantity'] * (float) $need['cost_price'];
-        // "Products below target stock" is the ready-stock subset of the SAME array just
-        // computed above - not a second query or a re-derived formula.
-        if ($need['product_type'] === 'ready_stock') {
-            $belowTargetCount++;
-        }
-    }
 }
 
-// Draft/Ordered/Partially Received counts (one GROUP BY) + Overdue (one COUNT, a plain
-// expected_delivery_date < today comparison - no receiving/status logic re-derived).
 $supplierOrderStatusCounts = ['draft' => 0, 'ordered' => 0, 'partially_received' => 0];
-$overdueSupplierOrderCount = 0;
 if ($canViewSupplierOrders) {
     $supplierStatusStmt = $pdo->query("
         SELECT status, COUNT(*) AS cnt
@@ -116,21 +78,21 @@ if ($canViewSupplierOrders) {
     foreach ($supplierStatusStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $supplierOrderStatusCounts[$row['status']] = (int) $row['cnt'];
     }
-
-    $overdueStmt = $pdo->query("
-        SELECT COUNT(*) FROM supplier_orders
-        WHERE expected_delivery_date IS NOT NULL AND expected_delivery_date < CURDATE()
-          AND status NOT IN ('received', 'completed', 'cancelled')
-    ");
-    $overdueSupplierOrderCount = (int) $overdueStmt->fetchColumn();
 }
 
-// --- 3. Inventory -------------------------------------------------------------------------
-// Low Stock mirrors the exact threshold rule inventory_stock_badges() already applies
-// (modules/inventory/index.php: ready_stock only, availability_override = 'auto', 0 <
-// available < min_stock_threshold) - expressed as one UNION query (simple + each variable
-// product's variations) instead of looping that display function over the whole catalog in
-// PHP, which would mean fetching every product just to count. Same rule, not a new one.
+// Mewmii OS v2 Phase 1: now calls the shared supplier_orders_overdue() (includes/purchase_
+// planning.php) instead of an inline query - the same predicate notifications.php's
+// supplier_order_overdue alert uses, extracted so both read one definition. See
+// docs/PHASE1_READINESS_REVIEW.md §1.
+$overdueSupplierOrders = [];
+if ($canViewSupplierOrders) {
+    $overdueSupplierOrders = supplier_orders_overdue($pdo);
+}
+$overdueSupplierOrderCount = count($overdueSupplierOrders);
+
+// --- Inventory: Low Stock mirrors the exact threshold rule inventory_stock_badges() already
+// applies (modules/inventory/index.php) - see that page for the rule's origin. Same query as
+// the previous dashboard version, unchanged.
 $lowStockCount = 0;
 if ($canViewInventory) {
     $lowStockStmt = $pdo->query("
@@ -154,21 +116,16 @@ if ($canViewInventory) {
     $lowStockCount = (int) $lowStockStmt->fetchColumn();
 }
 
-// UI/UX Phase 5D: Incoming Supplier Stock - count of inventory units (products/variations)
-// currently showing incoming_quantity > 0, the exact same "incoming" bucket already surfaced
-// per-row on modules/inventory/index.php and filterable there via ?stage=incoming (its
-// inventory_unit_matches_filters() 'incoming' branch checks this same column > 0). One plain
-// COUNT, no new column, no calculation.
-$incomingStockUnitCount = 0;
+// Negative stock - an anomaly check (available_quantity < 0), unchanged. Feeds the Status
+// Line's CRITICAL tier below, not shown as its own card anymore.
+$negativeStockCount = 0;
 if ($canViewInventory) {
-    $incomingStockStmt = $pdo->query('SELECT COUNT(*) FROM mewmii_inventory WHERE incoming_quantity > 0');
-    $incomingStockUnitCount = (int) $incomingStockStmt->fetchColumn();
+    $negativeStockStmt = $pdo->query('SELECT COUNT(*) FROM mewmii_inventory WHERE available_quantity < 0');
+    $negativeStockCount = (int) $negativeStockStmt->fetchColumn();
 }
 
-// Allocation Center / Reservation Queue counts - unchanged existing queue functions, reused
-// as Quick Action badges below rather than given their own cards (not part of the 4 named
-// Inventory-section metrics, but the data is already being fetched for the Quick Actions
-// section either way).
+// Allocation Center / Reservation Queue counts - unchanged existing queue functions
+// (includes/customer_storage.php, includes/inventory.php).
 $allocationCount = 0;
 $reservationCount = 0;
 if ($canViewInventory) {
@@ -180,559 +137,258 @@ if ($canViewInventory) {
     }
 }
 
-// --- 4. Shipping ----------------------------------------------------------------------------
-// Ship Requests waiting - unchanged from the previous dashboard version.
-$shipRequestPendingCount = 0;
-if ($canViewShipMyBox) {
-    $shipRequestPendingStmt = $pdo->query("SELECT COUNT(*) FROM ship_requests WHERE status IN ('pending', 'processing')");
-    $shipRequestPendingCount = (int) $shipRequestPendingStmt->fetchColumn();
-}
-
-// Awaiting Tracking / Created Today (Shipping section) / Shipped Today (Orders section,
-// "Shipped Today" is a shipment-date fact, not an order_status value) - one query, three
-// plain conditional aggregates over the same shipments table, no per-row loop.
-$shipmentAwaitingTrackingCount = 0;
-$shipmentsCreatedTodayCount = 0;
-$shipmentsShippedTodayCount = 0;
-if ($canViewShipments) {
-    $shipmentStatsStmt = $pdo->query("
-        SELECT
-            SUM(CASE WHEN tracking_number IS NULL AND shipping_status <> 'cancelled' THEN 1 ELSE 0 END) AS awaiting_tracking,
-            SUM(CASE WHEN DATE(created_at) = CURDATE() THEN 1 ELSE 0 END) AS created_today,
-            SUM(CASE WHEN shipped_at IS NOT NULL AND DATE(shipped_at) = CURDATE() THEN 1 ELSE 0 END) AS shipped_today
-        FROM shipments
-    ");
-    $shipmentStats = $shipmentStatsStmt->fetch(PDO::FETCH_ASSOC);
-    $shipmentAwaitingTrackingCount = (int) ($shipmentStats['awaiting_tracking'] ?? 0);
-    $shipmentsCreatedTodayCount = (int) ($shipmentStats['created_today'] ?? 0);
-    $shipmentsShippedTodayCount = (int) ($shipmentStats['shipped_today'] ?? 0);
-}
-
-// --- 5. Business Snapshot -------------------------------------------------------------------
-// New for this phase, but not new logic: these three queries reuse the exact "valid order"
-// condition and query shape already established in modules/reports/sales.php (payment_status
-// = 'paid' AND order_status <> 'cancelled') and the aggregation style already used in
-// modules/customers/index.php - just scoped down to a fixed, lightweight 30-day window with no
-// filter UI, since the dashboard links out to the full report for anything beyond a glance.
-$snapshotPeriodCondition = "o.payment_status = 'paid' AND o.order_status <> 'cancelled' AND o.order_date >= DATE_SUB(CURDATE(), INTERVAL 29 DAY)";
-
-$salesSnapshot = ['total_orders' => 0, 'units_sold' => 0, 'revenue' => 0.0, 'active_customers' => 0];
-$topProducts = [];
-if ($canViewOrders) {
-    $salesSnapshotStmt = $pdo->query("
-        SELECT
-            COUNT(DISTINCT o.id) AS total_orders,
-            COALESCE(SUM(oi.quantity), 0) AS units_sold,
-            COALESCE(SUM(oi.subtotal), 0) AS revenue,
-            COUNT(DISTINCT o.customer_id) AS active_customers
-        FROM mewmii_orders o
-        INNER JOIN mewmii_order_items oi ON oi.order_id = o.id
-        WHERE {$snapshotPeriodCondition}
-    ");
-    $salesSnapshot = $salesSnapshotStmt->fetch(PDO::FETCH_ASSOC);
-
-    // Top 5 sellers, same shape as modules/reports/sales.php's Best Selling Products query,
-    // just LIMIT 5 instead of 20 for a dashboard-sized glance.
-    $topProductsStmt = $pdo->query("
-        SELECT p.id AS product_id, p.name AS product_name, SUM(oi.quantity) AS units_sold, SUM(oi.subtotal) AS revenue
-        FROM mewmii_order_items oi
-        INNER JOIN mewmii_orders o ON o.id = oi.order_id
-        INNER JOIN products p ON p.id = oi.product_id
-        WHERE {$snapshotPeriodCondition}
-        GROUP BY p.id, p.name
-        ORDER BY revenue DESC
-        LIMIT 5
-    ");
-    $topProducts = $topProductsStmt->fetchAll(PDO::FETCH_ASSOC);
-}
-$salesSnapshot['average_order_value'] = ((int) $salesSnapshot['total_orders'] > 0)
-    ? ((float) $salesSnapshot['revenue'] / (int) $salesSnapshot['total_orders'])
-    : null;
-
-$newCustomerCount = 0;
-if ($canViewCustomers) {
-    $newCustomerStmt = $pdo->query('SELECT COUNT(*) FROM customers WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 29 DAY)');
-    $newCustomerCount = (int) $newCustomerStmt->fetchColumn();
-}
-
-// Product row links go to modules/products/view.php, which requires products.view - the
-// destination controls permission, not this page's own dashboard.view gate.
-$canViewProducts = app_has_permission('products.view');
-
-// --- 6. Receipt Verification (Operations Command Centre) ----------------------------------
-// mewmii_orders.receipt_status is set exclusively by the WooCommerce importer/receipt
-// verification workflow (includes/wc_order_import.php, modules/orders/view.php) - this is a
-// plain filtered read of that already-computed column, same permission gate as the Orders
-// section above (links straight to modules/orders/view.php, which requires orders.view).
+// --- Receipts: mewmii_orders.receipt_status, set exclusively by the WooCommerce importer/
+// receipt verification workflow (includes/wc_order_import.php, modules/orders/view.php) - a
+// plain filtered read of that already-computed column, unchanged from the previous version.
 $pendingReceiptCount = 0;
-$pendingReceipts = [];
 if ($canViewOrders) {
-    $pendingReceiptCountStmt = $pdo->query("SELECT COUNT(*) FROM mewmii_orders WHERE receipt_status = 'pending'");
-    $pendingReceiptCount = (int) $pendingReceiptCountStmt->fetchColumn();
-
-    $pendingReceiptsStmt = $pdo->query("
-        SELECT o.id, o.order_number, o.updated_at, c.name AS customer_name
-        FROM mewmii_orders o
-        LEFT JOIN customers c ON c.id = o.customer_id
-        WHERE o.receipt_status = 'pending'
-        ORDER BY o.updated_at ASC
-        LIMIT 8
-    ");
-    $pendingReceipts = $pendingReceiptsStmt->fetchAll(PDO::FETCH_ASSOC);
+    $pendingReceiptCount = (int) $pdo->query("SELECT COUNT(*) FROM mewmii_orders WHERE receipt_status = 'pending'")->fetchColumn();
 }
 
-// --- 7. Customer Actions (Operations Command Centre) ---------------------------------------
-$canViewCustomerStorage = app_has_permission('customer-storage.view');
-$customerStorageAttentionCount = 0;
-if ($canViewCustomerStorage) {
-    // Same per-lot rule ship_request_storage_lot_available()/ship_request_lot_committed_
-    // quantity() (includes/ship_my_box.php) already apply, expressed as one batch query
-    // instead of looping those functions over every stored lot - the exact same "batch an
-    // existing per-unit rule instead of re-deriving it" precedent the Low Stock query below
-    // already uses. A lot "requires attention" once it has stored quantity not yet claimed by
-    // an open ('pending'/'processing') ship request - nothing here decides differently than
-    // those two functions already do.
-    $storageAttentionStmt = $pdo->query("
-        SELECT COUNT(*) FROM customer_storage cs
-        WHERE cs.status = 'stored' AND cs.quantity > 0
-          AND cs.quantity > (
-              SELECT COALESCE(SUM(sri.quantity), 0)
-              FROM ship_request_items sri
-              INNER JOIN ship_requests sr ON sr.id = sri.ship_request_id
-              WHERE sri.customer_storage_id = cs.id AND sr.status IN ('pending', 'processing')
-          )
-    ");
-    $customerStorageAttentionCount = (int) $storageAttentionStmt->fetchColumn();
+// Open customer resolution/issue requests - new for Mission Control's Status Line (feeds the
+// ATTENTION tier only; there is no admin list page to link a My Day task to yet - see
+// docs/PHASE1_READINESS_REVIEW.md §1's "open resolutions" row - so this stays a silent count,
+// not a clickable task, until that page exists). Same "status <> 'resolved'" predicate
+// includes/order_resolution.php already uses everywhere else (e.g. line 265) - not a new
+// definition of "open".
+$openResolutionCount = 0;
+if ($canViewOrders) {
+    $openResolutionCount = (int) $pdo->query("SELECT COUNT(*) FROM resolution_requests WHERE status <> 'resolved'")->fetchColumn();
 }
 
-// --- 8. Inventory (Operations Command Centre additions) ------------------------------------
-// Negative stock is a trivial anomaly check on mewmii_inventory.available_quantity - the same
-// authoritative column every other inventory query in this app already reads (including Low
-// Stock above) - not a new stock calculation, just a threshold check flagging bad data.
-$negativeStockCount = 0;
-if ($canViewInventory) {
-    $negativeStockStmt = $pdo->query('SELECT COUNT(*) FROM mewmii_inventory WHERE available_quantity < 0');
-    $negativeStockCount = (int) $negativeStockStmt->fetchColumn();
-}
-
-// --- 9. WooCommerce Sync (Operations Command Centre) ----------------------------------------
-// Entirely reused from the Sync Automation phases (includes/wc_order_import.php,
-// modules/integrations/woocommerce.php) - same settings key, no new sync state introduced
-// here. Gated on settings.manage, matching the integration page's own permission requirement
-// (its destination controls the gate, same convention as every other section on this
-// dashboard). UI/UX Phase 5A: the dashboard now only ever shows the single Sync Health
-// tier (Top Summary strip) - the full "Last Sync Run / Failed Today / Imported Today"
-// breakdown still lives on modules/integrations/woocommerce.php itself (unchanged, not
-// duplicated here), so those detail queries were removed from this page rather than computed
-// and left unused.
-$canManageIntegrations = app_has_permission('settings.manage');
+// --- WooCommerce Sync Health - unchanged (includes/wc_order_import.php). Feeds the Status
+// Line's CRITICAL tier only; the full breakdown still lives on modules/integrations/
+// woocommerce.php, not duplicated here.
 $wcLastSyncCursor = $canManageIntegrations
     ? wc_order_import_get_setting($pdo, WC_ORDER_IMPORT_SETTING_LAST_SYNCED_AT)
     : null;
-// Time-based health (Sync Automation Phase 4A) - see wc_order_import_sync_health()'s own
-// docblock in includes/wc_order_import.php.
 $wcSyncHealth = $canManageIntegrations
     ? wc_order_import_sync_health($wcLastSyncCursor)
     : ['level' => 'unknown', 'message' => '', 'minutes_ago' => null];
 
-// --- 10. Needs Attention + Pending Actions rollup (UI/UX Phase 5A) --------------------------
-// Consolidates the same counts already computed above (sections 1-9) into one compact list
-// instead of 6 full sections - no new calculation, every number here is a direct reuse of a
-// variable already computed earlier on this exact page. Only shown when non-zero, same
-// "don't show a wall of empty rows" convention the Phase 3-era version of this list used.
-$needsAttention = [];
+// --- Business Health (DASHBOARD_PHILOSOPHY.md §5) - a single-value summary of signals already
+// computed above, fully rule-based, no prediction/AI. "Any critical notification" from the
+// philosophy's rule table is deliberately left out: mewmii_notifications has no severity/
+// critical concept today (confirmed in docs/PHASE1_READINESS_REVIEW.md), and inventing one
+// just to satisfy this one clause would be exactly the kind of unnecessary abstraction this
+// project's philosophy warns against. Extend this rule if/when notifications gain a severity
+// field - see DASHBOARD_PHILOSOPHY.md §9's own note that this 3-tier model is a deliberate
+// simplification, not meant to be exhaustive from day one.
+$businessHealthTier = 'healthy';
+if (($canManageIntegrations && $wcSyncHealth['level'] === 'critical') || ($canViewInventory && $negativeStockCount > 0)) {
+    $businessHealthTier = 'critical';
+} elseif (
+    ($canViewInventory && $lowStockCount > 0)
+    || ($canViewOrders && $pendingReceiptCount > 0)
+    || ($canViewOrders && $openResolutionCount > 0)
+    || ($canManageSupplierOrders && $purchasePlanningCount > 0)
+) {
+    $businessHealthTier = 'attention';
+}
+
+// --- My Day (DASHBOARD_PHILOSOPHY.md §4) - a live view, not a to-do app. No new table, no
+// manual task creation, no stored "completed" state: a task exists only because its underlying
+// condition is currently true right now, and disappears the moment that condition resolves.
+// Sorted overdue-first (lowest $rank first), capped at 8 with "+N more". Six of the seven task
+// sources named in the philosophy doc are implemented here; the seventh ("Respond to N customer
+// issues") is deferred - see the $openResolutionCount comment above for why.
+$myDayTasks = [];
+
+foreach ($overdueSupplierOrders as $overdue) {
+    $daysLate = (int) floor((strtotime('today') - strtotime($overdue['expected_delivery_date'])) / 86400);
+    $myDayTasks[] = [
+        'label' => 'Receive ' . $overdue['purchase_number'] . ' (' . $daysLate . ' day' . ($daysLate === 1 ? '' : 's') . ' late)',
+        'url' => '/modules/supplier-orders/view.php?id=' . (int) $overdue['id'],
+        'rank' => 0,
+    ];
+}
+
+if ($canViewOrders && $orderStatusCounts['ready_to_ship'] > 0) {
+    $n = $orderStatusCounts['ready_to_ship'];
+    $myDayTasks[] = ['label' => 'Ship ' . $n . ' ready order' . ($n === 1 ? '' : 's'), 'url' => '/modules/orders/index.php?status=ready_to_ship', 'rank' => 1];
+}
+
 if ($canViewOrders && $pendingReceiptCount > 0) {
-    $needsAttention[] = ['label' => 'Receipts Waiting', 'count' => $pendingReceiptCount, 'url' => '/modules/orders/index.php', 'tone' => 'danger'];
+    $myDayTasks[] = ['label' => 'Verify ' . $pendingReceiptCount . ' payment receipt' . ($pendingReceiptCount === 1 ? '' : 's'), 'url' => '/modules/orders/index.php', 'rank' => 1];
 }
+
+if ($canViewInventory && $allocationCount > 0) {
+    $myDayTasks[] = ['label' => 'Allocate ' . $allocationCount . ' arrived preorder unit' . ($allocationCount === 1 ? '' : 's'), 'url' => '/modules/inventory/allocation-center.php', 'rank' => 1];
+}
+
 if ($canViewInventory && $lowStockCount > 0) {
-    $needsAttention[] = ['label' => 'Low Stock', 'count' => $lowStockCount, 'url' => '/modules/inventory/index.php?stock_status=low_stock', 'tone' => 'danger'];
-}
-if ($canViewSupplierOrders && $overdueSupplierOrderCount > 0) {
-    $needsAttention[] = ['label' => 'Supplier Issues (Overdue)', 'count' => $overdueSupplierOrderCount, 'url' => '/modules/supplier-orders/index.php?filter=overdue', 'tone' => 'danger'];
-}
-$shipmentIssueCount = $shipmentAwaitingTrackingCount + $shipRequestPendingCount;
-if (($canViewShipments || $canViewShipMyBox) && $shipmentIssueCount > 0) {
-    $needsAttention[] = ['label' => 'Shipment Issues', 'count' => $shipmentIssueCount, 'url' => '/modules/shipments/index.php', 'tone' => 'warning'];
+    $myDayTasks[] = ['label' => 'Review ' . $lowStockCount . ' low-stock item' . ($lowStockCount === 1 ? '' : 's'), 'url' => '/modules/inventory/index.php?stock_status=low_stock', 'rank' => 2];
 }
 
-// Single glanceable "how much is waiting on me" figure for the Top Summary strip - a plain
-// sum of counts already computed above; each addend defaults to 0 when its own permission
-// gate is false, so this never counts something the current user can't see anyway.
-$pendingActionsCount = $pendingReceiptCount + $reservationCount + $allocationCount
-    + $shipRequestPendingCount + $customerStorageAttentionCount + $overdueSupplierOrderCount
-    + $shipmentAwaitingTrackingCount;
+if ($canManageSupplierOrders && $purchasePlanningNeeds !== []) {
+    $needsBySupplier = [];
+    foreach ($purchasePlanningNeeds as $need) {
+        $needsBySupplier[(int) $need['supplier_id']][] = $need;
+    }
+    $supplierNamesById = [];
+    $supplierIds = array_keys($needsBySupplier);
+    if ($supplierIds !== []) {
+        $placeholders = implode(',', array_fill(0, count($supplierIds), '?'));
+        $supplierNameStmt = $pdo->prepare("SELECT id, name FROM suppliers WHERE id IN ({$placeholders})");
+        $supplierNameStmt->execute($supplierIds);
+        foreach ($supplierNameStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $supplierNamesById[(int) $row['id']] = $row['name'];
+        }
+    }
+    foreach ($needsBySupplier as $supplierId => $needs) {
+        $n = count($needs);
+        $supplierLabel = $supplierNamesById[$supplierId] ?? 'Unassigned Supplier';
+        $myDayTasks[] = ['label' => 'Order ' . $n . ' product' . ($n === 1 ? '' : 's') . ' from ' . $supplierLabel, 'url' => '/modules/purchase-planning/generate.php', 'rank' => 3];
+    }
+}
 
-// --- 11. Recent Activity (UI/UX Phase 5A; extended cross-entity in Sprint 10) --------------
-// Was order-events-only; now a UNION ALL across every module that has its own created_at
-// timeline already (see includes/dashboard.php's dashboard_recent_activity()) - no new
-// tracking table, each branch only runs if its own permission flag is true.
+usort($myDayTasks, static fn (array $a, array $b): int => $a['rank'] <=> $b['rank']);
+$myDayOverflowCount = max(0, count($myDayTasks) - 8);
+$myDayTasks = array_slice($myDayTasks, 0, 8);
+
+// --- Today's Business - 3 numbers max (DASHBOARD_PHILOSOPHY.md §3), scoped to today (not the
+// 30-day window the previous "Business Snapshot" section showed - that detail moved to
+// modules/reports/sales.php per §8). Same "valid order" condition modules/reports/sales.php and
+// the previous dashboard version already used, just filtered to CURDATE() instead of a rolling
+// window.
+$todayBusiness = ['orders' => 0, 'revenue' => 0.0];
+if ($canViewOrders) {
+    $todayStmt = $pdo->query("
+        SELECT COUNT(DISTINCT o.id) AS orders, COALESCE(SUM(oi.subtotal), 0) AS revenue
+        FROM mewmii_orders o
+        INNER JOIN mewmii_order_items oi ON oi.order_id = o.id
+        WHERE o.payment_status = 'paid' AND o.order_status <> 'cancelled' AND o.order_date = CURDATE()
+    ");
+    $todayBusiness = $todayStmt->fetch(PDO::FETCH_ASSOC);
+}
+$todayBusiness['aov'] = ((int) $todayBusiness['orders'] > 0)
+    ? ((float) $todayBusiness['revenue'] / (int) $todayBusiness['orders'])
+    : null;
+
+// This-month revenue teaser (DASHBOARD_PHILOSOPHY.md §3's "This month: RM X revenue -> Full
+// Report" line) - a genuine calendar-month figure, same valid-order condition as above.
+$monthRevenue = 0.0;
+if ($canViewOrders) {
+    $monthRevenue = (float) $pdo->query("
+        SELECT COALESCE(SUM(oi.subtotal), 0)
+        FROM mewmii_orders o
+        INNER JOIN mewmii_order_items oi ON oi.order_id = o.id
+        WHERE o.payment_status = 'paid' AND o.order_status <> 'cancelled'
+          AND o.order_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+    ")->fetchColumn();
+}
+
+// --- Recent Activity - unchanged dashboard_recent_activity() (includes/dashboard.php), kept as
+// a compact teaser below Today's Business. DASHBOARD_PHILOSOPHY.md §3's wireframe points this
+// at a dedicated Activity Log page - that page doesn't exist until Phase 2
+// (docs/COMPONENT_LIBRARY_SPEC.md §2), so this stays the existing inline mini-feed for now
+// rather than link to a page that isn't built yet.
 $recentActivity = dashboard_recent_activity($pdo, [
     'orders' => $canViewOrders,
     'supplier_orders' => $canViewSupplierOrders,
-    'shipments' => $canViewShipments,
-    'customers' => $canViewCustomers,
+    'shipments' => $canManageShipments,
+    'customers' => $canManageCustomers,
     'product_sync' => $canManageIntegrations && $canViewProducts,
-], 8);
-
-// --- 12. Purchasing Intelligence (Phase 9A) ------------------------------------------------
-// Reuses the Phase 7/8 purchasing-intelligence subsystems exactly as built - no new formula,
-// no new calculation shape beyond what those functions/query patterns already established.
-// Each figure is only computed for a user who holds the permission its linked destination page
-// requires, same convention as every other section on this dashboard.
-require_once __DIR__ . '/includes/demand_forecast.php';
-require_once __DIR__ . '/includes/product_cost.php';
-
-// Inventory Risk - demand_forecast_calculate() (includes/demand_forecast.php, unchanged),
-// the exact same formula modules/reports/forecast.php and modules/purchasing/control-
-// center.php's "Urgent Reorder Products" section already use. Only a count is needed here.
-$urgentReorderCount = 0;
-if ($canViewInventory) {
-    foreach (demand_forecast_calculate($pdo, '30days', []) as $forecastRow) {
-        if ($forecastRow['recommended_qty'] !== null && $forecastRow['recommended_qty'] > 0) {
-            $urgentReorderCount++;
-        }
-    }
-}
-
-// Purchasing Status - Ordered/Partially Received/Overdue counts already computed in section 2
-// above ($supplierOrderStatusCounts, $overdueSupplierOrderCount) - no new query at all.
-// "Receiving Required" = partially_received (some quantity already arrived, the rest still
-// needs processing), the exact same count already sitting in $supplierOrderStatusCounts.
-$pendingSupplierOrderCount = $supplierOrderStatusCounts['ordered'];
-$receivingRequiredCount = $supplierOrderStatusCounts['partially_received'];
-
-// Cost Alerts - product_cost_history_product_ids()/product_cost_history_list_batch()/
-// product_cost_calculate_batch() (includes/product_cost.php), the exact "current landed cost
-// higher than the last snapshot" rule modules/purchasing/control-center.php's "Cost Change
-// Alerts" section already applies. Bounded to products that already have at least one
-// snapshot - never scans the whole catalog.
-$costAlertCount = 0;
-if ($canViewProducts) {
-    $historyProductIds = product_cost_history_product_ids($pdo);
-    if ($historyProductIds !== []) {
-        $historyByProduct = product_cost_history_list_batch($pdo, $historyProductIds);
-        $currentCostByProduct = product_cost_calculate_batch($pdo, $historyProductIds);
-        foreach ($historyProductIds as $historyProductId) {
-            $history = $historyByProduct[$historyProductId] ?? [];
-            if ($history === []) {
-                continue;
-            }
-            $previousLandedCost = (float) $history[count($history) - 1]['landed_cost'];
-            $currentLandedCost = $currentCostByProduct[$historyProductId]['landed_cost'] ?? null;
-            if ($currentLandedCost !== null && $previousLandedCost > 0 && $currentLandedCost > $previousLandedCost) {
-                $costAlertCount++;
-            }
-        }
-    }
-}
-
-// Supplier Risk - supplier_lead_time_stats_batch() (includes/supplier_orders.php), the exact
-// "late orders" formula modules/reports/suppliers.php already shows. Bounded to suppliers that
-// actually have order history.
-$supplierRiskCount = 0;
-if ($canViewSupplierOrders) {
-    $supplierIdsWithOrders = array_map('intval', $pdo->query('SELECT DISTINCT supplier_id FROM supplier_orders')->fetchAll(PDO::FETCH_COLUMN));
-    foreach (supplier_lead_time_stats_batch($pdo, $supplierIdsWithOrders) as $leadTimeStats) {
-        if (($leadTimeStats['late_orders_count'] ?? 0) > 0) {
-            $supplierRiskCount++;
-        }
-    }
-}
-
-// Inventory Value - product_cost_calculate_batch() (includes/product_cost.php), the exact same
-// Landed Cost formula modules/reports/margins.php/modules/purchasing/index.php already use for
-// their own Inventory Value (Cost) cards. Bounded to products that actually have stock on hand
-// (same batched rollup pattern those pages already use) - never the whole catalog.
-$inventoryValueLandedCost = 0.0;
-if ($canViewInventory) {
-    $stockedProductsStmt = $pdo->query("
-        SELECT p.id, stock.available_quantity
-        FROM products p
-        INNER JOIN (
-            SELECT inv.product_id, SUM(inv.available_quantity) AS available_quantity
-            FROM mewmii_inventory inv
-            LEFT JOIN product_variations pv ON pv.id = inv.variation_id
-            WHERE inv.variation_id IS NULL OR pv.status <> 'archived'
-            GROUP BY inv.product_id
-        ) stock ON stock.product_id = p.id
-        WHERE p.status <> 'archived' AND stock.available_quantity > 0
-    ");
-    $stockedProducts = $stockedProductsStmt->fetchAll(PDO::FETCH_ASSOC);
-    if ($stockedProducts !== []) {
-        $stockedProductIds = array_map(static fn (array $row): int => (int) $row['id'], $stockedProducts);
-        $costByStockedProduct = product_cost_calculate_batch($pdo, $stockedProductIds);
-        foreach ($stockedProducts as $stockedProduct) {
-            $landedCost = $costByStockedProduct[(int) $stockedProduct['id']]['landed_cost'] ?? null;
-            if ($landedCost !== null) {
-                $inventoryValueLandedCost += (int) $stockedProduct['available_quantity'] * $landedCost;
-            }
-        }
-    }
-}
-
-// --- 13. Notification & Alert Center (Phase 9B) - READ ONLY on this page. Generation only
-// ever happens via cli/generate_alerts.php (a cron entry) or the manual "Generate Alerts Now"
-// button on modules/notifications/index.php - loading this dashboard never creates a
-// notification, so viewing it repeatedly can never produce duplicates. dashboard.view is
-// already required just to reach this page at all, so no extra permission flag is needed here.
-require_once __DIR__ . '/includes/notifications.php';
-$unreadNotificationCount = notification_unread_count($pdo);
-$recentNotifications = notification_recent($pdo, 5);
+], 5);
 
 require_once __DIR__ . '/includes/header.php';
 ?>
 
 <div class="mb-4">
-    <h3 class="mb-1">Operations Command Centre</h3>
-    <p class="text-muted small mb-0">What needs your attention today. Every number links straight to where you'd act on it.</p>
-</div>
-
-<div class="row row-cols-2 row-cols-md-3 row-cols-lg-5 g-3 mb-4">
-    <?php if ($canViewOrders): ?>
-        <div class="col">
-            <a class="card stat-card stat-card-link p-3 h-100" href="/modules/orders/index.php">
-                <div class="stat-label">Orders Today</div>
-                <div class="stat-value" style="font-size: 1.6rem;"><?php echo (int) $ordersTodayCount; ?></div>
-            </a>
-        </div>
-    <?php endif; ?>
-    <div class="col">
-        <a class="card stat-card stat-card-link p-3 h-100" href="#needs-attention">
-            <div class="stat-label">Pending Actions</div>
-            <div class="stat-value <?php echo $pendingActionsCount > 0 ? 'stat-value-alert' : ''; ?>" style="font-size: 1.6rem;"><?php echo (int) $pendingActionsCount; ?></div>
-        </a>
-    </div>
-    <?php if ($canViewInventory): ?>
-        <div class="col">
-            <a class="card stat-card stat-card-link p-3 h-100" href="/modules/inventory/index.php">
-                <div class="stat-label">Inventory Health</div>
-                <div class="stat-value <?php echo ($lowStockCount + $negativeStockCount) > 0 ? 'stat-value-alert' : ''; ?>" style="font-size: 1.6rem;">
-                    <?php echo ($lowStockCount + $negativeStockCount) > 0 ? ($lowStockCount + $negativeStockCount) . ' issue' . (($lowStockCount + $negativeStockCount) === 1 ? '' : 's') : 'Healthy'; ?>
-                </div>
-            </a>
-        </div>
-    <?php endif; ?>
-    <?php if ($canManageSupplierOrders): ?>
-        <div class="col">
-            <a class="card stat-card stat-card-link p-3 h-100" href="/modules/purchase-planning/generate.php">
-                <div class="stat-label">Purchasing</div>
-                <div class="stat-value <?php echo $purchasePlanningCount > 0 ? 'stat-value-alert' : ''; ?>" style="font-size: 1.6rem;"><?php echo (int) $purchasePlanningCount; ?></div>
-            </a>
-        </div>
-    <?php endif; ?>
-    <?php if ($canManageIntegrations): ?>
-        <div class="col">
-            <a class="card stat-card stat-card-link p-3 h-100" href="/modules/integrations/woocommerce.php">
-                <div class="stat-label">Sync Health</div>
-                <div class="stat-value <?php echo $wcSyncHealth['level'] !== 'healthy' ? 'stat-value-alert' : ''; ?>" style="font-size: 1.6rem;">
-                    <?php echo match ($wcSyncHealth['level']) {
-                        'healthy' => 'Healthy',
-                        'warning' => 'Warning',
-                        'critical' => 'Critical',
-                        default => 'Unknown',
-                    }; ?>
-                </div>
-            </a>
-        </div>
-    <?php endif; ?>
+    <h3 class="mb-1">Dashboard</h3>
+    <p class="text-muted small mb-0">What's broken, what to do next, and how business is today.</p>
 </div>
 
 <?php
-// UI/UX Phase 5D: Operations Overview - action-focused counts, each linking straight to its
-// filtered list, prioritised per the brief as: orders requiring action, stock problems,
-// supplier delays, shipment actions. Every number below is either already computed above
-// (Low Stock, Overdue Supplier Orders, Shipments Awaiting Tracking, the order_status/supplier
-// status GROUP BY results) or one new plain COUNT ($incomingStockUnitCount) - no charts, same
-// .stat-card look as the Top Summary strip above.
-$operationsOverviewCards = [];
-if ($canViewOrders) {
-    $operationsOverviewCards[] = ['label' => 'Pending Customer Orders', 'count' => $orderStatusCounts['pending'], 'url' => '/modules/orders/index.php?status=pending'];
-    $operationsOverviewCards[] = ['label' => 'Orders Waiting Fulfillment', 'count' => $orderStatusCounts['waiting_stock'] + $orderStatusCounts['waiting_ship_my_box'] + $orderStatusCounts['ready_to_ship'] + $orderStatusCounts['partially_fulfilled'], 'url' => '/modules/orders/index.php'];
-}
-if ($canViewInventory) {
-    $operationsOverviewCards[] = ['label' => 'Low Stock Products', 'count' => $lowStockCount, 'url' => '/modules/inventory/index.php?stock_status=low_stock'];
-    $operationsOverviewCards[] = ['label' => 'Incoming Supplier Stock', 'count' => $incomingStockUnitCount, 'url' => '/modules/inventory/index.php?stage=incoming'];
-}
-if ($canViewSupplierOrders) {
-    $operationsOverviewCards[] = ['label' => 'Pending Supplier Orders', 'count' => $supplierOrderStatusCounts['ordered'], 'url' => '/modules/supplier-orders/index.php?status=ordered'];
-    $operationsOverviewCards[] = ['label' => 'Overdue Supplier Orders', 'count' => $overdueSupplierOrderCount, 'url' => '/modules/supplier-orders/index.php?filter=overdue'];
-}
-if ($canViewShipments) {
-    $operationsOverviewCards[] = ['label' => 'Shipments Waiting Action', 'count' => $shipmentAwaitingTrackingCount, 'url' => '/modules/shipments/index.php?awaiting_tracking=1'];
-}
+// --- Status Line - silent when healthy, per DASHBOARD_PHILOSOPHY.md §1/§2. Only ever one line.
+$healthCopy = [
+    'critical' => ['icon' => '&#128308;', 'label' => 'Needs attention now', 'class' => 'text-danger'],
+    'attention' => ['icon' => '&#128993;', 'label' => 'A few things need attention', 'class' => 'text-warning'],
+    'healthy' => ['icon' => '&#128994;', 'label' => 'All clear', 'class' => 'text-success'],
+][$businessHealthTier];
 ?>
-<?php if ($operationsOverviewCards !== []): ?>
-<div class="mb-4">
-    <h4 class="mb-3">Operations Overview</h4>
-    <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-3">
-        <?php foreach ($operationsOverviewCards as $card): ?>
-            <div class="col">
-                <a class="card stat-card stat-card-link p-3 h-100" href="<?php echo app_escape($card['url']); ?>">
-                    <div class="stat-label"><?php echo app_escape($card['label']); ?></div>
-                    <div class="stat-value <?php echo $card['count'] > 0 ? 'stat-value-alert' : ''; ?>" style="font-size: 1.6rem;"><?php echo (int) $card['count']; ?></div>
-                </a>
-            </div>
-        <?php endforeach; ?>
-    </div>
+<div class="mb-4 d-flex align-items-center gap-2">
+    <span style="font-size: 1.1rem;"><?php echo $healthCopy['icon']; ?></span>
+    <span class="fw-semibold <?php echo $healthCopy['class']; ?>"><?php echo $healthCopy['label']; ?></span>
 </div>
-<?php endif; ?>
 
-<?php
-// Phase 9A - Purchasing Intelligence: teaser cards for the Phase 8 subsystems, each linking
-// out to its own full page (modules/purchasing/control-center.php, modules/reports/
-// suppliers.php, modules/reports/margins.php) rather than duplicating their detail here.
-$purchasingIntelligenceCards = [];
-if ($canViewInventory) {
-    $purchasingIntelligenceCards[] = [
-        'label' => 'Inventory Risk',
-        'value' => $urgentReorderCount . ' urgent',
-        'alert' => $urgentReorderCount > 0,
-        'url' => '/modules/purchasing/control-center.php',
-    ];
-}
-if ($canViewSupplierOrders) {
-    $purchasingIntelligenceCards[] = [
-        'label' => 'Purchasing Status',
-        'value' => $overdueSupplierOrderCount . ' overdue',
-        'helper' => $pendingSupplierOrderCount . ' pending &middot; ' . $receivingRequiredCount . ' receiving',
-        'alert' => $overdueSupplierOrderCount > 0,
-        'url' => '/modules/supplier-orders/index.php',
-    ];
-}
-if ($canViewProducts) {
-    $purchasingIntelligenceCards[] = [
-        'label' => 'Cost Alerts',
-        'value' => $costAlertCount . ' increased',
-        'alert' => $costAlertCount > 0,
-        'url' => '/modules/purchasing/control-center.php',
-    ];
-}
-if ($canViewSupplierOrders) {
-    $purchasingIntelligenceCards[] = [
-        'label' => 'Supplier Risk',
-        'value' => $supplierRiskCount . ' at risk',
-        'alert' => $supplierRiskCount > 0,
-        'url' => '/modules/reports/suppliers.php',
-    ];
-}
-if ($canViewInventory) {
-    $purchasingIntelligenceCards[] = [
-        'label' => 'Inventory Value',
-        'value' => 'RM ' . number_format($inventoryValueLandedCost, 2),
-        'alert' => false,
-        'url' => '/modules/reports/margins.php',
-    ];
-}
-?>
-<?php if ($purchasingIntelligenceCards !== []): ?>
-<div class="mb-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h4 class="mb-0">Purchasing Intelligence</h4>
-        <a class="small" href="/modules/purchasing/control-center.php">Open Purchasing Control Center &rarr;</a>
-    </div>
-    <div class="row row-cols-2 row-cols-md-3 row-cols-lg-5 g-3">
-        <?php foreach ($purchasingIntelligenceCards as $card): ?>
-            <div class="col">
-                <a class="card stat-card stat-card-link p-3 h-100" href="<?php echo app_escape($card['url']); ?>">
-                    <div class="stat-label"><?php echo app_escape($card['label']); ?></div>
-                    <div class="stat-value <?php echo $card['alert'] ? 'stat-value-alert' : ''; ?>" style="font-size: 1.3rem;"><?php echo app_escape($card['value']); ?></div>
-                    <?php if (isset($card['helper'])): ?>
-                        <div class="stat-helper"><?php echo $card['helper']; ?></div>
+<div class="row g-4 mb-4">
+    <div class="col-lg-8">
+        <div class="card p-4 h-100">
+            <h5 class="mb-3">My Day</h5>
+            <?php if ($myDayTasks === []): ?>
+                <p class="text-muted small mb-0">Nothing needs action right now - you're caught up.</p>
+            <?php else: ?>
+                <div class="d-flex flex-column gap-2">
+                    <?php foreach ($myDayTasks as $task): ?>
+                        <div class="attention-item <?php echo $task['rank'] === 0 ? 'tone-danger' : ($task['rank'] <= 1 ? 'tone-warning' : ''); ?> d-flex justify-content-between align-items-center p-3">
+                            <span><?php echo app_escape($task['label']); ?></span>
+                            <a class="btn btn-outline-primary btn-sm" href="<?php echo app_escape($task['url']); ?>">Go &rarr;</a>
+                        </div>
+                    <?php endforeach; ?>
+                    <?php if ($myDayOverflowCount > 0): ?>
+                        <p class="text-muted small mb-0 mt-1">+<?php echo (int) $myDayOverflowCount; ?> more</p>
                     <?php endif; ?>
-                </a>
+                </div>
+            <?php endif; ?>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card p-4 h-100">
+            <h5 class="mb-3">Today's Business</h5>
+            <div class="row g-3 mb-3">
+                <div class="col-6">
+                    <div class="text-muted small">Orders</div>
+                    <div class="fs-4 fw-bold"><?php echo (int) $todayBusiness['orders']; ?></div>
+                </div>
+                <div class="col-6">
+                    <div class="text-muted small">Revenue</div>
+                    <div class="fs-4 fw-bold">RM <?php echo app_escape(number_format((float) $todayBusiness['revenue'], 2)); ?></div>
+                </div>
+                <div class="col-12">
+                    <div class="text-muted small">Avg Order Value</div>
+                    <div class="fs-5 fw-bold">
+                        <?php if ($todayBusiness['aov'] !== null): ?>
+                            RM <?php echo app_escape(number_format($todayBusiness['aov'], 2)); ?>
+                        <?php else: ?>
+                            &mdash;
+                        <?php endif; ?>
+                    </div>
+                </div>
             </div>
-        <?php endforeach; ?>
+            <?php if ($canViewOrders): ?>
+                <div class="small text-muted border-top pt-3">
+                    This month: RM <?php echo app_escape(number_format($monthRevenue, 2)); ?> revenue &middot;
+                    <a href="/modules/reports/sales.php">Full Report &rarr;</a>
+                </div>
+            <?php endif; ?>
+        </div>
     </div>
 </div>
-<?php endif; ?>
 
 <div class="mb-4">
     <div class="card p-4">
         <div class="d-flex justify-content-between align-items-center mb-3">
-            <h5 class="mb-0">
-                <i class="bi bi-bell"></i> Notifications
-                <?php if ($unreadNotificationCount > 0): ?>
-                    <span class="badge bg-danger ms-1"><?php echo (int) $unreadNotificationCount; ?> unread</span>
-                <?php endif; ?>
-            </h5>
-            <a class="small" href="/modules/notifications/index.php">View All &rarr;</a>
+            <h6 class="text-muted mb-0">Recent Activity</h6>
+            <a class="small" href="/modules/notifications/index.php">Notifications &rarr;</a>
         </div>
-        <?php if ($recentNotifications === []): ?>
-            <p class="text-muted small mb-0">No notifications yet - see the Notifications page to generate alerts on demand.</p>
+        <?php if ($recentActivity === []): ?>
+            <p class="text-muted small mb-0">No recent activity.</p>
         <?php else: ?>
-            <div class="d-flex flex-column gap-2">
-                <?php foreach ($recentNotifications as $notification): ?>
-                    <?php
-                    // Phase 9C - the same three-state lifecycle the full Notifications page
-                    // uses (notification_lifecycle_status()), not a re-derived read/unread
-                    // check. The primary review link reuses this notification's first action
-                    // link (notification_action_links()) when one exists, falling back to
-                    // notification_url_for() otherwise - never a third link definition.
-                    $notificationLifecycle = notification_lifecycle_status($notification);
-                    $notificationActionLinks = notification_action_links($notification);
-                    $notificationPrimaryUrl = $notificationActionLinks[0]['url'] ?? notification_url_for($notification);
-                    ?>
-                    <div class="attention-item <?php echo $notificationLifecycle === 'active' ? 'tone-warning' : ''; ?> d-flex justify-content-between align-items-center p-3">
-                        <span>
-                            <?php if ($notificationLifecycle === 'active'): ?><span class="badge bg-danger me-1">Active</span><?php endif; ?>
-                            <?php echo app_escape($notification['title']); ?>
-                        </span>
-                        <a class="btn btn-outline-primary btn-sm" href="<?php echo app_escape($notificationPrimaryUrl); ?>">Review &rarr;</a>
-                    </div>
+            <ul class="list-unstyled mb-0 small">
+                <?php foreach ($recentActivity as $event): ?>
+                    <li class="mb-2 pb-2 border-bottom d-flex justify-content-between">
+                        <a href="<?php echo app_escape($event['url']); ?>"><?php echo app_escape($event['description']); ?></a>
+                        <span class="text-muted ms-2 text-nowrap"><?php echo app_escape($event['occurred_at']); ?></span>
+                    </li>
                 <?php endforeach; ?>
-            </div>
+            </ul>
         <?php endif; ?>
     </div>
 </div>
 
-<div class="row g-4 mb-4">
-    <div class="col-lg-7">
-        <div class="card p-4 h-100" id="needs-attention">
-            <h5 class="mb-3">Needs Attention</h5>
-            <?php if ($needsAttention === []): ?>
-                <p class="text-muted small mb-0">All caught up - nothing needs attention right now.</p>
-            <?php else: ?>
-                <div class="d-flex flex-column gap-2">
-                    <?php foreach ($needsAttention as $item): ?>
-                        <div class="attention-item tone-<?php echo app_escape($item['tone']); ?> d-flex justify-content-between align-items-center p-3">
-                            <span><?php echo app_escape($item['label']); ?></span>
-                            <div class="d-flex align-items-center gap-3">
-                                <span class="fw-bold"><?php echo (int) $item['count']; ?></span>
-                                <a class="btn btn-outline-primary btn-sm" href="<?php echo app_escape($item['url']); ?>">Review &rarr;</a>
-                            </div>
-                        </div>
-                    <?php endforeach; ?>
-                </div>
-            <?php endif; ?>
-        </div>
-    </div>
-    <div class="col-lg-5">
-        <div class="card p-4 h-100">
-            <h5 class="mb-3">Recent Activity</h5>
-            <?php if ($recentActivity === []): ?>
-                <p class="text-muted small mb-0">No recent activity.</p>
-            <?php else: ?>
-                <ul class="list-unstyled mb-0">
-                    <?php foreach ($recentActivity as $event): ?>
-                        <li class="mb-3 pb-3 border-bottom">
-                            <div class="small">
-                                <a href="<?php echo app_escape($event['url']); ?>"><?php echo app_escape($event['description']); ?></a>
-                            </div>
-                            <div class="text-muted small mt-1"><?php echo app_escape($event['occurred_at']); ?></div>
-                        </li>
-                    <?php endforeach; ?>
-                </ul>
-            <?php endif; ?>
-        </div>
-    </div>
-</div>
-
-<?php
-$canManageProducts = app_has_permission('products.manage');
-$canManageCustomers = app_has_permission('customers.manage');
-?>
 <div class="mb-4">
-    <h4 class="mb-3">Quick Actions</h4>
+    <h4 class="mb-3">Shortcuts</h4>
     <div class="row g-3">
         <?php if ($canManageOrders): ?>
             <div class="col-md-4 col-lg-2">
@@ -785,84 +441,5 @@ $canManageCustomers = app_has_permission('customers.manage');
         <?php endif; ?>
     </div>
 </div>
-
-<?php if ($canViewOrders): ?>
-<div class="mb-4">
-    <div class="d-flex justify-content-between align-items-center mb-1">
-        <h4 class="mb-0">Business Snapshot</h4>
-        <a class="small" href="/modules/reports/sales.php">View Full Sales Report &rarr;</a>
-    </div>
-    <p class="text-muted small mb-3">Last 30 days, at a glance.</p>
-    <div class="row g-4">
-        <div class="col-lg-5">
-            <div class="card p-4 h-100">
-                <h6 class="text-muted mb-3">Sales &amp; Orders</h6>
-                <div class="row g-3">
-                    <div class="col-6">
-                        <div class="text-muted small">Orders</div>
-                        <div class="fs-5 fw-bold"><?php echo (int) $salesSnapshot['total_orders']; ?></div>
-                    </div>
-                    <div class="col-6">
-                        <div class="text-muted small">Units Sold</div>
-                        <div class="fs-5 fw-bold"><?php echo (int) $salesSnapshot['units_sold']; ?></div>
-                    </div>
-                    <div class="col-6">
-                        <div class="text-muted small">Revenue</div>
-                        <div class="fs-5 fw-bold">RM <?php echo app_escape(number_format((float) $salesSnapshot['revenue'], 2)); ?></div>
-                    </div>
-                    <div class="col-6">
-                        <div class="text-muted small">Avg Order Value</div>
-                        <div class="fs-5 fw-bold">
-                            <?php if ($salesSnapshot['average_order_value'] !== null): ?>
-                                RM <?php echo app_escape(number_format($salesSnapshot['average_order_value'], 2)); ?>
-                            <?php else: ?>
-                                &mdash;
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-4">
-            <div class="card p-4 h-100">
-                <h6 class="text-muted mb-3">Top Selling Products</h6>
-                <?php if ($topProducts === []): ?>
-                    <p class="text-muted small mb-0">No sales in the last 30 days.</p>
-                <?php else: ?>
-                    <ul class="list-unstyled mb-0">
-                        <?php foreach ($topProducts as $product): ?>
-                            <li class="d-flex justify-content-between align-items-center mb-2">
-                                <span class="small">
-                                    <?php if ($canViewProducts): ?>
-                                        <a href="/modules/products/view.php?id=<?php echo (int) $product['product_id']; ?>"><?php echo app_escape($product['product_name']); ?></a>
-                                    <?php else: ?>
-                                        <?php echo app_escape($product['product_name']); ?>
-                                    <?php endif; ?>
-                                </span>
-                                <span class="text-muted small text-nowrap ms-2"><?php echo (int) $product['units_sold']; ?> sold</span>
-                            </li>
-                        <?php endforeach; ?>
-                    </ul>
-                <?php endif; ?>
-            </div>
-        </div>
-        <?php if ($canViewCustomers): ?>
-            <div class="col-lg-3">
-                <div class="card p-4 h-100">
-                    <h6 class="text-muted mb-3">Customer Activity</h6>
-                    <div class="mb-2">
-                        <div class="text-muted small">Active Customers</div>
-                        <div class="fs-5 fw-bold"><?php echo (int) $salesSnapshot['active_customers']; ?></div>
-                    </div>
-                    <div>
-                        <div class="text-muted small">New Customers</div>
-                        <div class="fs-5 fw-bold"><?php echo (int) $newCustomerCount; ?></div>
-                    </div>
-                </div>
-            </div>
-        <?php endif; ?>
-    </div>
-</div>
-<?php endif; ?>
 
 <?php require_once __DIR__ . '/includes/footer.php'; ?>

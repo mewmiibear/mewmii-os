@@ -12,6 +12,25 @@ require_once __DIR__ . '/inventory.php';
  */
 
 /**
+ * Overdue supplier orders - expected_delivery_date already passed, not yet received/completed/
+ * cancelled. Mewmii OS v2 Phase 1: extracted here so index.php's dashboard and
+ * notifications.php's supplier_order_overdue alert both read the exact same predicate instead
+ * of each maintaining their own copy (they previously did - see docs/PHASE1_READINESS_REVIEW.md
+ * §1). No behavior change: same WHERE clause, same columns, just one definition instead of two.
+ */
+function supplier_orders_overdue(PDO $pdo): array
+{
+    return $pdo->query("
+        SELECT so.id, so.purchase_number, so.expected_delivery_date, s.name AS supplier_name
+        FROM supplier_orders so
+        INNER JOIN suppliers s ON s.id = so.supplier_id
+        WHERE so.expected_delivery_date IS NOT NULL AND so.expected_delivery_date < CURDATE()
+          AND so.status NOT IN ('received', 'completed', 'cancelled')
+        ORDER BY so.expected_delivery_date ASC
+    ")->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
  * Outstanding demand for one unit from PAID customer orders only, net of whatever has
  * already been allocated to Customer Storage against each order line - the "Paid Customer
  * Orders" side of the Preorder/Early Bird ordering formula. Deliberately NOT the same as
@@ -148,8 +167,8 @@ function purchase_planning_needs(PDO $pdo): array
         ) AS units
         WHERE status <> 'archived'
           AND (
-                (product_type IN ('preorder', 'early_bird') AND (paid_demand - incoming_quantity - arrived_quantity) > 0)
-             OR (product_type = 'ready_stock' AND target_stock_level IS NOT NULL AND (target_stock_level - available_quantity - incoming_quantity) > 0)
+                (product_type IN ('preorder', 'early_bird') AND (CAST(paid_demand AS SIGNED) - CAST(incoming_quantity AS SIGNED) - CAST(arrived_quantity AS SIGNED)) > 0)
+             OR (product_type = 'ready_stock' AND target_stock_level IS NOT NULL AND (CAST(target_stock_level AS SIGNED) - CAST(available_quantity AS SIGNED) - CAST(incoming_quantity AS SIGNED)) > 0)
           )
     ";
     $rows = $pdo->query($unitSql)->fetchAll(PDO::FETCH_ASSOC);

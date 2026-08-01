@@ -2,6 +2,26 @@
 
 Tracks the status of active improvement work, per module. Status values: Not Started, Planning, In Progress, Testing, Completed, Blocked.
 
+## Mewmii OS v2
+
+| Item | Status | Notes |
+|---|---|---|
+| System-wide design review (navigation, per-module UX, cross-module transitions, global components, performance, scalability) | Completed | Produced across three chat-only design passes; consolidated into the documents below |
+| `docs/MEWMII_OS_V2_PLAN.md` | Completed | Master plan — philosophy, Workflow First principle (4 named workflows), UX north star, Phase 1/2/3 roadmap |
+| `docs/DASHBOARD_PHILOSOPHY.md` | Completed | Mission Control governing philosophy — permanent reference for all future dashboard changes |
+| `docs/COMPONENT_LIBRARY_SPEC.md` | Completed | Drawer, Activity Feed viewer, Bulk Actions (extended), Command Palette, Notification Badge — each with location, AJAX pattern, permissions, mobile behavior, empty/loading/error states |
+| `docs/FUTURE_MULTI_WAREHOUSE.md` | Completed | Design-only; not scheduled. Confirms zero warehouse/location concept exists today |
+| `docs/FUTURE_RBAC.md` | Completed | Design-only; not scheduled. Mechanism (`roles`/`permissions`/`app_has_permission()`) already exists; only management UI and multiple seeded roles are missing |
+| `docs/FUTURE_API_LAYER.md` | Completed | Design-only; not scheduled. Confirms zero general-purpose `/api/` surface exists today (WooCommerce sync is the only external-facing integration) |
+| `docs/PHASE1_READINESS_REVIEW.md` | Completed | Architecture compatibility, database impact (none required), shared component locations, exact implementation order, testing requirements — gate passed before any Phase 1 code changed |
+| **Phase 1 Step 1 — Navigation consolidation** | Completed | `includes/header.php`: added the orphaned Purchase Planning link (gated `supplier-orders.manage`, matching the page's own check), split System into Integrations/System sub-groups. No file moved/renamed — no bookmarked URL affected. Tested: routes, permission gating (verified against a real seeded `Limited` role), active-state highlighting |
+| **Phase 1 Step 2 — Notification badge** | Completed | `includes/header.php`: reuses the pre-existing `notification_unread_count()` — zero new query/table. Tested end-to-end against a throwaway DB: count accuracy, zero-state (badge absent), permission gating |
+| **Phase 1 Step 3 — Dashboard Mission Control** | Completed | `index.php` fully rewritten per `docs/DASHBOARD_PHILOSOPHY.md`: Status Line (3-tier rule-based health), My Day (6 of 7 named task sources — open customer resolutions deferred pending an admin list page), Today's Business (now genuinely today/this-month, not a 30-day window). Tested against seeded real data: health-tier transitions (healthy → attention → critical), all 5 My Day task types, Today's Business figures — all verified correct via live HTTP requests |
+| Overdue-supplier-orders dedup (`includes/purchase_planning.php`, `includes/notifications.php`) | Completed | New `supplier_orders_overdue()` function; both `index.php` and the `supplier_order_overdue` alert generator now call it instead of each maintaining a copy of the same predicate |
+| **Bug fix found during Phase 1 testing:** `purchase_planning_needs()` crash | Completed | Pre-existing bug, unrelated to Phase 1 itself — fatally errored whenever a ready-stock product's `available_quantity` exceeded its `target_stock_level` (unsigned-subtraction overflow under MariaDB strict mode). Affects 3 call sites (dashboard, `modules/purchase-planning/generate.php`, `modules/inventory/index.php`'s needs-ordering filter). Fixed via `CAST(... AS SIGNED)` on the affected operands — no change to which rows are returned for any previously-working case |
+| Phase 2 implementation (Drawer, Activity Feed viewer, Bulk Actions) | Not Started | Depends on Phase 1 (complete) |
+| Phase 3 implementation (per-module redesign: Inventory → Supplier Orders → Customer Orders → Products/Catalog → Suppliers → Shipments → Reports) | Not Started | Each module goes through its own full audit → design → approval → implement → review → document cycle individually, not as one pass |
+
 ## Supplier Orders
 
 | Item | Status | Notes |

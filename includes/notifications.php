@@ -3,6 +3,7 @@
 require_once __DIR__ . '/demand_forecast.php';
 require_once __DIR__ . '/product_cost.php';
 require_once __DIR__ . '/supplier_orders.php';
+require_once __DIR__ . '/purchase_planning.php';
 
 /**
  * Phase 9B - Notification & Alert Center. Generates and reads rows in mewmii_notifications
@@ -193,17 +194,10 @@ function notification_generate_alerts(PDO $pdo): array
     $created['supplier_delay'] = notification_bulk_create_if_not_exists($pdo, 'supplier_delay', $supplierCandidates);
 
     // --- Supplier Order Overdue ----------------------------------------------------------------
-    // Exact same predicate already used verbatim by index.php's Overdue Supplier Orders card
-    // and modules/supplier-orders/index.php's ?filter=overdue - never re-derived.
-    $overdueStmt = $pdo->query("
-        SELECT so.id, so.purchase_number, so.expected_delivery_date, s.name AS supplier_name
-        FROM supplier_orders so
-        INNER JOIN suppliers s ON s.id = so.supplier_id
-        WHERE so.expected_delivery_date IS NOT NULL AND so.expected_delivery_date < CURDATE()
-          AND so.status NOT IN ('received', 'completed', 'cancelled')
-    ");
+    // Mewmii OS v2 Phase 1: now calls supplier_orders_overdue() (includes/purchase_planning.php)
+    // instead of maintaining its own copy of this predicate - see that function's docblock.
     $overdueCandidates = [];
-    foreach ($overdueStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+    foreach (supplier_orders_overdue($pdo) as $row) {
         $overdueCandidates[] = [
             'reference_id' => (int) $row['id'],
             'title' => 'Supplier order overdue: ' . $row['purchase_number'],

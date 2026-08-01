@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"/c/xampp/mysql/bin/mysql.exe\" -h 127.0.0.1 -u phase1_test -pTestPass_9x2Q mewmii_phase1_test -e \"UPDATE mewmii_notifications SET resolved_status = 1;\")",
+      "Bash(curl -s -b /tmp/owner_cookies.txt http://127.0.0.1:8899/index.php -o /tmp/owner_dashboard_zero.html)",
+      "Read(//tmp/**)"
+    ]
+  }
+}

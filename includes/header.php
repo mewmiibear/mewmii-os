@@ -2,6 +2,7 @@
 if (!defined('APP_START')) {
     require_once __DIR__ . '/bootstrap.php';
 }
+require_once __DIR__ . '/notifications.php';
 
 $appTitle = 'Mewmii OS';
 ?>
@@ -541,12 +542,24 @@ $appTitle = 'Mewmii OS';
                     }
                     return '';
                 };
+
+                // Header notification badge: reuses the existing notification_unread_count()
+                // (includes/notifications.php) - same query the dashboard's own Notifications
+                // card already runs. Read-only COUNT, never triggers alert generation/auto-resolve.
+                $headerUnreadNotifications = app_has_permission('dashboard.view')
+                    ? notification_unread_count(app_db())
+                    : 0;
                 ?>
                 <aside class="col-lg-2 sidebar p-3" id="app-sidebar">
                     <div class="d-flex flex-column">
                         <a class="nav-link<?php echo $navActive('/index.php'); ?>" href="/index.php"><i class="bi bi-speedometer2"></i> Dashboard</a>
                         <?php if (app_has_permission('dashboard.view')): ?>
-                            <a class="nav-link nav-link-sub<?php echo $navActive('/modules/notifications/index.php'); ?>" href="/modules/notifications/index.php">Notifications</a>
+                            <a class="nav-link nav-link-sub<?php echo $navActive('/modules/notifications/index.php'); ?>" href="/modules/notifications/index.php">
+                                Notifications
+                                <?php if ($headerUnreadNotifications > 0): ?>
+                                    <span class="badge bg-danger rounded-pill ms-1"><?php echo $headerUnreadNotifications; ?></span>
+                                <?php endif; ?>
+                            </a>
                         <?php endif; ?>
 
                         <div class="nav-section-label">Catalog</div>
@@ -596,6 +609,9 @@ $appTitle = 'Mewmii OS';
                                 <a class="nav-link<?php echo $navActive('/modules/purchasing/index.php'); ?>" href="/modules/purchasing/index.php"><i class="bi bi-cart-check"></i> Purchasing</a>
                                 <a class="nav-link nav-link-sub<?php echo $navActive('/modules/purchasing/control-center.php'); ?>" href="/modules/purchasing/control-center.php">Control Center</a>
                             <?php endif; ?>
+                            <?php if (app_has_permission('supplier-orders.manage')): ?>
+                                <a class="nav-link nav-link-sub<?php echo $navActive('/modules/purchase-planning/generate.php'); ?>" href="/modules/purchase-planning/generate.php">Purchase Planning</a>
+                            <?php endif; ?>
                         <?php endif; ?>
 
                         <?php if (app_has_permission('customer-storage.view') || app_has_permission('ship-my-box.view') || app_has_permission('shipments.view')): ?>
@@ -612,10 +628,12 @@ $appTitle = 'Mewmii OS';
                         <?php endif; ?>
 
                         <?php if (app_has_permission('settings.manage')): ?>
-                            <div class="nav-section-label">System</div>
+                            <div class="nav-section-label">Integrations</div>
                             <a class="nav-link<?php echo $navActive('/modules/integrations/woocommerce.php'); ?>" href="/modules/integrations/woocommerce.php"><i class="bi bi-arrow-repeat"></i> WooCommerce Sync</a>
                             <a class="nav-link nav-link-sub<?php echo $navActive('/modules/webhooks/events.php'); ?>" href="/modules/webhooks/events.php">Webhook Events</a>
                             <a class="nav-link<?php echo $navActive('/modules/sync-logs/index.php'); ?>" href="/modules/sync-logs/index.php"><i class="bi bi-list-check"></i> Sync Logs</a>
+
+                            <div class="nav-section-label">System</div>
                             <a class="nav-link<?php echo $navActive('/modules/operations/job_queue.php'); ?>" href="/modules/operations/job_queue.php"><i class="bi bi-stack"></i> Job Queue</a>
                             <a class="nav-link<?php echo $navActive('/modules/settings/system_health.php'); ?>" href="/modules/settings/system_health.php"><i class="bi bi-heart-pulse"></i> System Health</a>
                             <a class="nav-link<?php echo $navActive('/modules/settings/currency_rates.php'); ?>" href="/modules/settings/currency_rates.php"><i class="bi bi-cash-stack"></i> Currency Rates</a>
