@@ -10,8 +10,8 @@
 The core, most frequent Finance workflow. Designed as a single form, one screen, no multi-step wizard:
 
 1. Is this an **Expense** or a **Business Asset**? (the fork from `FINANCE_ACCOUNTING_ARCHITECTURE.md` §6 — asked first, before anything else, since it determines the destination table)
-2. If Expense: Category (dropdown, seeded from the user's list — Packaging [with sub-category: Bubble Wrap/Boxes/Tape/Stickers/Thank-you Cards/Labels], Shipping, Marketing, Software, Hosting, Utilities, Office Supplies, Equipment, Travel, Bank Charges, Payment Gateway Fees, Subscriptions, Professional Services, Miscellaneous)
-3. Date, Amount, Currency (defaults to MYR, matching every other module's default), Supplier (optional — reuses the existing `suppliers` picker component already used on Supplier Orders, not a new supplier list), Payment Method, Reference Number, Description/Notes, Tax Deductible flag (defaults on), Status (Paid / Unpaid / Pending — see §4 for why this matters for Cash Flow)
+2. If Expense: Category (two-level dropdown, seeded from the default structure in `FINANCE_DATABASE_DESIGN.md` — Operations [Packaging/Shipping/Warehouse/Equipment/Office Supplies], Marketing, Technology [Software/Hosting/Subscriptions], Professional Services, Finance [Bank Charges/Payment Gateway Fees], Utilities, Travel, Miscellaneous — fully editable/extendable after seeding)
+3. Date, Amount, Currency (defaults to MYR, matching every other module's default), Supplier (optional — reuses the existing `suppliers` picker component already used on Supplier Orders, not a new supplier list), Bank/Payment Account (optional, from the new Bank Accounts list — §13), Payment Method, Reference Number, Description/Notes, Tax Deductible flag (defaults on). Status starts at **Draft** automatically — not a field the user sets on this form at all, since every new expense starts there by definition (`FINANCE_ACCOUNTING_ARCHITECTURE.md` §15); moving it to **Paid** is a separate, later action (§4).
 4. Optional: attach a receipt (image or PDF) — reuses `receipt_storage.php`'s existing private-storage pattern (`FINANCE_ACCOUNTING_ARCHITECTURE.md` §1), the same convention already proven for order payment-proof receipts.
 5. Save.
 
@@ -21,9 +21,9 @@ The core, most frequent Finance workflow. Designed as a single form, one screen,
 
 Same entry point as expenses (§1 step 1's fork), different destination:
 
-1. Name/Description, Category (Furniture, Equipment, Electronics, etc. — a separate, small category list from Expenses'), Purchase Date, Purchase Amount, Currency, Supplier (optional, same reused picker), Notes.
-2. Optional receipt attachment (same mechanism as §1).
-3. Save — no depreciation fields shown at all in this phase (explicitly deferred, `FINANCE_ACCOUNTING_ARCHITECTURE.md` §6).
+1. Name/Description, Category (Furniture, Equipment, Electronics, etc. — a separate, small category list from Expenses'), Purchase Date, Purchase Amount, Currency, Supplier (optional, same reused picker), Warranty Expiry (optional date), Notes (a separate, ongoing field from Description — `FINANCE_ACCOUNTING_ARCHITECTURE.md` §11).
+2. Optional receipt attachment (same mechanism as §1, multiple receipts supported — §7).
+3. Save — no depreciation fields shown at all in this phase (explicitly deferred, `FINANCE_ACCOUNTING_ARCHITECTURE.md` §6). Status defaults to "In Use"; Disposal Date only becomes relevant later, when the asset's status is changed to Disposed/Sold (a separate, later action on the same record — not part of initial entry).
 
 ## 3. Reviewing Profit & Loss
 
@@ -54,10 +54,11 @@ Finance does not introduce a new refund-recording step. `resolution_refunds` alr
 
 ## 7. Attaching and finding receipts
 
-- Attaching: covered in §1/§2 — one optional step per Expense/Asset record.
+- Attaching: covered in §1/§2 — one optional step per Expense/Asset record, and not limited to one file — an Expense or Asset can carry more than one receipt (e.g. a purchase receipt plus a separate delivery note), shown as a small thumbnail list/gallery on the record rather than a single image slot (`FINANCE_DATABASE_DESIGN.md` §3's `expense_attachments`/`asset_attachments`).
 - Finding: a Receipts view (accessible from Expenses, not a separate top-level nav item — receipts are not independent objects, they always belong to an Expense or Asset) with search by date range, category, supplier, or amount — reusing the same filter-card pattern already established across every other module's list page (`.filter-card`, per the design-token conventions documented in `COMPONENT_LIBRARY_SPEC.md`).
 - Preview: inline for images, browser-native PDF viewer for PDFs — no custom PDF renderer needed.
 - Download: a direct authenticated stream, following `modules/orders/receipt_download.php`'s existing pattern exactly (permission check → activity log entry → `receipt_storage_stream()`).
+- **Export by year**: a single action from the Receipts view or Tax Reports (`TAX_REPORTING_DESIGN.md` §4) that bundles every receipt attached to an expense within a selected tax year into one downloadable archive — the same per-file authorization/streaming as a single download, just looped and zipped server-side (`FINANCE_DATABASE_DESIGN.md` §3). No OCR, no content extraction — purely a bulk-download convenience for handing a year's worth of receipts to an accountant.
 
 ## 8. Preparing for LHDN tax filing (annual)
 
@@ -67,10 +68,36 @@ See `TAX_REPORTING_DESIGN.md` for the full report design. The workflow itself: o
 
 Not implemented in this phase, per explicit instruction. The workflow it will eventually support, so the schema can be designed to not block it (`FINANCE_DATABASE_DESIGN.md` §6): a recurring template (e.g. "Hosting, RM 50/month") generates a reminder — not an auto-created Expense row — on its due date, which the user then confirms/edits into a real Expense via the normal §1 flow. Auto-creation without confirmation is deliberately not the design, since amounts often vary slightly (e.g. usage-based hosting bills) and silent auto-entry would undermine trust in the numbers.
 
-## 10. Daily Business Owner workflow (illustrative, ties workflows together)
+## 11. Setting and reviewing a Budget
+
+1. Open Finance → Budget, select a month (defaults to the current month).
+2. For each expense category, enter a planned amount — a flat list, one input per category, no wizard. Categories with no planned amount simply show no budget line for that month (not a zero-budget warning) — an unbudgeted category is a normal, unremarkable state, not an error.
+3. The same screen shows, per category, actual spend for the month so far (live `SUM(expenses.amount)`, `FINANCE_DATABASE_DESIGN.md` §3's `budgets` table) and variance, using the same +over/−under notation the user's own example used (Packaging: planned RM300, actual RM265, **+RM35** under; Marketing: planned RM800, actual RM920, **−RM120** over).
+4. No separate "review" screen — setting and reviewing a budget are the same page, since the actual-spend column is always live, never a stale snapshot that needs refreshing.
+
+## 12. Reports that answer real business questions
+
+Each of the five questions posed maps to a specific, already-designed report — none require new data beyond what §1-§11 and `FINANCE_DATABASE_DESIGN.md` already introduce:
+
+| Question | Report | Data source |
+|---|---|---|
+| "Where did my money go this month?" | A spending breakdown by category **and type** — Expenses grouped by category, plus Asset purchases as a pseudo-category, plus Supplier Payments made in the period, all in one list | `expenses`, `assets`, `supplier_order_payments` — broader than Expense by Category (`TAX_REPORTING_DESIGN.md` §3), which is expenses-only |
+| "Which expense category increased the most?" | Month-over-month category comparison, sorted by absolute or % change | `SUM(expenses.amount)` per category, current month vs. previous month — one extra date filter on data already grouped for Expense by Category |
+| "How much do I spend on packaging per order?" | Packaging category spend ÷ order count, same period | `SUM(expenses.amount) WHERE category = Packaging`, divided by the existing order-count query already used in `modules/reports/sales.php` — a genuine cross-module reuse, not a new metric engine |
+| "What is my monthly operating cost?" | Operating Expenses total for the month | Already the Operating Expenses line in P&L (§3) — surfaced as its own standalone quick-answer figure, not a new calculation |
+| "What is my true net profit after all expenses?" | Net Profit | This **is** P&L's own bottom line (§3) — the question and the existing report design are the same thing, confirmed here rather than assumed |
+
+## 13. Managing Bank Accounts
+
+1. Open Finance → Bank Accounts — a short list (typically 3-6 rows for a business this size: e.g. "Maybank Business," "Touch 'n Go eWallet," "Wise," "Cash"), each with a name, type, and currency.
+2. Adding an account is a 3-field form (name, type, currency) — no bank-integration credentials, no statement upload, matching "do not implement automatic bank sync" exactly.
+3. Once an account exists, it becomes selectable on the Expense/Income form (§1) as an optional field. Nothing retroactively requires existing records to have one — this is additive, never a blocking requirement on entry.
+4. There is no "Bank Accounts" report/reconciliation view in this phase — the account list exists purely so `bank_account_id` tagging can start now, ready for a future reconciliation feature to sum tagged transactions per account without needing to back-fill history first (`FINANCE_ACCOUNTING_ARCHITECTURE.md` §12).
+
+## 14. Daily Business Owner workflow (illustrative, ties workflows together)
 
 A single walkthrough showing how the pieces compose, not a new feature:
 
-> Mewmii Bear buys packaging tape (RM 45) — records it as an Expense under Packaging → Tape, attaches the receipt photo, marks it Paid. At month-end, she opens Profit & Loss for the month, sees Net Profit and margin. She checks Cash Flow to confirm what actually left the bank vs. what's still owed to a supplier on 30-day terms. Once a year, she opens Tax Reports, exports the Annual Operating Expenses and Asset Register, and hands both to her accountant for LHDN filing.
+> Mewmii Bear buys packaging tape (RM 45) — records it as an Expense under Operations → Packaging, tags it against her Maybank Business account, attaches the receipt photo, marks it Paid. Partway through the month she glances at Finance → Budget and sees Marketing is already RM120 over its planned RM800 — she knows to slow down ad spend for the rest of the month. At month-end, she opens Profit & Loss, sees Net Profit and margin, and checks Cash Flow to confirm what actually left the bank vs. what's still owed to a supplier on 30-day terms. Once a year, she opens Tax Reports, exports the Annual Operating Expenses and Asset Register (plus a zipped bundle of the year's receipts), and hands all three to her accountant for LHDN filing.
 
 Every step above reuses either an existing page (Supplier Orders, Orders, resolution flow) or a new Finance page designed in this document — nothing requires leaving Mewmii OS or maintaining a spreadsheet in parallel, which is the actual goal this whole module serves.

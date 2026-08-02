@@ -650,6 +650,14 @@ $appTitle = 'Mewmii OS';
                             <?php endif; ?>
                         <?php endif; ?>
 
+                        <?php if (app_has_permission('finance.view')): ?>
+                            <div class="nav-section-label">Finance</div>
+                            <a class="nav-link<?php echo $navActive('/modules/finance/index.php'); ?>" href="/modules/finance/index.php"><i class="bi bi-receipt"></i> Expenses</a>
+                            <?php if (app_has_permission('finance.manage')): ?>
+                                <a class="nav-link nav-link-sub<?php echo $navActive('/modules/finance/categories.php'); ?>" href="/modules/finance/categories.php">Categories</a>
+                            <?php endif; ?>
+                        <?php endif; ?>
+
                         <?php if (app_has_permission('settings.manage')): ?>
                             <div class="nav-section-label">Integrations</div>
                             <a class="nav-link<?php echo $navActive('/modules/integrations/woocommerce.php'); ?>" href="/modules/integrations/woocommerce.php"><i class="bi bi-arrow-repeat"></i> WooCommerce Sync</a>

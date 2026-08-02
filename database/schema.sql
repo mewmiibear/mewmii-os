@@ -535,14 +535,64 @@ CREATE TABLE IF NOT EXISTS invoices (
   CONSTRAINT fk_invoices_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Finance & Accounting Phase A (docs/FINANCE_DATABASE_DESIGN.md) - replaces the `expenses`
+-- shape below, which was pure unused scaffolding (confirmed by audit: zero application code
+-- ever read/wrote it). One level of self-referencing nesting by default (e.g. "Operations" as
+-- parent of "Packaging"/"Shipping"/etc.) - see install.php for the seeded default list.
+CREATE TABLE IF NOT EXISTS expense_categories (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  parent_id INT UNSIGNED NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_expense_categories_parent FOREIGN KEY (parent_id) REFERENCES expense_categories(id) ON DELETE SET NULL,
+  INDEX idx_expense_categories_parent (parent_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Lifecycle: draft -> paid -> archived (docs/FINANCE_ACCOUNTING_ARCHITECTURE.md §15). Draft and
+-- Paid both count toward Profit & Loss (accrual, by expense_date); only Paid counts toward Cash
+-- Flow (cash basis). Archived is a visibility state only, never a financial exclusion.
+-- bank_account_id is intentionally NOT part of Phase A - added by Phase B's migration once
+-- the bank_accounts table exists (docs/FINANCE_ACCOUNTING_ARCHITECTURE.md §16).
 CREATE TABLE IF NOT EXISTS expenses (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  category VARCHAR(100) NOT NULL,
-  amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
-  description TEXT NULL,
-  receipt_file VARCHAR(500) NULL,
+  category_id INT UNSIGNED NOT NULL,
+  supplier_id INT UNSIGNED NULL,
   expense_date DATE NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  description VARCHAR(255) NOT NULL,
+  amount DECIMAL(12,2) NOT NULL,
+  currency VARCHAR(10) NOT NULL DEFAULT 'MYR',
+  exchange_rate DECIMAL(12,6) NULL,
+  payment_method VARCHAR(50) NULL,
+  reference_number VARCHAR(100) NULL,
+  tax_deductible TINYINT(1) NOT NULL DEFAULT 1,
+  status VARCHAR(20) NOT NULL DEFAULT 'draft',
+  created_by INT UNSIGNED NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_expenses_category FOREIGN KEY (category_id) REFERENCES expense_categories(id),
+  CONSTRAINT fk_expenses_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE SET NULL,
+  CONSTRAINT fk_expenses_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_expenses_date (expense_date),
+  INDEX idx_expenses_category (category_id),
+  INDEX idx_expenses_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Storage mechanics reuse includes/receipt_storage.php unchanged (private directory,
+-- .htaccess-denied, finfo-validated MIME, random on-disk filename) - this table only records
+-- the metadata that function already expects a caller to persist, same as payment_receipts.
+CREATE TABLE IF NOT EXISTS expense_attachments (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  expense_id INT UNSIGNED NOT NULL,
+  file_path VARCHAR(500) NOT NULL,
+  original_filename VARCHAR(255) NOT NULL,
+  file_type VARCHAR(100) NULL,
+  uploaded_by INT UNSIGNED NULL,
+  uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_expense_attachments_expense FOREIGN KEY (expense_id) REFERENCES expenses(id) ON DELETE CASCADE,
+  CONSTRAINT fk_expense_attachments_user FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_expense_attachments_expense (expense_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Phase 9B (Notification & Alert Center) added reference_id below - this table already

@@ -11,7 +11,21 @@ Tracks the status of active improvement work, per module. Status values: Not Sta
 | `docs/FINANCE_WORKFLOW.md` | Completed | Workflow-First-principled walkthroughs for every Finance workflow, tied to existing pages wherever one already exists |
 | `docs/FINANCE_DATABASE_DESIGN.md` | Completed | Design sketch only — no migration file, `database/schema.sql` untouched. Proposes `expense_categories`/`expenses`/`assets`/attachment tables/`bank_accounts`/`manual_income`, recommends replacing (not retrofitting) the dead `expenses`/`invoices` scaffolding |
 | `docs/TAX_REPORTING_DESIGN.md` | Completed | 6 LHDN-oriented report designs, information organization only — no tax calculation logic |
-| **Finance implementation (any code, migration, or schema change)** | **Not Started — awaiting approval** | Explicit user instruction: design phase only. No code was written for this phase |
+| Core architecture approval | Approved | "Finance is an integration layer, not a duplicate business system" reaffirmed as the most important principle — Revenue from Orders, COGS from Inventory/Supplier Orders, Supplier Payments from Supplier Orders, unchanged |
+| Design extension — Budget Planning, Shipping Cost Classification, expanded Assets/Bank Accounts/Receipts/Categories | Completed | All 4 Finance docs updated in place — see `docs/CHANGELOG.md`'s Finance design-extension entry for the full breakdown. Still design-only, no code/migration/schema change |
+| Roadmap revision, Financial Lifecycle model, Expense Templates (reserved) | Completed | Phase order revised (Bank Accounts moved ahead of Assets); lifecycle documented (`FINANCE_ACCOUNTING_ARCHITECTURE.md` §15); roadmap now persisted in docs (§16), not just chat |
+| **Phase A implementation** | Completed | `database/schema.sql` + `database/migrate_finance_phase_a.php` (3 new tables), `install.php` (2 permissions + default category seeding), `includes/finance.php` (business logic, reuses `receipt_storage.php` unchanged), `modules/finance/` (index/create/edit/view/categories/receipt_download). Tested: fresh-install schema, migration upgrade path (incl. idempotency and a data-loss safety guard), full CRUD + lifecycle over real HTTP, 3-tier permission enforcement (Owner/`finance.view`-only/zero-permission) |
+
+### Implementation phases (roadmap: `docs/FINANCE_ACCOUNTING_ARCHITECTURE.md` §16)
+
+| Phase | Scope | Status |
+|---|---|---|
+| **A** | Expense Categories, Expenses, Receipt Attachments, `finance.view`/`finance.manage` permissions | **Completed — awaiting review before Phase B** |
+| **B** | Bank Accounts, Manual Income, `bank_account_id` integration | Not Started — blocked on A's review |
+| **C** | Assets | Not Started — blocked on B |
+| **D** | Supplier Payments Rollup, Cost Classifications, Profit & Loss, Cash Flow | Not Started — blocked on C |
+| **E** | Budget Planning, Dashboard Budget widgets | Not Started — blocked on D |
+| **F** | Tax Reports, Receipt Export, Annual Reports | Not Started — blocked on E |
 
 ## Mewmii OS v2
 

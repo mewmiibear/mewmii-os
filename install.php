@@ -26,7 +26,9 @@ $permissionNames = [
     'ship-my-box.manage',
     'shipments.view',
     'shipments.manage',
-    'settings.manage'
+    'settings.manage',
+    'finance.view',
+    'finance.manage'
 ];
 
 // Ensure the Owner role exists. Idempotent: looked up by name first.
@@ -67,6 +69,55 @@ foreach ($permissionNames as $permissionName) {
 }
 
 echo "Permission sync: {$permissionsAdded} permission(s) added, {$linksAdded} Owner role link(s) added." . PHP_EOL;
+
+// Finance & Accounting Phase A - default expense category structure (docs/FINANCE_DATABASE_
+// DESIGN.md, "Recommended default expense_categories seed list"). Same idempotent pattern as
+// the permission sync above: looked up by name first, only inserted if missing, safe to run on
+// every deploy, never touches a category a user has since renamed (this only ever adds rows
+// that don't already exist by that exact name/parent - it never updates one that does).
+$expenseCategoryGroups = [
+    'Operations' => ['Packaging', 'Shipping', 'Warehouse', 'Equipment', 'Office Supplies'],
+    'Marketing' => [],
+    'Technology' => ['Software', 'Hosting', 'Subscriptions'],
+    'Professional Services' => [],
+    'Finance' => ['Bank Charges', 'Payment Gateway Fees'],
+    'Utilities' => [],
+    'Travel' => [],
+    'Miscellaneous' => [],
+];
+
+$categoriesAdded = 0;
+$categorySortOrder = 0;
+
+foreach ($expenseCategoryGroups as $parentName => $children) {
+    $categorySortOrder += 10;
+
+    $parentStmt = $pdo->prepare('SELECT id FROM expense_categories WHERE name = ? AND parent_id IS NULL');
+    $parentStmt->execute([$parentName]);
+    $parentId = (int) $parentStmt->fetchColumn();
+
+    if ($parentId === 0) {
+        $pdo->prepare('INSERT INTO expense_categories (name, parent_id, sort_order) VALUES (?, NULL, ?)')->execute([$parentName, $categorySortOrder]);
+        $parentId = (int) $pdo->lastInsertId();
+        $categoriesAdded++;
+    }
+
+    $childSortOrder = 0;
+    foreach ($children as $childName) {
+        $childSortOrder += 10;
+
+        $childStmt = $pdo->prepare('SELECT id FROM expense_categories WHERE name = ? AND parent_id = ?');
+        $childStmt->execute([$childName, $parentId]);
+        $childId = (int) $childStmt->fetchColumn();
+
+        if ($childId === 0) {
+            $pdo->prepare('INSERT INTO expense_categories (name, parent_id, sort_order) VALUES (?, ?, ?)')->execute([$childName, $parentId, $childSortOrder]);
+            $categoriesAdded++;
+        }
+    }
+}
+
+echo "Expense category sync: {$categoriesAdded} category row(s) added." . PHP_EOL;
 
 $existing = (int) $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
 if ($existing === 0) {
