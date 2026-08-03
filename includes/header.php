@@ -655,6 +655,7 @@ $appTitle = 'Mewmii OS';
                             <a class="nav-link<?php echo $navActive('/modules/finance/index.php'); ?>" href="/modules/finance/index.php"><i class="bi bi-receipt"></i> Expenses</a>
                             <a class="nav-link<?php echo $navActive('/modules/finance/manual_income.php'); ?>" href="/modules/finance/manual_income.php"><i class="bi bi-cash-coin"></i> Manual Income</a>
                             <a class="nav-link<?php echo $navActive('/modules/finance/bank_accounts.php'); ?>" href="/modules/finance/bank_accounts.php"><i class="bi bi-bank"></i> Bank Accounts</a>
+                            <a class="nav-link<?php echo $navActive('/modules/finance/assets.php'); ?>" href="/modules/finance/assets.php"><i class="bi bi-box-seam"></i> Assets</a>
                             <?php if (app_has_permission('finance.manage')): ?>
                                 <a class="nav-link nav-link-sub<?php echo $navActive('/modules/finance/categories.php'); ?>" href="/modules/finance/categories.php">Categories</a>
                             <?php endif; ?>

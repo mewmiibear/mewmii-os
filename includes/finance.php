@@ -14,6 +14,28 @@ const EXPENSE_STATUSES = ['draft', 'paid', 'archived'];
 const BANK_ACCOUNT_TYPES = ['bank', 'cash', 'e-wallet'];
 const MANUAL_INCOME_CATEGORIES = ['Asset Sale', 'Grant', 'Other'];
 
+/**
+ * Phase C. A fixed list held in PHP rather than a lookup table, matching how
+ * MANUAL_INCOME_CATEGORIES/BANK_ACCOUNT_TYPES already handle small closed sets in this same
+ * file - expense_categories is a real table only because that list is user-editable, which
+ * this one deliberately is not.
+ *
+ * Only two statuses: 'sold' is deliberately absent until an Asset Sale accounting flow exists
+ * to give it meaning (docs/FINANCE_ACCOUNTING_ARCHITECTURE.md §15). Disposal is terminal -
+ * there is no path back to 'in_use', matching how this codebase treats every other terminal
+ * transition (a returned asset is a new record, not a reversed status).
+ */
+const ASSET_STATUSES = ['in_use', 'disposed'];
+const ASSET_CATEGORIES = [
+    'Computing',
+    'Photography & Content',
+    'Warehouse Equipment',
+    'Packaging Equipment',
+    'Display & Furniture',
+    'Office Equipment',
+    'Other',
+];
+
 function bank_account_type_labels(): array
 {
     return [
@@ -488,6 +510,380 @@ function expense_attachments_list(PDO $pdo, int $expenseId): array
 function expense_attachment_get(PDO $pdo, int $attachmentId): ?array
 {
     $stmt = $pdo->prepare('SELECT id, expense_id, file_path, original_filename FROM expense_attachments WHERE id = ?');
+    $stmt->execute([$attachmentId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    return $row !== false ? $row : null;
+}
+
+/**
+ * ---------------------------------------------------------------------------------------
+ * Finance & Accounting Phase C - Assets.
+ *
+ * An asset register, NOT an accounting module: no depreciation, no capital allowance, no
+ * ledger entries, no balance sheet (docs/FINANCE_ACCOUNTING_ARCHITECTURE.md §6/§17). These
+ * functions track what the business owns, where it is, and who holds it. An asset purchase is
+ * never also an `expenses` row - the two are siblings, and the Expense-vs-Asset fork decides
+ * which table a purchase belongs in.
+ * ---------------------------------------------------------------------------------------
+ */
+
+function asset_status_labels(): array
+{
+    return [
+        'in_use' => 'In Use',
+        'disposed' => 'Disposed',
+    ];
+}
+
+/**
+ * Normalises a user-entered asset code: trimmed, uppercased, and empty-to-NULL. No numbering
+ * engine and no auto-generation, by explicit decision - the code is an optional internal
+ * reference the user types, so the only rules are the ones needed to keep the UNIQUE index
+ * meaningful (' ast-1 ' and 'AST-1' must not become two different codes).
+ */
+function asset_code_normalise(?string $rawCode): ?string
+{
+    $code = strtoupper(trim((string) $rawCode));
+
+    return $code !== '' ? $code : null;
+}
+
+/**
+ * True when $code is already used by a different asset. The DB's UNIQUE index is the actual
+ * guarantee (and the race-condition backstop); this exists so the normal case produces a
+ * friendly form error instead of a duplicate-key exception. Same belt-and-braces approach
+ * already used for supplier_orders.purchase_number.
+ */
+function asset_code_in_use(PDO $pdo, string $code, ?int $excludeAssetId = null): bool
+{
+    $sql = 'SELECT COUNT(*) FROM assets WHERE asset_code = ?';
+    $params = [$code];
+
+    if ($excludeAssetId !== null) {
+        $sql .= ' AND id <> ?';
+        $params[] = $excludeAssetId;
+    }
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+
+    return (int) $stmt->fetchColumn() > 0;
+}
+
+/**
+ * Shared by modules/finance/asset_create.php and asset_edit.php, same "one validator, both
+ * callers" discipline as expense_validate_form() above. $excludeAssetId is the id being edited
+ * (so an asset's own code doesn't collide with itself); null when creating.
+ *
+ * Note what is NOT validated here: `status` and `disposal_date`. Neither is settable from the
+ * create/edit forms at all - disposal is its own separate action (asset_dispose()), so there
+ * is no path by which a POST to these forms could change an asset's lifecycle state.
+ *
+ * @return array{errors: string[], data: array}
+ */
+function asset_validate_form(PDO $pdo, array $input, ?int $excludeAssetId = null): array
+{
+    $errors = [];
+
+    $data = [
+        'asset_code' => asset_code_normalise($input['asset_code'] ?? null),
+        'name' => trim((string) ($input['name'] ?? '')),
+        'category' => trim((string) ($input['category'] ?? '')),
+        'supplier_id' => isset($input['supplier_id']) && (int) $input['supplier_id'] > 0 ? (int) $input['supplier_id'] : null,
+        'bank_account_id' => isset($input['bank_account_id']) && (int) $input['bank_account_id'] > 0 ? (int) $input['bank_account_id'] : null,
+        'assigned_to' => isset($input['assigned_to']) && (int) $input['assigned_to'] > 0 ? (int) $input['assigned_to'] : null,
+        'location' => trim((string) ($input['location'] ?? '')),
+        'purchase_date' => trim((string) ($input['purchase_date'] ?? '')),
+        'purchase_amount' => (string) ($input['purchase_amount'] ?? ''),
+        'currency' => strtoupper(trim((string) ($input['currency'] ?? 'MYR'))) ?: 'MYR',
+        'exchange_rate' => trim((string) ($input['exchange_rate'] ?? '')) !== '' ? (float) $input['exchange_rate'] : null,
+        'warranty_expiry' => trim((string) ($input['warranty_expiry'] ?? '')),
+        'description' => trim((string) ($input['description'] ?? '')),
+        'notes' => trim((string) ($input['notes'] ?? '')),
+    ];
+
+    if ($data['asset_code'] !== null) {
+        if (strlen($data['asset_code']) > 30) {
+            $errors[] = 'Asset code must be 30 characters or fewer.';
+        } elseif (asset_code_in_use($pdo, $data['asset_code'], $excludeAssetId)) {
+            $errors[] = 'Asset code "' . $data['asset_code'] . '" is already used by another asset.';
+        }
+    }
+
+    if ($data['name'] === '' || strlen($data['name']) > 120) {
+        $errors[] = 'Asset name is required and must be 120 characters or fewer.';
+    }
+
+    if (!in_array($data['category'], ASSET_CATEGORIES, true)) {
+        $errors[] = 'Choose a valid category.';
+    }
+
+    if ($data['supplier_id'] !== null) {
+        $supplierStmt = $pdo->prepare('SELECT COUNT(*) FROM suppliers WHERE id = ?');
+        $supplierStmt->execute([$data['supplier_id']]);
+        if ((int) $supplierStmt->fetchColumn() === 0) {
+            $errors[] = 'Choose a valid supplier.';
+        }
+    }
+
+    if ($data['bank_account_id'] !== null && bank_account_get($pdo, $data['bank_account_id']) === null) {
+        $errors[] = 'Choose a valid bank account.';
+    }
+
+    if ($data['assigned_to'] !== null) {
+        $userStmt = $pdo->prepare('SELECT COUNT(*) FROM users WHERE id = ?');
+        $userStmt->execute([$data['assigned_to']]);
+        if ((int) $userStmt->fetchColumn() === 0) {
+            $errors[] = 'Choose a valid user to assign this asset to.';
+        }
+    }
+
+    if (strlen($data['location']) > 100) {
+        $errors[] = 'Location must be 100 characters or fewer.';
+    }
+
+    if ($data['purchase_date'] === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $data['purchase_date'])) {
+        $errors[] = 'Enter a valid purchase date.';
+    }
+
+    if (!is_numeric($data['purchase_amount']) || (float) $data['purchase_amount'] <= 0) {
+        $errors[] = 'Purchase amount must be a positive number.';
+    } else {
+        $data['purchase_amount'] = round((float) $data['purchase_amount'], 2);
+    }
+
+    if (strlen($data['currency']) > 10) {
+        $errors[] = 'Currency code must be 10 characters or fewer.';
+    }
+
+    if ($data['warranty_expiry'] !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $data['warranty_expiry'])) {
+        $errors[] = 'Enter a valid warranty expiry date, or leave it blank.';
+    }
+
+    if ($data['description'] === '' || strlen($data['description']) > 255) {
+        $errors[] = 'Description is required and must be 255 characters or fewer.';
+    }
+
+    return ['errors' => $errors, 'data' => $data];
+}
+
+/**
+ * Every new asset starts 'in_use' with a NULL disposal_date - not caller-supplied, exactly like
+ * expense_create() fixes 'draft'. Disposal is a separate, deliberate action later.
+ */
+function asset_create(PDO $pdo, array $data, ?int $userId): int
+{
+    $stmt = $pdo->prepare('
+        INSERT INTO assets (asset_code, name, category, supplier_id, bank_account_id, assigned_to, location, purchase_date, purchase_amount, currency, exchange_rate, warranty_expiry, description, notes, status, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ');
+    $stmt->execute([
+        $data['asset_code'],
+        $data['name'],
+        $data['category'],
+        $data['supplier_id'],
+        $data['bank_account_id'],
+        $data['assigned_to'],
+        $data['location'] !== '' ? $data['location'] : null,
+        $data['purchase_date'],
+        $data['purchase_amount'],
+        $data['currency'],
+        $data['exchange_rate'],
+        $data['warranty_expiry'] !== '' ? $data['warranty_expiry'] : null,
+        $data['description'],
+        $data['notes'] !== '' ? $data['notes'] : null,
+        'in_use',
+        $userId,
+    ]);
+
+    $assetId = (int) $pdo->lastInsertId();
+
+    activity_log($pdo, 'finance', 'asset_created', $assetId, 'Asset recorded: ' . $data['name'] . ' (' . $data['currency'] . ' ' . number_format((float) $data['purchase_amount'], 2) . ')');
+
+    return $assetId;
+}
+
+/**
+ * Deliberately does not touch status or disposal_date - see asset_validate_form()'s docblock.
+ */
+function asset_update(PDO $pdo, int $id, array $data): void
+{
+    $stmt = $pdo->prepare('
+        UPDATE assets
+        SET asset_code = ?, name = ?, category = ?, supplier_id = ?, bank_account_id = ?, assigned_to = ?, location = ?, purchase_date = ?, purchase_amount = ?, currency = ?, exchange_rate = ?, warranty_expiry = ?, description = ?, notes = ?
+        WHERE id = ?
+    ');
+    $stmt->execute([
+        $data['asset_code'],
+        $data['name'],
+        $data['category'],
+        $data['supplier_id'],
+        $data['bank_account_id'],
+        $data['assigned_to'],
+        $data['location'] !== '' ? $data['location'] : null,
+        $data['purchase_date'],
+        $data['purchase_amount'],
+        $data['currency'],
+        $data['exchange_rate'],
+        $data['warranty_expiry'] !== '' ? $data['warranty_expiry'] : null,
+        $data['description'],
+        $data['notes'] !== '' ? $data['notes'] : null,
+        $id,
+    ]);
+
+    activity_log($pdo, 'finance', 'asset_updated', $id, 'Asset updated: ' . $data['name']);
+}
+
+function asset_get(PDO $pdo, int $id): ?array
+{
+    $stmt = $pdo->prepare('
+        SELECT a.*, s.name AS supplier_name,
+               ba.name AS bank_account_name, ba.account_type AS bank_account_type,
+               u.name AS assigned_to_name
+        FROM assets a
+        LEFT JOIN suppliers s ON s.id = a.supplier_id
+        LEFT JOIN bank_accounts ba ON ba.id = a.bank_account_id
+        LEFT JOIN users u ON u.id = a.assigned_to
+        WHERE a.id = ?
+    ');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    return $row !== false ? $row : null;
+}
+
+/**
+ * @return array{rows: array, total_count: int, total_amount: float}
+ */
+function assets_list(PDO $pdo, array $filters = [], int $limit = 50, int $offset = 0): array
+{
+    $where = [];
+    $params = [];
+
+    $searchTerm = trim((string) ($filters['q'] ?? ''));
+    if ($searchTerm !== '') {
+        $where[] = '(a.name LIKE ? OR a.description LIKE ? OR a.asset_code LIKE ?)';
+        $like = '%' . $searchTerm . '%';
+        $params[] = $like;
+        $params[] = $like;
+        $params[] = $like;
+    }
+
+    $category = trim((string) ($filters['category'] ?? ''));
+    if ($category !== '' && in_array($category, ASSET_CATEGORIES, true)) {
+        $where[] = 'a.category = ?';
+        $params[] = $category;
+    }
+
+    $status = trim((string) ($filters['status'] ?? ''));
+    if ($status !== '' && in_array($status, ASSET_STATUSES, true)) {
+        $where[] = 'a.status = ?';
+        $params[] = $status;
+    }
+
+    $location = trim((string) ($filters['location'] ?? ''));
+    if ($location !== '') {
+        $where[] = 'a.location LIKE ?';
+        $params[] = '%' . $location . '%';
+    }
+
+    $dateFrom = trim((string) ($filters['date_from'] ?? ''));
+    if ($dateFrom !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom)) {
+        $where[] = 'a.purchase_date >= ?';
+        $params[] = $dateFrom;
+    }
+
+    $dateTo = trim((string) ($filters['date_to'] ?? ''));
+    if ($dateTo !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo)) {
+        $where[] = 'a.purchase_date <= ?';
+        $params[] = $dateTo;
+    }
+
+    $whereSql = $where !== [] ? ' WHERE ' . implode(' AND ', $where) : '';
+
+    $countStmt = $pdo->prepare("SELECT COUNT(*), COALESCE(SUM(a.purchase_amount), 0) FROM assets a{$whereSql}");
+    $countStmt->execute($params);
+    $totals = $countStmt->fetch(PDO::FETCH_NUM);
+
+    // Cast to int, never interpolated from raw input - same approach as the expenses list.
+    $limit = max(1, $limit);
+    $offset = max(0, $offset);
+
+    $stmt = $pdo->prepare("
+        SELECT a.id, a.asset_code, a.name, a.category, a.location, a.purchase_date, a.purchase_amount,
+               a.currency, a.status, s.name AS supplier_name, u.name AS assigned_to_name
+        FROM assets a
+        LEFT JOIN suppliers s ON s.id = a.supplier_id
+        LEFT JOIN users u ON u.id = a.assigned_to
+        {$whereSql}
+        ORDER BY a.purchase_date DESC, a.id DESC
+        LIMIT {$limit} OFFSET {$offset}
+    ");
+    $stmt->execute($params);
+
+    return [
+        'rows' => $stmt->fetchAll(PDO::FETCH_ASSOC),
+        'total_count' => (int) ($totals[0] ?? 0),
+        'total_amount' => (float) ($totals[1] ?? 0),
+    ];
+}
+
+/**
+ * Terminal transition: in_use -> disposed. There is no reverse function on purpose - an asset
+ * that returns to service is a new record, not an un-disposal. Callers must confirm the asset
+ * is still 'in_use' before calling (the UI hides the action once disposed); this re-checks
+ * anyway so a replayed/forged POST can't overwrite an existing disposal date.
+ */
+function asset_dispose(PDO $pdo, int $id, string $disposalDate): void
+{
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $disposalDate)) {
+        throw new InvalidArgumentException('Enter a valid disposal date.');
+    }
+
+    $stmt = $pdo->prepare("UPDATE assets SET status = 'disposed', disposal_date = ? WHERE id = ? AND status = 'in_use'");
+    $stmt->execute([$disposalDate, $id]);
+
+    if ($stmt->rowCount() === 0) {
+        throw new RuntimeException('This asset has already been disposed.');
+    }
+
+    activity_log($pdo, 'finance', 'asset_disposed', $id, 'Asset disposed on ' . $disposalDate . '.');
+}
+
+/**
+ * Mirrors expense_attachment_store() exactly, against asset_attachments. Kept as a separate
+ * function rather than generalising both into one: sharing would mean a table name assembled
+ * at runtime inside SQL, which is worse for safety and against this codebase's plain,
+ * single-purpose style (docs/FINANCE_DATABASE_DESIGN.md §8 makes the same call at table level).
+ */
+function asset_attachment_store(PDO $pdo, int $assetId, array $file, ?int $userId): void
+{
+    $stored = receipt_upload_validate_and_store($file);
+
+    $pdo->prepare('
+        INSERT INTO asset_attachments (asset_id, file_path, original_filename, file_type, uploaded_by)
+        VALUES (?, ?, ?, ?, ?)
+    ')->execute([
+        $assetId,
+        $stored['file_path'],
+        $stored['file_name'],
+        pathinfo($stored['file_path'], PATHINFO_EXTENSION),
+        $userId,
+    ]);
+}
+
+function asset_attachments_list(PDO $pdo, int $assetId): array
+{
+    $stmt = $pdo->prepare('SELECT id, file_path, original_filename, file_type, uploaded_at FROM asset_attachments WHERE asset_id = ? ORDER BY uploaded_at ASC');
+    $stmt->execute([$assetId]);
+
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function asset_attachment_get(PDO $pdo, int $attachmentId): ?array
+{
+    $stmt = $pdo->prepare('SELECT id, asset_id, file_path, original_filename FROM asset_attachments WHERE id = ?');
     $stmt->execute([$attachmentId]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
 

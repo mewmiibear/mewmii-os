@@ -226,6 +226,13 @@ const SYSTEM_HEALTH_MIGRATIONS = [
     ['label' => 'Finance Phase B (bank accounts)', 'migration' => 'migrate_finance_phase_b.php', 'table' => 'bank_accounts', 'column' => null],
     ['label' => 'Finance Phase B (expense/bank account linkage)', 'migration' => 'migrate_finance_phase_b.php', 'table' => 'expenses', 'column' => 'bank_account_id'],
     ['label' => 'Finance Phase B (manual income)', 'migration' => 'migrate_finance_phase_b.php', 'table' => 'manual_income', 'column' => null],
+    // Finance & Accounting Phase C - two new tables, no ALTER, so a plain table-existence check
+    // per table is unambiguous here (no pre-existing scaffolding to produce a false positive,
+    // unlike Phase A's `expenses`). Registered in the same change that added the migration
+    // itself, deliberately - the drift this array keeps suffering happens precisely when
+    // registration is left as a follow-up task.
+    ['label' => 'Finance Phase C (assets)', 'migration' => 'migrate_finance_phase_c.php', 'table' => 'assets', 'column' => null],
+    ['label' => 'Finance Phase C (asset attachments)', 'migration' => 'migrate_finance_phase_c.php', 'table' => 'asset_attachments', 'column' => null],
 ];
 
 // A subset of migrate_production_hardening.php's own performance indexes - grouped as one

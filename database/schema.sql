@@ -632,6 +632,72 @@ CREATE TABLE IF NOT EXISTS manual_income (
   INDEX idx_manual_income_bank_account (bank_account_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Finance & Accounting Phase C (docs/FINANCE_DATABASE_DESIGN.md) - operational asset register.
+-- An asset is NOT an expense: a purchase that retains value beyond the current period lives
+-- here instead of in `expenses`, never in both (docs/FINANCE_ACCOUNTING_ARCHITECTURE.md §6).
+-- Deliberately NOT an accounting module - no depreciation, no capital allowance, no ledger
+-- entries. This tracks what the business owns, where it is, and who holds it.
+--
+-- asset_code is optional and user-entered - no numbering engine, by explicit decision. The
+-- UNIQUE key permits many NULL rows (MariaDB does not treat NULLs as equal) while preventing
+-- two assets from sharing the same non-NULL code, which is exactly the "optional but unique
+-- when present" semantic wanted here. It is also the race-condition backstop behind the
+-- application's own pre-insert duplicate check (same belt-and-braces approach already used
+-- for supplier_orders.purchase_number).
+--
+-- assigned_to is the CUSTODIAN - which user currently holds/is responsible for the asset -
+-- not legal ownership. Every label in the UI says "Assigned To" for that reason.
+CREATE TABLE IF NOT EXISTS assets (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  asset_code VARCHAR(30) NULL,
+  name VARCHAR(120) NOT NULL,
+  category VARCHAR(30) NOT NULL,
+  supplier_id INT UNSIGNED NULL,
+  bank_account_id INT UNSIGNED NULL,
+  assigned_to INT UNSIGNED NULL,
+  location VARCHAR(100) NULL,
+  purchase_date DATE NOT NULL,
+  purchase_amount DECIMAL(12,2) NOT NULL,
+  currency VARCHAR(10) NOT NULL DEFAULT 'MYR',
+  exchange_rate DECIMAL(12,6) NULL,
+  warranty_expiry DATE NULL,
+  description VARCHAR(255) NOT NULL,
+  notes TEXT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'in_use',
+  disposal_date DATE NULL,
+  created_by INT UNSIGNED NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_assets_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE SET NULL,
+  CONSTRAINT fk_assets_bank_account FOREIGN KEY (bank_account_id) REFERENCES bank_accounts(id) ON DELETE SET NULL,
+  CONSTRAINT fk_assets_assigned_user FOREIGN KEY (assigned_to) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT fk_assets_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+  UNIQUE KEY uq_assets_asset_code (asset_code),
+  INDEX idx_assets_status (status),
+  INDEX idx_assets_purchase_date (purchase_date),
+  INDEX idx_assets_category (category),
+  INDEX idx_assets_supplier (supplier_id),
+  INDEX idx_assets_bank_account (bank_account_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Same shape and storage mechanics as expense_attachments - includes/receipt_storage.php is
+-- reused unchanged (private directory, .htaccess-denied, finfo-validated MIME, random on-disk
+-- filename); this table only records the metadata that function expects a caller to persist.
+-- Two small single-purpose tables rather than one polymorphic attachments table, matching this
+-- codebase's total absence of polymorphic-FK precedent (docs/FINANCE_DATABASE_DESIGN.md §8).
+CREATE TABLE IF NOT EXISTS asset_attachments (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  asset_id INT UNSIGNED NOT NULL,
+  file_path VARCHAR(500) NOT NULL,
+  original_filename VARCHAR(255) NOT NULL,
+  file_type VARCHAR(100) NULL,
+  uploaded_by INT UNSIGNED NULL,
+  uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_asset_attachments_asset FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE,
+  CONSTRAINT fk_asset_attachments_user FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_asset_attachments_asset (asset_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Phase 9B (Notification & Alert Center) added reference_id below - this table already
 -- existed (scaffolded, never wired up anywhere in the app until now) with everything else
 -- Phase 9B needed: type, message, read_status, created_at. reference_id is a plain nullable
