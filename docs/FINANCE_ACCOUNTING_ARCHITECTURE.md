@@ -1,6 +1,6 @@
 # Finance & Accounting — Architecture
 
-**Status:** Design only. No code, no migrations, no database changes. Nothing in this document has been implemented.
+**Status:** Design document. Phases A and B of the roadmap in §16 have since been implemented (Expense Categories/Expenses/Receipt Attachments/permissions, then Bank Accounts/Manual Income/`bank_account_id` integration) — see `docs/IMPLEMENTATION_STATUS.md` for current, authoritative implementation status. Phases C–F (Assets, Supplier Payments Rollup, Cost Classifications, Profit & Loss, Cash Flow, Budget Planning, Tax Reports) remain design-only, not yet implemented, as described below.
 **Companion documents:** `FINANCE_WORKFLOW.md`, `FINANCE_DATABASE_DESIGN.md`, `TAX_REPORTING_DESIGN.md`.
 **Method:** every claim about "what already exists" below is grounded in a full codebase audit (file:line citations in the sections that need them) — this document does not guess at what Mewmii OS already has.
 
@@ -22,7 +22,7 @@ Mewmii OS already contains a surprising amount of financial data — it has just
 | Payment gateway/transaction fees | **Zero** | No column, table, or WooCommerce-import mapping anywhere. WooCommerce's API exposes `fee_lines`; Mewmii OS's importer doesn't consume them. |
 | Expenses | **Dead scaffolding only** | `expenses` table exists in schema (`category` VARCHAR(100) free text, `amount`, `receipt_file`, `expense_date`) but has **zero application code** — no create/edit/view page, no module directory. Referenced only by a test-data-reset utility. |
 | Invoices | **Dead scaffolding only** | Same situation — `invoices` table exists, zero functional code. |
-| Assets, bank accounts, chart of accounts, tax | **Zero**, confirmed nowhere in schema, code, or prior docs | |
+| Assets, bank accounts, chart of accounts, tax | **Zero at the time of this audit** (pre-Phase-A baseline). Bank accounts are no longer zero — implemented in Phase B (`bank_accounts` table, `docs/IMPLEMENTATION_STATUS.md`). Assets, chart of accounts, and tax calculation remain zero/not implemented. | |
 | Supplier payment terms/bank details/balance | Free-text only | `suppliers.payment_terms` is a display-only VARCHAR(100), never parsed. No bank-details columns. No outstanding-balance column (only computable per-PO today). |
 | File upload conventions | Two real, distinct patterns | `includes/image_upload.php` (public, image-only, WebP conversion) vs `includes/receipt_storage.php` (private, `.htaccess`-denied, image+PDF via `finfo` MIME validation, random filenames, explicit-permission-gated streaming). |
 | Permissions | Exactly 20, confirmed no `finance.*` or `reports.*` domain | `install.php:9-30` |

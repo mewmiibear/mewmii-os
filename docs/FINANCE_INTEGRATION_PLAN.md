@@ -1,6 +1,6 @@
 # Finance Integration Plan (Pre-Phase B Design Review)
 
-Status: Design only. No schema or code changes in this document.
+Status: Design document — this document itself contains no schema/code changes. The Phase B scope it gates (§3: Bank Accounts, Manual Income, `bank_account_id` integration) has since been implemented — see `docs/IMPLEMENTATION_STATUS.md` for current, authoritative status. The module-by-module integration principles below (§2) remain the active design reference for Phases C–F, which have not started.
 
 ## 1) Integration principle
 
@@ -161,5 +161,4 @@ Multiple currencies:
 
 ---
 
-This plan is the design gate for implementation.  
-Phase B should proceed by adding Bank Accounts + Manual Income + `bank_account_id` linkage while preserving existing business logic and integration-first architecture.
+This plan was the design gate for Phase B implementation, which has since been completed (Bank Accounts, Manual Income, `bank_account_id` linkage — see `docs/IMPLEMENTATION_STATUS.md`), preserving existing business logic and integration-first architecture as designed above. It remains the design gate for Phase C onward.

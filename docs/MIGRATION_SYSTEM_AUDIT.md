@@ -3,6 +3,8 @@
 **Status:** Complete. Analysis and design only — no code, migration files, or database changes were made to produce this document, per task scope.
 **Read before this:** `docs/CURRENT_SYSTEM_AUDIT.md` §6.1/§6.5 (the finding and incident this document expands on).
 
+> **Addendum (2026-08-03) — counts below are the point-in-time figures from when this audit was written and are deliberately left unedited as the historical record.** Two migrations have been added since (`migrate_finance_phase_a.php`, `migrate_finance_phase_b.php`), bringing the total to **23**. Both were initially unregistered in `includes/system_health.php` — the exact drift failure mode §1 predicts for every new migration — and were found during a Finance Phase B readiness audit. Both are now registered (4 array rows: one for Phase A, three for Phase B), so System Health coverage is now **19 of 23** scripts. The 4 still-untracked scripts named in §2 (`migrate_sync_logs_index.php`, `migrate_webhooks.php`, `migrate_supplier_order_currency.php`, `migrate_supplier_order_purchase_number_unique.php`) are unchanged and still untracked. This addendum is itself evidence for §4/§6's core argument: a hand-maintained detection array drifts by default, and catching it depends on someone happening to audit for it.
+
 ---
 
 ## 1. Executive summary

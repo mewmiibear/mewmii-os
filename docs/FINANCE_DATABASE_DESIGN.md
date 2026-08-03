@@ -1,6 +1,6 @@
 # Finance & Accounting — Database Design
 
-**Status:** Design only. **Nothing in this document has been created — no migration file exists, no table has been added, `database/schema.sql` is untouched.** This is a proposed schema for a future implementation phase, presented for review. Column lists below are a design sketch, not a final DDL spec — exact types/constraints get finalized when this phase is actually approved for implementation.
+**Status:** Design document. The Phase A tables (`expense_categories`, `expenses`, `expense_attachments`) and Phase B tables/columns (`bank_accounts`, `manual_income`, `expenses.bank_account_id`) described below have since been created — see `database/schema.sql`, `database/migrate_finance_phase_a.php`, `database/migrate_finance_phase_b.php`, and `docs/IMPLEMENTATION_STATUS.md` for current, authoritative status. `assets`/`asset_attachments`, `budgets`, and `finance_cost_classifications` (§3, Phases C–D) remain proposed only — not yet created. Column lists below are the design sketch this was built from; refer to `database/schema.sql` for the exact, current DDL of implemented tables.
 
 ---
 

@@ -210,6 +210,22 @@ const SYSTEM_HEALTH_MIGRATIONS = [
     ['label' => 'Customer delete-webhook lifecycle (archive/anonymise)', 'migration' => 'migrate_customer_delete_lifecycle.php', 'table' => 'customers', 'column' => 'archived_at'],
     ['label' => 'Unified Outbound Job Queue', 'migration' => 'migrate_outbound_jobs.php', 'table' => 'outbound_jobs', 'column' => null],
     ['label' => 'Customer Order Resolution System', 'migration' => 'migrate_order_resolution.php', 'table' => 'resolution_requests', 'column' => null],
+    // Finance & Accounting Phase A. Deliberately checks expenses.category_id rather than the
+    // `expenses` TABLE: a pre-Phase-A database already had an `expenses` table (dead scaffolding
+    // with a free-text `category VARCHAR(100)`), so a table-existence check here would report a
+    // false "applied" on exactly the database that still needs this migration. category_id only
+    // exists on the rebuilt shape, and it is also the artifact this migration's own data-safety
+    // guard withholds if it refuses to rebuild a non-empty legacy table - so it doubles as the
+    // signal for that specific partial-application case.
+    ['label' => 'Finance Phase A (expense categories, expenses, receipt attachments)', 'migration' => 'migrate_finance_phase_a.php', 'table' => 'expenses', 'column' => 'category_id'],
+    // Finance & Accounting Phase B - three rows for one migration, following the existing
+    // two-row migrate_pricing_engine.php precedent above, because this migration spans one new
+    // table, one ALTER to a pre-existing table, and a second new table, each of which the app
+    // depends on independently (a missing manual_income breaks Manual Income; a missing
+    // expenses.bank_account_id breaks every Expense list/detail/form query).
+    ['label' => 'Finance Phase B (bank accounts)', 'migration' => 'migrate_finance_phase_b.php', 'table' => 'bank_accounts', 'column' => null],
+    ['label' => 'Finance Phase B (expense/bank account linkage)', 'migration' => 'migrate_finance_phase_b.php', 'table' => 'expenses', 'column' => 'bank_account_id'],
+    ['label' => 'Finance Phase B (manual income)', 'migration' => 'migrate_finance_phase_b.php', 'table' => 'manual_income', 'column' => null],
 ];
 
 // A subset of migrate_production_hardening.php's own performance indexes - grouped as one
