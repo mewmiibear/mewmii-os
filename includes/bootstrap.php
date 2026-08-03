@@ -297,6 +297,36 @@ function app_require_permission(string $permission): void
 }
 
 /**
+ * Unconditional 403-and-stop, for when the caller has ALREADY decided access is denied - as
+ * opposed to app_require_permission() above, which decides for itself by permission name. The
+ * two are complementary, not duplicates: this one is what a page uses when the denial condition
+ * is a value it computed earlier (e.g. a $canManage flag reused across several branches) or a
+ * business rule that isn't expressible as a single permission name.
+ *
+ * Bug fix: modules/finance/bank_accounts.php and modules/finance/manual_income.php were both
+ * written against this helper, but it was never actually defined anywhere - calling it raised
+ * "undefined function" (a fatal Error) instead of rendering a 403. Those two call sites failed
+ * closed, so no unauthorised write was ever possible, but a permission-denied POST produced a
+ * 500 and an error-log entry rather than the intended message. Defining the function here, next
+ * to its siblings, restores the behaviour both call sites already assumed, without changing
+ * either of them. The AJAX-context equivalents live in includes/ajax_helpers.php
+ * (ajax_require_permission/ajax_require_permission_html), matching the same split.
+ *
+ * Deliberately does NOT call app_require_login() - the caller has already established context
+ * and decided; re-checking login here would change what an existing call site does.
+ */
+function app_forbidden(string $message = 'Access denied.'): void
+{
+    http_response_code(403);
+
+    echo '<div class="alert alert-danger">
+            ' . app_escape($message) . '
+          </div>';
+
+    exit;
+}
+
+/**
  * Writes one row to the audit_logs table (see database/schema.sql - id, user_id, action,
  * details, ip_address, created_at). Restored in Security Hardening Phase 4C - was previously
  * a no-op stub. Signature, and every existing caller (login.php, logout.php), are unchanged -
