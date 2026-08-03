@@ -1,19 +1,43 @@
-Before completing any task:
+# Implementation Checklist
 
-☐ Architecture reviewed
+Before writing any code:
 
-☐ Database reviewed
+☐ Read AI_GUIDE.md
 
-☐ Backward compatible
+☐ Read SYSTEM.md
 
-☐ Activity Log updated
+☐ Read RULES.md
 
-☐ Queue considered
+☐ Read IMPLEMENTATION_STATUS.md
 
-☐ Documentation updated
+☐ Read CHANGELOG.md
 
-☐ No duplicate logic
+☐ Read relevant documentation
 
-☐ Performance reviewed
+☐ Audit existing implementation
 
-☐ Security reviewed
+☐ Understand business workflow
+
+☐ Understand database usage
+
+☐ Check existing reusable functions
+
+☐ Identify duplicate logic
+
+☐ Identify UX improvements
+
+☐ Produce implementation plan
+
+☐ Wait for approval
+
+After implementation:
+
+☐ Test
+
+☐ Regression check
+
+☐ Update documentation
+
+☐ Update CHANGELOG.md
+
+☐ Update IMPLEMENTATION_STATUS.md

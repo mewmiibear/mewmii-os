@@ -52,10 +52,11 @@ $offset = ($page - 1) * $perPage;
 
 $stmt = $pdo->prepare("
     SELECT e.id, e.expense_date, e.description, e.amount, e.currency, e.status, e.tax_deductible,
-           ec.name AS category_name, s.name AS supplier_name
+           ec.name AS category_name, s.name AS supplier_name, ba.name AS bank_account_name
     FROM expenses e
     INNER JOIN expense_categories ec ON ec.id = e.category_id
     LEFT JOIN suppliers s ON s.id = e.supplier_id
+    LEFT JOIN bank_accounts ba ON ba.id = e.bank_account_id
     {$whereSql}
     ORDER BY e.expense_date DESC, e.id DESC
     LIMIT {$perPage} OFFSET {$offset}
@@ -151,6 +152,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 <th>Category</th>
                 <th>Description</th>
                 <th>Supplier</th>
+                <th>Bank Account</th>
                 <th>Amount</th>
                 <th>Status</th>
                 <th></th>
@@ -163,6 +165,7 @@ require_once __DIR__ . '/../../includes/header.php';
                     <td data-label="Category"><?php echo app_escape($expense['category_name']); ?></td>
                     <td data-label="Description"><?php echo app_escape($expense['description']); ?></td>
                     <td data-label="Supplier"><?php echo app_escape($expense['supplier_name'] ?? '-'); ?></td>
+                    <td data-label="Bank Account"><?php echo app_escape($expense['bank_account_name'] ?? '-'); ?></td>
                     <td data-label="Amount"><?php echo app_escape($expense['currency']); ?> <?php echo app_escape(number_format((float) $expense['amount'], 2)); ?></td>
                     <td data-label="Status"><span class="badge <?php echo $statusBadgeClass[$expense['status']]; ?>"><?php echo app_escape($statusLabels[$expense['status']]); ?></span></td>
                     <td data-label="" class="text-end">
@@ -172,7 +175,7 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php endforeach; ?>
             <?php if ($expenses === []): ?>
                 <tr>
-                    <td colspan="7">
+                    <td colspan="8">
                         <div class="empty-state">
                             <?php if ($searchTerm !== '' || $categoryFilter !== null || $statusFilter !== null): ?>
                                 <div class="empty-state-title">No Expenses Match These Filters</div>

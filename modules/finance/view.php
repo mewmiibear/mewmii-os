@@ -103,6 +103,10 @@ require_once __DIR__ . '/../../includes/header.php';
                     <div class="fw-semibold"><?php echo app_escape($expense['supplier_name'] ?? '-'); ?></div>
                 </div>
                 <div class="col-md-4">
+                    <div class="text-muted small">Bank Account</div>
+                    <div class="fw-semibold"><?php echo app_escape($expense['bank_account_name'] ?? '-'); ?></div>
+                </div>
+                <div class="col-md-4">
                     <div class="text-muted small">Amount</div>
                     <div class="fw-semibold"><?php echo app_escape($expense['currency']); ?> <?php echo app_escape(number_format((float) $expense['amount'], 2)); ?></div>
                 </div>

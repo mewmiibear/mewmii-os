@@ -4,15 +4,115 @@ require_once __DIR__ . '/activity_log.php';
 require_once __DIR__ . '/receipt_storage.php';
 
 /**
- * Finance & Accounting Phase A (docs/FINANCE_DATABASE_DESIGN.md, docs/FINANCE_WORKFLOW.md).
- * Every function here is either a plain read/write against expenses/expense_categories/
- * expense_attachments, or a thin call into receipt_storage.php's existing upload/stream
- * functions - no business logic from Orders/Inventory/Supplier Orders is duplicated here, and
- * nothing here writes to any of those tables. Finance reads from them elsewhere (not built in
- * Phase A); Phase A only ever writes its own three tables.
+ * Finance & Accounting Phase A/B (docs/FINANCE_DATABASE_DESIGN.md, docs/FINANCE_WORKFLOW.md).
+ * This file holds Finance-owned domain logic (expenses, bank accounts, manual income,
+ * attachments). Existing business data from Orders/Inventory/Supplier Orders is read by reports
+ * layers later, never duplicated or rewritten here.
  */
 
 const EXPENSE_STATUSES = ['draft', 'paid', 'archived'];
+const BANK_ACCOUNT_TYPES = ['bank', 'cash', 'e-wallet'];
+const MANUAL_INCOME_CATEGORIES = ['Asset Sale', 'Grant', 'Other'];
+
+function bank_account_type_labels(): array
+{
+    return [
+        'bank' => 'Bank',
+        'cash' => 'Cash',
+        'e-wallet' => 'E-Wallet',
+    ];
+}
+
+function bank_account_get(PDO $pdo, int $id): ?array
+{
+    $stmt = $pdo->prepare('SELECT id, name, account_type, currency, notes, is_active FROM bank_accounts WHERE id = ?');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    return $row !== false ? $row : null;
+}
+
+function bank_accounts_list(PDO $pdo, bool $activeOnly = false): array
+{
+    $sql = 'SELECT id, name, account_type, currency, notes, is_active, created_at FROM bank_accounts';
+    if ($activeOnly) {
+        $sql .= ' WHERE is_active = 1';
+    }
+    $sql .= ' ORDER BY is_active DESC, name ASC';
+
+    return $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function bank_account_validate_form(array $input): array
+{
+    $errors = [];
+
+    $data = [
+        'name' => trim((string) ($input['name'] ?? '')),
+        'account_type' => trim((string) ($input['account_type'] ?? '')),
+        'currency' => strtoupper(trim((string) ($input['currency'] ?? 'MYR'))) ?: 'MYR',
+        'notes' => trim((string) ($input['notes'] ?? '')),
+    ];
+
+    if ($data['name'] === '' || strlen($data['name']) > 120) {
+        $errors[] = 'Account name is required and must be 120 characters or fewer.';
+    }
+
+    if (!in_array($data['account_type'], BANK_ACCOUNT_TYPES, true)) {
+        $errors[] = 'Choose a valid account type.';
+    }
+
+    if (strlen($data['currency']) > 10) {
+        $errors[] = 'Currency code must be 10 characters or fewer.';
+    }
+
+    if (strlen($data['notes']) > 255) {
+        $errors[] = 'Notes must be 255 characters or fewer.';
+    }
+
+    return ['errors' => $errors, 'data' => $data];
+}
+
+function bank_account_create(PDO $pdo, array $data): int
+{
+    $pdo->prepare('
+        INSERT INTO bank_accounts (name, account_type, currency, notes, is_active)
+        VALUES (?, ?, ?, ?, 1)
+    ')->execute([
+        $data['name'],
+        $data['account_type'],
+        $data['currency'],
+        $data['notes'] !== '' ? $data['notes'] : null,
+    ]);
+
+    $id = (int) $pdo->lastInsertId();
+    activity_log($pdo, 'finance', 'bank_account_created', $id, 'Bank account created: ' . $data['name'] . '.');
+
+    return $id;
+}
+
+function bank_account_update(PDO $pdo, int $id, array $data): void
+{
+    $pdo->prepare('
+        UPDATE bank_accounts
+        SET name = ?, account_type = ?, currency = ?, notes = ?
+        WHERE id = ?
+    ')->execute([
+        $data['name'],
+        $data['account_type'],
+        $data['currency'],
+        $data['notes'] !== '' ? $data['notes'] : null,
+        $id,
+    ]);
+
+    activity_log($pdo, 'finance', 'bank_account_updated', $id, 'Bank account updated: ' . $data['name'] . '.');
+}
+
+function bank_account_set_active(PDO $pdo, int $id, bool $isActive): void
+{
+    $pdo->prepare('UPDATE bank_accounts SET is_active = ? WHERE id = ?')->execute([$isActive ? 1 : 0, $id]);
+    activity_log($pdo, 'finance', 'bank_account_status_changed', $id, 'Bank account ' . ($isActive ? 'activated' : 'deactivated') . '.');
+}
 
 /**
  * Every active category, parent-first then its children immediately after (matches how the
@@ -64,6 +164,7 @@ function expense_validate_form(PDO $pdo, array $input): array
     $data = [
         'category_id' => (int) ($input['category_id'] ?? 0),
         'supplier_id' => isset($input['supplier_id']) && (int) $input['supplier_id'] > 0 ? (int) $input['supplier_id'] : null,
+        'bank_account_id' => isset($input['bank_account_id']) && (int) $input['bank_account_id'] > 0 ? (int) $input['bank_account_id'] : null,
         'expense_date' => trim((string) ($input['expense_date'] ?? '')),
         'description' => trim((string) ($input['description'] ?? '')),
         'amount' => (string) ($input['amount'] ?? ''),
@@ -76,6 +177,10 @@ function expense_validate_form(PDO $pdo, array $input): array
 
     if ($data['category_id'] < 1 || expense_category_get($pdo, $data['category_id']) === null) {
         $errors[] = 'Choose a valid category.';
+    }
+
+    if ($data['bank_account_id'] !== null && bank_account_get($pdo, $data['bank_account_id']) === null) {
+        $errors[] = 'Choose a valid bank account.';
     }
 
     if ($data['expense_date'] === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $data['expense_date'])) {
@@ -115,12 +220,13 @@ function expense_validate_form(PDO $pdo, array $input): array
 function expense_create(PDO $pdo, array $data, ?int $userId): int
 {
     $stmt = $pdo->prepare('
-        INSERT INTO expenses (category_id, supplier_id, expense_date, description, amount, currency, exchange_rate, payment_method, reference_number, tax_deductible, status, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO expenses (category_id, supplier_id, bank_account_id, expense_date, description, amount, currency, exchange_rate, payment_method, reference_number, tax_deductible, status, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ');
     $stmt->execute([
         $data['category_id'],
         $data['supplier_id'],
+        $data['bank_account_id'],
         $data['expense_date'],
         $data['description'],
         $data['amount'],
@@ -144,12 +250,13 @@ function expense_update(PDO $pdo, int $id, array $data): void
 {
     $stmt = $pdo->prepare('
         UPDATE expenses
-        SET category_id = ?, supplier_id = ?, expense_date = ?, description = ?, amount = ?, currency = ?, exchange_rate = ?, payment_method = ?, reference_number = ?, tax_deductible = ?
+        SET category_id = ?, supplier_id = ?, bank_account_id = ?, expense_date = ?, description = ?, amount = ?, currency = ?, exchange_rate = ?, payment_method = ?, reference_number = ?, tax_deductible = ?
         WHERE id = ?
     ');
     $stmt->execute([
         $data['category_id'],
         $data['supplier_id'],
+        $data['bank_account_id'],
         $data['expense_date'],
         $data['description'],
         $data['amount'],
@@ -167,16 +274,169 @@ function expense_update(PDO $pdo, int $id, array $data): void
 function expense_get(PDO $pdo, int $id): ?array
 {
     $stmt = $pdo->prepare('
-        SELECT e.*, ec.name AS category_name, ec.parent_id AS category_parent_id, s.name AS supplier_name
+        SELECT e.*, ec.name AS category_name, ec.parent_id AS category_parent_id, s.name AS supplier_name,
+               ba.name AS bank_account_name, ba.account_type AS bank_account_type
         FROM expenses e
         INNER JOIN expense_categories ec ON ec.id = e.category_id
         LEFT JOIN suppliers s ON s.id = e.supplier_id
+        LEFT JOIN bank_accounts ba ON ba.id = e.bank_account_id
         WHERE e.id = ?
     ');
     $stmt->execute([$id]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
     return $row !== false ? $row : null;
+}
+
+function manual_income_validate_form(PDO $pdo, array $input): array
+{
+    $errors = [];
+
+    $data = [
+        'income_date' => trim((string) ($input['income_date'] ?? '')),
+        'description' => trim((string) ($input['description'] ?? '')),
+        'amount' => (string) ($input['amount'] ?? ''),
+        'currency' => strtoupper(trim((string) ($input['currency'] ?? 'MYR'))) ?: 'MYR',
+        'exchange_rate' => trim((string) ($input['exchange_rate'] ?? '')) !== '' ? (float) $input['exchange_rate'] : null,
+        'category' => trim((string) ($input['category'] ?? '')),
+        'bank_account_id' => isset($input['bank_account_id']) && (int) $input['bank_account_id'] > 0 ? (int) $input['bank_account_id'] : null,
+        'reference_number' => trim((string) ($input['reference_number'] ?? '')),
+    ];
+
+    if ($data['income_date'] === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $data['income_date'])) {
+        $errors[] = 'Enter a valid income date.';
+    }
+
+    if ($data['description'] === '' || strlen($data['description']) > 255) {
+        $errors[] = 'Description is required and must be 255 characters or fewer.';
+    }
+
+    if (!is_numeric($data['amount']) || (float) $data['amount'] <= 0) {
+        $errors[] = 'Amount must be a positive number.';
+    } else {
+        $data['amount'] = round((float) $data['amount'], 2);
+    }
+
+    if (strlen($data['currency']) > 10) {
+        $errors[] = 'Currency code must be 10 characters or fewer.';
+    }
+
+    if (!in_array($data['category'], MANUAL_INCOME_CATEGORIES, true)) {
+        $errors[] = 'Choose a valid income category.';
+    }
+
+    if ($data['bank_account_id'] !== null && bank_account_get($pdo, $data['bank_account_id']) === null) {
+        $errors[] = 'Choose a valid bank account.';
+    }
+
+    if (strlen($data['reference_number']) > 100) {
+        $errors[] = 'Reference number must be 100 characters or fewer.';
+    }
+
+    return ['errors' => $errors, 'data' => $data];
+}
+
+function manual_income_create(PDO $pdo, array $data, ?int $userId): int
+{
+    $pdo->prepare('
+        INSERT INTO manual_income (income_date, description, amount, currency, exchange_rate, category, bank_account_id, reference_number, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ')->execute([
+        $data['income_date'],
+        $data['description'],
+        $data['amount'],
+        $data['currency'],
+        $data['exchange_rate'],
+        $data['category'],
+        $data['bank_account_id'],
+        $data['reference_number'] !== '' ? $data['reference_number'] : null,
+        $userId,
+    ]);
+
+    $id = (int) $pdo->lastInsertId();
+    activity_log($pdo, 'finance', 'manual_income_created', $id, 'Manual income recorded: ' . $data['description'] . ' (' . $data['currency'] . ' ' . number_format($data['amount'], 2) . ')');
+
+    return $id;
+}
+
+function manual_income_update(PDO $pdo, int $id, array $data): void
+{
+    $pdo->prepare('
+        UPDATE manual_income
+        SET income_date = ?, description = ?, amount = ?, currency = ?, exchange_rate = ?, category = ?, bank_account_id = ?, reference_number = ?
+        WHERE id = ?
+    ')->execute([
+        $data['income_date'],
+        $data['description'],
+        $data['amount'],
+        $data['currency'],
+        $data['exchange_rate'],
+        $data['category'],
+        $data['bank_account_id'],
+        $data['reference_number'] !== '' ? $data['reference_number'] : null,
+        $id,
+    ]);
+
+    activity_log($pdo, 'finance', 'manual_income_updated', $id, 'Manual income updated: ' . $data['description'] . '.');
+}
+
+function manual_income_get(PDO $pdo, int $id): ?array
+{
+    $stmt = $pdo->prepare('
+        SELECT mi.*, ba.name AS bank_account_name, ba.account_type AS bank_account_type
+        FROM manual_income mi
+        LEFT JOIN bank_accounts ba ON ba.id = mi.bank_account_id
+        WHERE mi.id = ?
+    ');
+    $stmt->execute([$id]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    return $row !== false ? $row : null;
+}
+
+function manual_income_list(PDO $pdo, array $filters = []): array
+{
+    $where = [];
+    $params = [];
+
+    $searchTerm = trim((string) ($filters['q'] ?? ''));
+    if ($searchTerm !== '') {
+        $where[] = '(mi.description LIKE ? OR mi.reference_number LIKE ?)';
+        $like = '%' . $searchTerm . '%';
+        $params[] = $like;
+        $params[] = $like;
+    }
+
+    $category = trim((string) ($filters['category'] ?? ''));
+    if ($category !== '' && in_array($category, MANUAL_INCOME_CATEGORIES, true)) {
+        $where[] = 'mi.category = ?';
+        $params[] = $category;
+    }
+
+    $dateFrom = trim((string) ($filters['date_from'] ?? ''));
+    if ($dateFrom !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom)) {
+        $where[] = 'mi.income_date >= ?';
+        $params[] = $dateFrom;
+    }
+
+    $dateTo = trim((string) ($filters['date_to'] ?? ''));
+    if ($dateTo !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo)) {
+        $where[] = 'mi.income_date <= ?';
+        $params[] = $dateTo;
+    }
+
+    $whereSql = $where !== [] ? ' WHERE ' . implode(' AND ', $where) : '';
+
+    $stmt = $pdo->prepare("
+        SELECT mi.*, ba.name AS bank_account_name, ba.account_type AS bank_account_type
+        FROM manual_income mi
+        LEFT JOIN bank_accounts ba ON ba.id = mi.bank_account_id
+        {$whereSql}
+        ORDER BY mi.income_date DESC, mi.id DESC
+    ");
+    $stmt->execute($params);
+
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
 /**

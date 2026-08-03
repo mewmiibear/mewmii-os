@@ -1,240 +1,91 @@
-# AGENTS.md
-
-Project:
-Mewmii OS
+AGENTS.md
 
 Purpose
 
-This document defines the responsibilities of every AI agent working on Mewmii OS.
+Rules for AI agents working on Mewmii OS.
 
-All agents MUST follow the Development Handbook.
+Priority:
 
-No agent may bypass architecture decisions.
+1. Preserve existing business logic
+2. Maintain data integrity
+3. Improve architecture
+4. Improve user workflow
 
-Every implementation must preserve data integrity and backward compatibility.
 
---------------------------------------------------
-GLOBAL RULES
---------------------------------------------------
+================================================
 
-Every agent MUST:
+MANDATORY PROCESS
 
-• Read CLAUDE.md first.
+Every task:
 
-• Read relevant documentation under /docs.
+1. Understand requirement
+2. Inspect existing implementation
+3. Identify affected modules
+4. Propose solution
+5. Wait for approval
+6. Implement
+7. Test
+8. Document
 
-• Understand the current implementation before proposing changes.
 
-• Explain the implementation plan before writing code.
+================================================
 
-• Never introduce duplicate business logic.
+ARCHITECTURE RULES
 
-• Never perform destructive database changes.
+Agents MUST:
 
-• Never remove historical business records.
+• Read CLAUDE.md first
+• Read relevant docs
+• Understand current code before changes
+• Reuse existing systems
+• Avoid duplicate logic
+• Preserve backward compatibility
 
-• Never bypass Services.
 
-• Never place SQL inside UI pages.
+================================================
 
-• Always update documentation when architecture changes.
+DATABASE RULES
 
-• Consider performance before implementing features.
+• No destructive changes
+• No deleting business records
+• All schema changes require migration
+• Maintain historical data
+• Consider performance and indexing
 
---------------------------------------------------
-WORKFLOW
---------------------------------------------------
 
-Every task follows this order.
+================================================
 
-1. Analyse
+CODE RULES
 
-2. Review existing implementation
+• Business logic belongs in Services
+• UI handles presentation only
+• SQL access follows existing architecture
+• Validate inputs
+• Secure outputs
 
-3. Design solution
 
-4. Wait for approval
+================================================
 
-5. Implement
+ERP PRINCIPLES
 
-6. Test
+Always consider:
 
-7. Document
+• Inventory accuracy
+• Financial correctness
+• Audit history
+• Multi-supplier support
+• Future scalability
 
-Never skip steps.
 
---------------------------------------------------
-AGENT: SOFTWARE ARCHITECT
---------------------------------------------------
+================================================
 
-Responsibilities
+DONE CRITERIA
 
-Design system architecture.
+Feature complete only when:
 
-Review module dependencies.
-
-Design database relationships.
-
-Design APIs.
-
-Design Queue architecture.
-
-Design Event architecture.
-
-Review scalability.
-
-Never write production code before architecture is approved.
-
---------------------------------------------------
-AGENT: BACKEND ENGINEER
---------------------------------------------------
-
-Responsibilities
-
-Implement Services.
-
-Implement Repositories.
-
-Implement APIs.
-
-Implement Queue jobs.
-
-Implement Event handlers.
-
-Implement business rules.
-
-Never create business logic inside Controllers.
-
-Never access database directly from UI.
-
---------------------------------------------------
-AGENT: DATABASE ENGINEER
---------------------------------------------------
-
-Responsibilities
-
-Design schema.
-
-Create migrations.
-
-Design indexes.
-
-Review query performance.
-
-Ensure referential integrity.
-
-Never modify production schema without migration.
-
-Never delete business data.
-
---------------------------------------------------
-AGENT: UI ENGINEER
---------------------------------------------------
-
-Responsibilities
-
-Build reusable UI components.
-
-Follow Design System.
-
-Reuse existing components.
-
-Maintain responsive layout.
-
-Never implement business logic.
-
-Never access database directly.
-
---------------------------------------------------
-AGENT: PERFORMANCE ENGINEER
---------------------------------------------------
-
-Responsibilities
-
-Identify bottlenecks.
-
-Reduce database queries.
-
-Optimise page load.
-
-Improve caching.
-
-Improve Queue performance.
-
-Improve memory usage.
-
-Never optimise by sacrificing correctness.
-
---------------------------------------------------
-AGENT: SECURITY ENGINEER
---------------------------------------------------
-
-Responsibilities
-
-Validate inputs.
-
-Escape outputs.
-
-Review permissions.
-
-Review authentication.
-
-Review CSRF.
-
-Review SQL injection risks.
-
-Review XSS risks.
-
---------------------------------------------------
-AGENT: QA ENGINEER
---------------------------------------------------
-
-Responsibilities
-
-Review implementation.
-
-Test edge cases.
-
-Verify workflows.
-
-Verify backward compatibility.
-
-Review performance.
-
-Review documentation.
-
-No feature is complete without QA approval.
-
---------------------------------------------------
-DEFINITION OF DONE
---------------------------------------------------
-
-A task is complete only if:
-
-Architecture reviewed.
-
-Database reviewed.
-
-Business rules implemented.
-
-Activity Log updated.
-
-Queue considered.
-
-Performance reviewed.
-
-Documentation updated.
-
-Backward compatibility verified.
-
-No duplicated logic introduced.
-
---------------------------------------------------
-FINAL PRINCIPLE
---------------------------------------------------
-
-Build Mewmii OS as a long-term ERP platform.
-
-Every decision should make future expansion easier.
-
-Never optimise for short-term convenience at the expense of architecture.
+✓ Tested
+✓ Documented
+✓ No regression
+✓ Database reviewed
+✓ Performance considered
+✓ Activity log updated

@@ -21,6 +21,7 @@ $error = '';
 $form = [
     'category_id' => (string) $expense['category_id'],
     'supplier_id' => $expense['supplier_id'] !== null ? (string) $expense['supplier_id'] : '',
+    'bank_account_id' => $expense['bank_account_id'] !== null ? (string) $expense['bank_account_id'] : '',
     'expense_date' => $expense['expense_date'],
     'description' => $expense['description'],
     'amount' => (string) $expense['amount'],
@@ -58,6 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $categories = expense_categories_flat($pdo);
 $suppliers = $pdo->query('SELECT id, name FROM suppliers ORDER BY name ASC')->fetchAll(PDO::FETCH_ASSOC);
+$bankAccounts = bank_accounts_list($pdo, false);
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
@@ -104,6 +106,17 @@ require_once __DIR__ . '/../../includes/header.php';
                 <label class="form-label">Date</label>
                 <input type="date" class="form-control" name="expense_date" value="<?php echo app_escape($form['expense_date']); ?>" required>
                 <div class="invalid-feedback">Enter a valid date.</div>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Bank Account (optional)</label>
+                <select class="form-select" name="bank_account_id">
+                    <option value="">None</option>
+                    <?php foreach ($bankAccounts as $account): ?>
+                        <option value="<?php echo (int) $account['id']; ?>" <?php echo $form['bank_account_id'] === (string) $account['id'] ? 'selected' : ''; ?>>
+                            <?php echo app_escape($account['name']); ?> (<?php echo app_escape(strtoupper((string) $account['account_type'])); ?><?php echo !empty($account['currency']) ? ', ' . app_escape($account['currency']) : ''; ?>)<?php echo (int) $account['is_active'] === 0 ? ' [Inactive]' : ''; ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
             </div>
             <div class="col-12">
                 <label class="form-label">Description</label>

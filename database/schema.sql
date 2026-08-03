@@ -550,15 +550,29 @@ CREATE TABLE IF NOT EXISTS expense_categories (
   INDEX idx_expense_categories_parent (parent_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Finance & Accounting Phase B (docs/FINANCE_DATABASE_DESIGN.md) - reference accounts only.
+-- This is NOT statement import/reconciliation/sync; just explicit transaction-account tagging.
+CREATE TABLE IF NOT EXISTS bank_accounts (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(120) NOT NULL,
+  account_type VARCHAR(20) NOT NULL,
+  currency VARCHAR(10) NOT NULL DEFAULT 'MYR',
+  notes VARCHAR(255) NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_bank_accounts_active_name (is_active, name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Lifecycle: draft -> paid -> archived (docs/FINANCE_ACCOUNTING_ARCHITECTURE.md §15). Draft and
 -- Paid both count toward Profit & Loss (accrual, by expense_date); only Paid counts toward Cash
 -- Flow (cash basis). Archived is a visibility state only, never a financial exclusion.
--- bank_account_id is intentionally NOT part of Phase A - added by Phase B's migration once
--- the bank_accounts table exists (docs/FINANCE_ACCOUNTING_ARCHITECTURE.md §16).
+-- Phase B adds bank_account_id once bank_accounts exists; nullable by design so every
+-- pre-Phase-B expense remains valid without data backfill.
 CREATE TABLE IF NOT EXISTS expenses (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   category_id INT UNSIGNED NOT NULL,
   supplier_id INT UNSIGNED NULL,
+  bank_account_id INT UNSIGNED NULL,
   expense_date DATE NOT NULL,
   description VARCHAR(255) NOT NULL,
   amount DECIMAL(12,2) NOT NULL,
@@ -573,9 +587,11 @@ CREATE TABLE IF NOT EXISTS expenses (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_expenses_category FOREIGN KEY (category_id) REFERENCES expense_categories(id),
   CONSTRAINT fk_expenses_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE SET NULL,
+  CONSTRAINT fk_expenses_bank_account FOREIGN KEY (bank_account_id) REFERENCES bank_accounts(id) ON DELETE SET NULL,
   CONSTRAINT fk_expenses_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
   INDEX idx_expenses_date (expense_date),
   INDEX idx_expenses_category (category_id),
+  INDEX idx_expenses_bank_account (bank_account_id),
   INDEX idx_expenses_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -593,6 +609,27 @@ CREATE TABLE IF NOT EXISTS expense_attachments (
   CONSTRAINT fk_expense_attachments_expense FOREIGN KEY (expense_id) REFERENCES expenses(id) ON DELETE CASCADE,
   CONSTRAINT fk_expense_attachments_user FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE SET NULL,
   INDEX idx_expense_attachments_expense (expense_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Manual Income is intentionally narrow: non-order income only.
+CREATE TABLE IF NOT EXISTS manual_income (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  income_date DATE NOT NULL,
+  description VARCHAR(255) NOT NULL,
+  amount DECIMAL(12,2) NOT NULL,
+  currency VARCHAR(10) NOT NULL DEFAULT 'MYR',
+  exchange_rate DECIMAL(12,6) NULL,
+  category VARCHAR(30) NOT NULL,
+  bank_account_id INT UNSIGNED NULL,
+  reference_number VARCHAR(100) NULL,
+  created_by INT UNSIGNED NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_manual_income_bank_account FOREIGN KEY (bank_account_id) REFERENCES bank_accounts(id) ON DELETE SET NULL,
+  CONSTRAINT fk_manual_income_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_manual_income_date (income_date),
+  INDEX idx_manual_income_category (category),
+  INDEX idx_manual_income_bank_account (bank_account_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Phase 9B (Notification & Alert Center) added reference_id below - this table already
