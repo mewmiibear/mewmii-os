@@ -4,6 +4,28 @@ All notable changes to Mewmii OS are recorded here, newest first.
 
 ## Unreleased
 
+### SO-A2 — Variation-level landed cost for the Inventory Report
+
+**Reason:** `modules/reports/inventory.php` values **sellable units** (a variable product contributes one unit per variation) but applied a single **product-level** landed cost to every variation of a product. A variation bought at a different price, or carrying its own shipping allocation, was valued at a blended figure that matched none of them. Two further defects were invisible at product grain: the costing engine never consulted `product_variations.cost_price` (D4), and margin used the parent's `selling_price` even for variations with `price_mode = 'custom'` (D5).
+
+**Measured first (SO-A2A):** `cli/so_a2a_variation_cost_impact.php`, read-only, over 53 products / 155 sellable units (145 variations). **5 variations changed across 2 products, all increases, 0 became incomputable, simple products unchanged.** Affected variations rose 67–96% (14.40→24.00 on four Sanrio variations, 21.54→42.24 on a Tamagotchi variation), entirely from shipping/additional costs resolving per variation rather than per product.
+
+**Added (`includes/product_cost.php`):** `product_cost_calculate_units_batch(PDO, array $units): array`, keyed `"productId:variationId"` (null variation → 0, the same convention `catalog_sellable_units()` and `mewmii_inventory.variation_key` already use). Unit-grain Lookup A (newest non-cancelled PO line for that exact product+variation — same rules as SO-A1, one grain finer) and unit-grain Lookup B (shipping + additional costs per product+variation). **No cross-variation inheritance:** a variation without its own allocation reports "not configured" rather than borrowing a sibling's, since attributing one variation's shipment costs to another is the exact error this removes. Master fallback goes through `variation_effective_cost()` (D4); selling price through `variation_effective_price()` + `catalog_product_effective_price()` (D5) — those helpers are **reused, never reimplemented**, keeping pricing rules in one place. `product_cost_build_breakdown()` is reused unchanged, so the Landed Cost formula still exists exactly once. A `require_once` for `product_variations.php` was added; no cycle (that file pulls `inventory.php`/`product_images.php`, neither of which pulls this one).
+
+**Wired (`modules/reports/inventory.php`):** switched to the unit-grain call and the `productId:variationId` lookup key. Still one batched call — the N+1 avoidance from Phase 7G is intact. **`reports/margins.php` and `purchasing/index.php` deliberately remain on `product_cost_calculate_batch()`** — both roll stock up per product, so product grain is correct for them.
+
+**Unchanged:** `product_cost_calculate_batch()` (signature, `product_id =>` keying, all return keys), `product_cost_history_capture()`, `notifications.php`, supplier order workflow, inventory ledger. **No database migration.**
+
+**Three caveats worth recording:**
+
+1. **Inventory valuation moved RM 0.00 — and that is not evidence the two methods agree.** Valuation is `on_hand × landed_cost`, and all 5 affected variations hold **zero stock**; catalogue-wide stock is near zero (only 10 of 155 units carry a shipping allocation). The change was barely exercised. **Expect Inventory Value to move by the 67–96% shown above when any affected variation is restocked** — that is the fix working.
+2. **D4 is implemented but currently dormant.** No variation in the catalogue has its own `cost_price` set, so all 138 fallback units resolve to the parent's `product_cost`. It takes effect the first time a variation-level cost is entered.
+3. **The −1.24 pp average margin change measured by SO-A2A is not surfaced anywhere.** It comes from D5 across 62 units with custom selling prices; `inventory.php` reads only `landed_cost` and `is_estimated`, and `margins.php` stays product-level.
+
+**Verification:** `php -l` clean on both changed files. 13 DB-free logic tests pass, including the R2 double-conversion guard (¥1000 @ 0.031 stays RM100 on the PO path, converts to RM31 on the master path), both D4 fallback branches, and D5 custom-vs-inherit pricing. Production run: **SO-A0 re-run reported products changed 0 of 136**, proving the new function and its `require_once` left the product-level path untouched; SO-A2A reported became-incomputable 0 and simple-product diff 0.
+
+**Not in scope, not begun:** SO-A2.3 (per-variation Cost Breakdown on `products/view.php`) and SO-A2.4 (D6 — `product_cost_history_list_batch()` keys by `product_id` and ignores `variation_id`, so a variable product's "latest snapshot" can belong to an unrelated variation; it touches `notifications.php` and needs separate approval).
+
 ### SO-A1 — Landed cost now uses the actual purchase price, not the product master cost
 
 **Reason:** `product_cost_build_breakdown()` computed Converted Supplier Cost from `products.product_cost` — the master record — while sourcing Shipping Allocation and Additional Costs from the real supplier order line. The price actually negotiated and paid (`supplier_order_items.unit_cost_myr` / `supplier_price`) was never read by the costing engine at all, so every landed cost, margin figure, and inventory valuation reflected a maintained field rather than reality.
