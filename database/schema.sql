@@ -1176,12 +1176,23 @@ CREATE TABLE IF NOT EXISTS supplier_order_payments (
   amount DECIMAL(12,2) NOT NULL,
   payment_date DATE NULL,
   payment_method VARCHAR(50) NULL,
+  -- SO-B - which account the money actually left, for reconciliation-readiness. Same shape and
+  -- rationale as expenses.bank_account_id / manual_income.bank_account_id (Finance Phase B):
+  -- nullable so no historical payment needs backfilling, ON DELETE SET NULL so removing an
+  -- account never destroys a payment record. Complementary to payment_method above, not a
+  -- replacement - bank_account_id points at a known account, payment_method stays as the
+  -- lighter free-text fallback for a one-off not worth registering. This is TAGGING ONLY: no
+  -- balance is stored or derived from it, and paid/remaining are still computed live from
+  -- SUM(amount) exactly as before.
+  bank_account_id INT UNSIGNED NULL,
   notes VARCHAR(255) NULL,
   created_by INT UNSIGNED NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_supplier_order_payments_order FOREIGN KEY (supplier_order_id) REFERENCES supplier_orders(id) ON DELETE CASCADE,
+  CONSTRAINT fk_supplier_order_payments_bank_account FOREIGN KEY (bank_account_id) REFERENCES bank_accounts(id) ON DELETE SET NULL,
   CONSTRAINT fk_supplier_order_payments_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
-  INDEX idx_supplier_order_payments_order (supplier_order_id)
+  INDEX idx_supplier_order_payments_order (supplier_order_id),
+  INDEX idx_supplier_order_payments_bank_account (bank_account_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Simple product: inventory row has variation_id = NULL (one row per product).

@@ -5,6 +5,9 @@ require_once __DIR__ . '/../../includes/supplier_orders.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
 require_once __DIR__ . '/../../includes/customer_storage.php';
 require_once __DIR__ . '/../../includes/orders.php';
+// SO-B - bank_accounts_list() for the optional payment-account picker. Reused rather than
+// re-querying bank_accounts here, so the account list stays defined in one place.
+require_once __DIR__ . '/../../includes/finance.php';
 app_require_permission('supplier-orders.view');
 
 $appTitle = 'Supplier Order Detail';
@@ -137,6 +140,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $paymentDate = trim((string) ($_POST['payment_date'] ?? ''));
             $paymentMethod = trim((string) ($_POST['payment_method'] ?? ''));
             $paymentNotes = trim((string) ($_POST['notes'] ?? ''));
+            // SO-B - optional; supplier_order_add_payment() re-validates it exists.
+            $paymentBankAccountId = isset($_POST['bank_account_id']) && (int) $_POST['bank_account_id'] > 0
+                ? (int) $_POST['bank_account_id']
+                : null;
 
             if ($amount <= 0) {
                 $error = 'Enter a payment amount greater than zero.';
@@ -150,7 +157,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $amount,
                         $paymentDate !== '' ? $paymentDate : null,
                         $paymentMethod !== '' ? $paymentMethod : null,
-                        $paymentNotes !== '' ? $paymentNotes : null
+                        $paymentNotes !== '' ? $paymentNotes : null,
+                        $paymentBankAccountId
                     );
                     activity_log($pdo, 'supplier_orders', 'payment_added', $orderId, 'Added payment of RM' . number_format($amount, 2) . ' to ' . $order['purchase_number']);
                     $pdo->commit();
@@ -412,6 +420,7 @@ $totalPurchaseAmount = $orderTotal + (float) $order['shipping_fee'];
 $paidAmount = supplier_order_paid_amount($pdo, $orderId);
 $remainingAmount = $totalPurchaseAmount - $paidAmount;
 $payments = supplier_order_list_payments($pdo, $orderId);
+$paymentBankAccounts = bank_accounts_list($pdo, false);
 
 $canManage = app_has_permission('supplier-orders.manage');
 $nextStatus = supplier_order_status_next((string) $order['status']);
@@ -938,6 +947,9 @@ require_once __DIR__ . '/../../includes/header.php';
                                     <?php if (!empty($payment['payment_method'])): ?>
                                         &middot; <?php echo app_escape($payment['payment_method']); ?>
                                     <?php endif; ?>
+                                    <?php if (!empty($payment['bank_account_name'])): ?>
+                                        &middot; <?php echo app_escape($payment['bank_account_name']); ?>
+                                    <?php endif; ?>
                                     <?php if (!empty($payment['user_name'])): ?>
                                         &middot; <?php echo app_escape($payment['user_name']); ?>
                                     <?php endif; ?>
@@ -977,6 +989,17 @@ require_once __DIR__ . '/../../includes/header.php';
                     <div class="col-md-3">
                         <label class="form-label small mb-1">Method</label>
                         <input type="text" class="form-control form-control-sm" name="payment_method" placeholder="e.g. Bank Transfer">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small mb-1">Account (optional)</label>
+                        <select class="form-select form-select-sm" name="bank_account_id">
+                            <option value="">None</option>
+                            <?php foreach ($paymentBankAccounts as $account): ?>
+                                <option value="<?php echo (int) $account['id']; ?>">
+                                    <?php echo app_escape($account['name']); ?> (<?php echo app_escape(strtoupper((string) $account['account_type'])); ?><?php echo !empty($account['currency']) ? ', ' . app_escape($account['currency']) : ''; ?>)<?php echo (int) $account['is_active'] === 0 ? ' [Inactive]' : ''; ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
                     <div class="col-md-3">
                         <label class="form-label small mb-1">Notes</label>

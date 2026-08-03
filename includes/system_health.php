@@ -250,6 +250,8 @@ const SYSTEM_HEALTH_MIGRATIONS = [
     // MySQL's auto-name `purchase_number` from the inline UNIQUE. See
     // system_health_unique_index_exists() for why the check is column-based instead.
     ['label' => 'Supplier Order purchase number uniqueness', 'migration' => 'migrate_supplier_order_purchase_number_unique.php', 'table' => 'supplier_orders', 'column' => null, 'unique_column' => 'purchase_number'],
+    // SO-B - supplier payment account tagging. Registered in the same change as the migration.
+    ['label' => 'Supplier payment bank account link', 'migration' => 'migrate_supplier_order_payment_bank_account.php', 'table' => 'supplier_order_payments', 'column' => 'bank_account_id'],
 ];
 
 // A subset of migrate_production_hardening.php's own performance indexes - grouped as one

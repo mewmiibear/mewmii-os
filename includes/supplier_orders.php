@@ -141,8 +141,10 @@ function supplier_order_paid_amount(PDO $pdo, int $orderId): float
 function supplier_order_list_payments(PDO $pdo, int $orderId): array
 {
     $stmt = $pdo->prepare('
-        SELECT sop.id, sop.amount, sop.payment_date, sop.payment_method, sop.notes, sop.created_at, u.name AS user_name
+        SELECT sop.id, sop.amount, sop.payment_date, sop.payment_method, sop.notes, sop.created_at,
+               sop.bank_account_id, ba.name AS bank_account_name, u.name AS user_name
         FROM supplier_order_payments sop
+        LEFT JOIN bank_accounts ba ON ba.id = sop.bank_account_id
         LEFT JOIN users u ON u.id = sop.created_by
         WHERE sop.supplier_order_id = ?
         ORDER BY sop.payment_date DESC, sop.id DESC
@@ -157,16 +159,31 @@ function supplier_order_list_payments(PDO $pdo, int $orderId): array
  * supplier_orders' own total (estimated_cost/shipping_fee). Caller is responsible for the
  * surrounding transaction.
  */
-function supplier_order_add_payment(PDO $pdo, int $orderId, float $amount, ?string $paymentDate, ?string $paymentMethod, ?string $notes): void
+/**
+ * SO-B - $bankAccountId is an OPTIONAL trailing parameter (which account the money left from),
+ * defaulted to null so every existing caller behaves exactly as before. Validated here rather
+ * than trusted: a non-existent id is stored as NULL instead of raising an FK error mid-payment,
+ * since a mistyped account must never block recording a real payment that actually happened.
+ * Tagging only - nothing derives a balance from it.
+ */
+function supplier_order_add_payment(PDO $pdo, int $orderId, float $amount, ?string $paymentDate, ?string $paymentMethod, ?string $notes, ?int $bankAccountId = null): void
 {
     if ($amount <= 0) {
         throw new RuntimeException('Payment amount must be greater than zero.');
     }
 
+    if ($bankAccountId !== null) {
+        $accountStmt = $pdo->prepare('SELECT COUNT(*) FROM bank_accounts WHERE id = ?');
+        $accountStmt->execute([$bankAccountId]);
+        if ((int) $accountStmt->fetchColumn() === 0) {
+            $bankAccountId = null;
+        }
+    }
+
     $pdo->prepare('
-        INSERT INTO supplier_order_payments (supplier_order_id, amount, payment_date, payment_method, notes, created_by)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ')->execute([$orderId, round($amount, 2), $paymentDate, $paymentMethod, $notes, $_SESSION['user_id'] ?? null]);
+        INSERT INTO supplier_order_payments (supplier_order_id, amount, payment_date, payment_method, bank_account_id, notes, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ')->execute([$orderId, round($amount, 2), $paymentDate, $paymentMethod, $bankAccountId, $notes, $_SESSION['user_id'] ?? null]);
 }
 
 /**
