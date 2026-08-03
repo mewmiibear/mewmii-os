@@ -9,12 +9,24 @@
  * no automation, no writes, a pure read-only calculation layer.
  *
  * Landed Cost = Converted Supplier Cost + Shipping Allocation + Additional Costs
- *   - Converted Supplier Cost = product_cost, converted via cost_currency/exchange_rate when
- *     the cost was quoted in a foreign currency; cost_currency NULL means "already in the
- *     store's base currency" (no conversion needed - a complete state, not missing data).
- *     cost_currency SET but exchange_rate NULL means the rate genuinely isn't on file -
- *     conversion (and therefore everything downstream) is reported as not configured rather
- *     than silently assumed to be 1:1.
+ *   - Converted Supplier Cost (SO-A1): sourced from what was ACTUALLY PAID whenever a purchase
+ *     record exists - the most recent non-cancelled supplier order line for this product, using
+ *     supplier_order_items.unit_cost_myr, falling back to supplier_price. That figure is already
+ *     in MYR, so it bypasses currency conversion entirely (converting it again via
+ *     products.cost_currency/exchange_rate would understate cost by the exchange rate - e.g. a
+ *     JPY order at 0.031 would land at ~3% of its true value). Only when no usable purchase cost
+ *     exists does this fall back to products.product_cost, converted via
+ *     cost_currency/exchange_rate as before: cost_currency NULL means "already in the store's
+ *     base currency" (no conversion needed - a complete state, not missing data); cost_currency
+ *     SET but exchange_rate NULL means the rate genuinely isn't on file - conversion (and
+ *     therefore everything downstream) is reported as not configured rather than silently
+ *     assumed to be 1:1. `cost_source` in the returned breakdown names which of the three
+ *     sources was used.
+ *
+ *     Before SO-A1 this always read products.product_cost, so a landed cost reflected the master
+ *     record rather than the negotiated price. Impact was measured before the change (SO-A0):
+ *     15 of 136 products moved, all downward - master costs had been systematically above real
+ *     purchase prices, understating margin.
  *   - Shipping Allocation = the most recent supplier_order_items.shipping_allocated on file for
  *     this product (never a guessed default) - see Phase 7D.
  *   - Additional Costs (Phase 7F) = every supplier_order_item_costs row (Customs, Handling,
@@ -108,6 +120,53 @@ function product_cost_calculate_batch(PDO $pdo, array $productIds): array
         }
     }
 
+    // SO-A1 "Lookup A" - the actual purchase cost, deliberately separate from the reference-line
+    // query above ("Lookup B", left byte-identical so its "shipping and additional costs always
+    // come from ONE line, never mixed across shipments" invariant is provably untouched).
+    //
+    // Critically this has NO "shipping_allocated IS NOT NULL OR has additional costs" predicate.
+    // That filter is exactly why the old behaviour missed products with real purchase history but
+    // no allocation yet - measured at 8 products in the SO-A0 audit.
+    //
+    // Newest first; the FIRST row seen per product decides, and a product whose newest line has
+    // no usable cost falls through to products.product_cost rather than scanning older lines.
+    // That "newest line only" rule matches the SO-A0 impact measurement exactly, which is what
+    // makes re-running that audit a valid acceptance check for this change.
+    //
+    // Cancelled orders excluded (a cancelled PO is not a purchase). is_historical orders INCLUDED
+    // - imported orders carry real prices, and excluding them would strand imported catalogue on
+    // master cost. 0.00 counts as "not set", matching variation_effective_cost()'s precedent.
+    $purchaseCostByProduct = [];
+    $purchaseSourceByProduct = [];
+    $decidedProducts = [];
+    $purchaseStmt = $pdo->prepare("
+        SELECT soi.product_id, soi.unit_cost_myr, soi.supplier_price
+        FROM supplier_order_items soi
+        INNER JOIN supplier_orders so ON so.id = soi.supplier_order_id
+        WHERE soi.product_id IN ({$placeholders})
+          AND so.status <> 'cancelled'
+        ORDER BY so.order_date DESC, so.id DESC, soi.id DESC
+    ");
+    $purchaseStmt->execute($productIds);
+    foreach ($purchaseStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $pid = (int) $row['product_id'];
+        if (isset($decidedProducts[$pid])) {
+            continue;
+        }
+        $decidedProducts[$pid] = true;
+
+        $unitCostMyr = $row['unit_cost_myr'] !== null ? (float) $row['unit_cost_myr'] : 0.0;
+        $supplierPrice = $row['supplier_price'] !== null ? (float) $row['supplier_price'] : 0.0;
+
+        if ($unitCostMyr > 0) {
+            $purchaseCostByProduct[$pid] = $unitCostMyr;
+            $purchaseSourceByProduct[$pid] = 'po_unit_cost_myr';
+        } elseif ($supplierPrice > 0) {
+            $purchaseCostByProduct[$pid] = $supplierPrice;
+            $purchaseSourceByProduct[$pid] = 'po_supplier_price';
+        }
+    }
+
     $results = [];
     foreach ($productIds as $productId) {
         if (!isset($productsById[$productId])) {
@@ -117,7 +176,13 @@ function product_cost_calculate_batch(PDO $pdo, array $productIds): array
         $shippingAllocated = $reference['shipping_allocated'] ?? null;
         $otherCostsBreakdown = $reference !== null ? ($otherCostsByItem[$reference['item_id']] ?? []) : [];
 
-        $results[$productId] = product_cost_build_breakdown($productsById[$productId], $shippingAllocated, $otherCostsBreakdown);
+        $results[$productId] = product_cost_build_breakdown(
+            $productsById[$productId],
+            $shippingAllocated,
+            $otherCostsBreakdown,
+            $purchaseCostByProduct[$productId] ?? null,
+            $purchaseSourceByProduct[$productId] ?? null
+        );
     }
 
     return $results;
@@ -130,11 +195,36 @@ function product_cost_calculate(PDO $pdo, int $productId): ?array
     return $batch[$productId] ?? null;
 }
 
-function product_cost_build_breakdown(array $product, ?float $shippingAllocated, array $otherCostsBreakdown = []): array
+/**
+ * $purchaseCostMyr (SO-A1) is the actual price paid on the most recent non-cancelled supplier
+ * order line, ALREADY IN MYR (see product_cost_calculate_batch()'s Lookup A). When supplied it
+ * replaces products.product_cost as the supplier cost and suppresses currency conversion, by
+ * blanking $costCurrency/$exchangeRate below so the existing conversion branch resolves to the
+ * "already base currency" case - reusing that path rather than adding a parallel one, so there
+ * is only ever one place conversion is decided.
+ *
+ * $costSourceLabel is metadata only - it names which source the caller resolved
+ * ('po_unit_cost_myr' or 'po_supplier_price'); it never affects any calculation. Left null, the
+ * breakdown reports 'product_master'.
+ *
+ * Both parameters are optional and default to the pre-SO-A1 behaviour exactly, so every existing
+ * caller is unaffected (this function is called only from product_cost_calculate_batch() below).
+ */
+function product_cost_build_breakdown(array $product, ?float $shippingAllocated, array $otherCostsBreakdown = [], ?float $purchaseCostMyr = null, ?string $costSourceLabel = null): array
 {
     $supplierCost = (float) $product['product_cost'];
     $costCurrency = $product['cost_currency'] ?? null;
     $exchangeRate = $product['exchange_rate'] !== null ? (float) $product['exchange_rate'] : null;
+    $costSource = 'product_master';
+
+    if ($purchaseCostMyr !== null) {
+        $supplierCost = $purchaseCostMyr;
+        // Already MYR - blanking these two makes the branch below take the "nothing to convert"
+        // path, which is the guard against double-converting a foreign-currency purchase.
+        $costCurrency = null;
+        $exchangeRate = null;
+        $costSource = $costSourceLabel ?? 'po_unit_cost_myr';
+    }
 
     if ($costCurrency === null) {
         // Already in the base currency - nothing to convert, nothing missing.
@@ -178,6 +268,11 @@ function product_cost_build_breakdown(array $product, ?float $shippingAllocated,
 
     return [
         'supplier_cost' => $supplierCost,
+        // SO-A1, metadata only: which source supplied `supplier_cost` above -
+        // 'po_unit_cost_myr' | 'po_supplier_price' | 'product_master'. Purely informational
+        // (diagnostics, the Cost Breakdown card, post-deploy verification); nothing in this
+        // file branches on it, and every other key keeps its original name, type, and meaning.
+        'cost_source' => $costSource,
         'cost_currency' => $costCurrency,
         'exchange_rate' => $exchangeRate,
         'currency_configured' => $currencyConfigured,
