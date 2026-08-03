@@ -80,6 +80,12 @@ $notConfiguredBadge = '<span class="badge bg-secondary">Not configured</span>';
 // Phase 7C.1 - Cost Data status (Complete / Missing Exchange Rate / Missing Currency
 // Configuration), same reused engine, no calculation logic here either.
 $costConfigStatus = product_cost_configuration_status($product, $supplier['currency'] ?? null);
+
+// SO-C - count of sourcing alternatives, excluding the preferred supplier itself. Display only;
+// products.supplier_id above remains the preferred supplier and is unaffected.
+$altStmt = $pdo->prepare('SELECT COUNT(*) FROM supplier_products WHERE product_id = ? AND supplier_id <> COALESCE(?, 0)');
+$altStmt->execute([$productId, $product['supplier_id']]);
+$alternativeSupplierCount = (int) $altStmt->fetchColumn();
 $costConfigLabels = [
     'complete' => 'Complete',
     'missing_exchange_rate' => 'Missing Exchange Rate',
@@ -201,10 +207,16 @@ computed stage: <?php echo var_export($debugViewStage, true); ?>
         <div class="card p-4 h-100">
             <h5 class="mb-3">Supplier</h5>
             <?php if ($supplier !== null): ?>
-                <div><?php echo app_escape($supplier['name']); ?></div>
+                <div><?php echo app_escape($supplier['name']); ?> <span class="badge bg-secondary">Preferred</span></div>
             <?php else: ?>
                 <div class="text-muted">No supplier assigned</div>
             <?php endif; ?>
+            <?php if ($alternativeSupplierCount > 0): ?>
+                <div class="text-muted small mt-2"><?php echo (int) $alternativeSupplierCount; ?> alternative supplier<?php echo $alternativeSupplierCount === 1 ? '' : 's'; ?> on file</div>
+            <?php endif; ?>
+            <div class="mt-3">
+                <a class="btn btn-sm btn-outline-secondary" href="/modules/products/suppliers.php?id=<?php echo (int) $productId; ?>">Manage Suppliers</a>
+            </div>
         </div>
     </div>
 </div>

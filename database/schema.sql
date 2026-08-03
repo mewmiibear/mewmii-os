@@ -1195,6 +1195,58 @@ CREATE TABLE IF NOT EXISTS supplier_order_payments (
   INDEX idx_supplier_order_payments_bank_account (bank_account_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- SO-C (Multi-Supplier Sourcing) - a SOURCING CATALOGUE: who can supply a product/variation, at
+-- what quoted price, under what supplier SKU, in what currency. One row per
+-- (product, variation, supplier).
+--
+-- Three boundaries this table deliberately respects:
+--
+--  1. products.supplier_id remains the PREFERRED supplier and is unchanged. Purchase planning
+--     still groups reorder needs by it (includes/purchase_planning.php), the product form still
+--     sets it, and nothing here overrides it. `priority` ranks ALTERNATIVES for a human choosing
+--     where to buy; it is not a second source of truth for "the" supplier.
+--
+--  2. unit_cost is QUOTATION DATA ONLY. It must never enter the landed-cost chain, which stays
+--     exactly as SO-A1/SO-A2 established it: actual PO line cost -> landed cost ->
+--     product_cost_history. Nothing in includes/product_cost.php reads this table, by design -
+--     otherwise there would be two competing answers to "what does this product cost".
+--
+--  3. Purchase HISTORY is not stored here. It is already derivable from supplier_order_items
+--     joined to supplier_orders (real supplier, real price, real currency, real date), so a
+--     history table would duplicate data that exists - see supplier_product_purchase_history().
+--
+-- moq is supplier-specific and intentionally NOT wired into purchasing logic yet (products.moq
+-- remains authoritative everywhere); the column exists now because retrofitting it later would
+-- mean touching data rather than just schema.
+CREATE TABLE IF NOT EXISTS supplier_products (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  product_id INT UNSIGNED NOT NULL,
+  variation_id INT UNSIGNED NULL,
+  supplier_id INT UNSIGNED NOT NULL,
+  supplier_sku VARCHAR(100) NULL,
+  unit_cost DECIMAL(12,2) NULL,
+  currency VARCHAR(10) NULL,
+  exchange_rate DECIMAL(12,6) NULL,
+  priority INT NOT NULL DEFAULT 0,
+  moq INT UNSIGNED NULL,
+  notes VARCHAR(255) NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_by INT UNSIGNED NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  -- variation_key collapses NULL to 0 so the unique key still enforces "at most one row per
+  -- (product, variation, supplier)" for simple products too - same generated-column technique
+  -- mewmii_inventory already uses for exactly this reason.
+  variation_key INT UNSIGNED GENERATED ALWAYS AS (COALESCE(variation_id, 0)) STORED,
+  CONSTRAINT fk_supplier_products_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+  CONSTRAINT fk_supplier_products_variation FOREIGN KEY (variation_id) REFERENCES product_variations(id) ON DELETE CASCADE,
+  CONSTRAINT fk_supplier_products_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
+  CONSTRAINT fk_supplier_products_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+  UNIQUE KEY uq_supplier_products_unit_supplier (product_id, variation_key, supplier_id),
+  INDEX idx_supplier_products_supplier (supplier_id),
+  INDEX idx_supplier_products_product_priority (product_id, priority)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Simple product: inventory row has variation_id = NULL (one row per product).
 -- Variable product: inventory lives on each variation's own row (variation_id set);
 -- the parent product never gets its own directly-stored row - its "stock" is always
