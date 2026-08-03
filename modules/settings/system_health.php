@@ -119,7 +119,19 @@ require_once __DIR__ . '/../../includes/header.php';
                     <span class="text-danger">&#9888;</span>
                 <?php endif; ?>
                 <?php echo app_escape($check['label']); ?>
-                <span class="text-muted small">(<?php echo $check['column'] !== null ? app_escape($check['table'] . '.' . $check['column']) : app_escape($check['table'] . ' table'); ?> &middot; <code>database/<?php echo app_escape($check['migration']); ?></code>)</span>
+                <span class="text-muted small">(<?php
+                    // Mirrors the unique_column -> column -> table detection priority used by
+                    // system_health_check in includes/system_health.php, so the artifact named
+                    // here is always the one actually probed. Without the first branch, a
+                    // unique-constraint check would describe itself as a table-existence check.
+                    if (isset($check['unique_column'])) {
+                        echo app_escape($check['table'] . '.' . $check['unique_column']) . ' unique';
+                    } elseif ($check['column'] !== null) {
+                        echo app_escape($check['table'] . '.' . $check['column']);
+                    } else {
+                        echo app_escape($check['table'] . ' table');
+                    }
+                ?> &middot; <code>database/<?php echo app_escape($check['migration']); ?></code>)</span>
             </li>
         <?php endforeach; ?>
         <li class="mb-2">

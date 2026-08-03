@@ -233,6 +233,23 @@ const SYSTEM_HEALTH_MIGRATIONS = [
     // registration is left as a follow-up task.
     ['label' => 'Finance Phase C (assets)', 'migration' => 'migrate_finance_phase_c.php', 'table' => 'assets', 'column' => null],
     ['label' => 'Finance Phase C (asset attachments)', 'migration' => 'migrate_finance_phase_c.php', 'table' => 'asset_attachments', 'column' => null],
+    // Supplier Order currency (Phase 6B). Two rows because this migration alters two different
+    // tables and a single sentinel cannot span both. Each row deliberately checks the LAST
+    // column the migration adds to that table, not the first: the ALTERs run in order, so if
+    // foreign_total/unit_cost_myr are present the columns before them are too. Sentinelling on
+    // `currency` instead would report green even when exchange_rate/foreign_total had failed -
+    // exactly the partial state that breaks supplier order creation.
+    ['label' => 'Supplier Order currency (order header)', 'migration' => 'migrate_supplier_order_currency.php', 'table' => 'supplier_orders', 'column' => 'foreign_total'],
+    ['label' => 'Supplier Order currency (line item costs)', 'migration' => 'migrate_supplier_order_currency.php', 'table' => 'supplier_order_items', 'column' => 'unit_cost_myr'],
+    // Duplicate-PO protection. This migration adds ONLY a unique index - no table, no column -
+    // so it needs the 'unique_column' check type (see system_health_check() below). It is
+    // deliberately NOT added to SYSTEM_HEALTH_INDEXES: that set attributes every miss to
+    // migrate_production_hardening.php, which would name the wrong script here, and it matches
+    // on INDEX_NAME, which is not stable for this constraint - a migrated database names it
+    // idx_supplier_orders_purchase_number_unique, while a fresh schema.sql install gets
+    // MySQL's auto-name `purchase_number` from the inline UNIQUE. See
+    // system_health_unique_index_exists() for why the check is column-based instead.
+    ['label' => 'Supplier Order purchase number uniqueness', 'migration' => 'migrate_supplier_order_purchase_number_unique.php', 'table' => 'supplier_orders', 'column' => null, 'unique_column' => 'purchase_number'],
 ];
 
 // A subset of migrate_production_hardening.php's own performance indexes - grouped as one
@@ -270,6 +287,36 @@ function system_health_table_exists(PDO $pdo, string $table): bool
         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?
     ');
     $stmt->execute([$table]);
+
+    return (int) $stmt->fetchColumn() > 0;
+}
+
+/**
+ * Whether $column carries a UNIQUE constraint, identified by the constraint's PROPERTIES rather
+ * than its name - deliberately different from system_health_index_exists() above, which matches
+ * on INDEX_NAME.
+ *
+ * Name matching is unusable for this class of check because the same logical constraint gets
+ * different names depending on how the database was built: a database migrated by
+ * database/migrate_supplier_order_purchase_number_unique.php has
+ * `idx_supplier_orders_purchase_number_unique`, while a fresh database/schema.sql install gets
+ * MySQL's auto-generated `purchase_number` from the inline `VARCHAR(100) NOT NULL UNIQUE`. Both
+ * are correct and fully migrated; a name-based check would raise a false "pending migration"
+ * alarm on every fresh install.
+ *
+ * The query is the same shape migrate_supplier_order_purchase_number_unique.php uses for its own
+ * idempotency guard (COLUMN_NAME + NON_UNIQUE = 0), reproduced here rather than shared, since
+ * that file keeps its copy local by its own explicit note and this is a read-only health check,
+ * not migration logic. COUNT(DISTINCT INDEX_NAME) matches it exactly: a column can appear in
+ * several unique indexes, and any one of them satisfies the constraint.
+ */
+function system_health_unique_index_exists(PDO $pdo, string $table, string $column): bool
+{
+    $stmt = $pdo->prepare('
+        SELECT COUNT(DISTINCT INDEX_NAME) FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ? AND NON_UNIQUE = 0
+    ');
+    $stmt->execute([$table, $column]);
 
     return (int) $stmt->fetchColumn() > 0;
 }
@@ -546,9 +593,17 @@ function system_health_check(PDO $pdo): array
     $pending = [];
 
     foreach (SYSTEM_HEALTH_MIGRATIONS as $check) {
-        $applied = $check['column'] !== null
-            ? system_health_column_exists($pdo, $check['table'], $check['column'])
-            : system_health_table_exists($pdo, $check['table']);
+        // Detection priority: unique_column -> column -> table. 'unique_column' is an OPTIONAL
+        // key for the one migration whose only artifact is a UNIQUE constraint (no new table,
+        // no new column) - every other row omits it entirely and resolves exactly as it always
+        // did, so this branch adds a case rather than changing any existing one.
+        if (isset($check['unique_column'])) {
+            $applied = system_health_unique_index_exists($pdo, $check['table'], $check['unique_column']);
+        } elseif ($check['column'] !== null) {
+            $applied = system_health_column_exists($pdo, $check['table'], $check['column']);
+        } else {
+            $applied = system_health_table_exists($pdo, $check['table']);
+        }
 
         $migrations[] = array_merge($check, ['applied' => $applied]);
 

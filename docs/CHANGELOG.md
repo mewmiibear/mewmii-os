@@ -4,6 +4,29 @@ All notable changes to Mewmii OS are recorded here, newest first.
 
 ## Unreleased
 
+### Supplier Order migrations registered in System Health (unique-constraint detection)
+
+**Reason:** the Supplier Orders audit confirmed that neither `migrate_supplier_order_currency.php` nor `migrate_supplier_order_purchase_number_unique.php` was registered in `SYSTEM_HEALTH_MIGRATIONS` — the two remaining `supplier_order*` entries in `docs/MIGRATION_SYSTEM_AUDIT.md`'s long-standing untracked set, one of which is the script behind the original incident that prompted that audit. A production verification (read-only `INFORMATION_SCHEMA` query, run by the maintainer) confirmed the currency migration **had** already been applied and the schema is correct — but no tool inside Mewmii OS could answer that question, which is the gap this change closes.
+
+**Detection extension (`includes/system_health.php`):** `migrate_supplier_order_purchase_number_unique.php` adds **only a UNIQUE index** — no table, no column — which the existing array could not express (it supported column-exists or table-exists only). Added:
+
+- `system_health_unique_index_exists(PDO, string $table, string $column): bool` — matches by `COLUMN_NAME + NON_UNIQUE = 0`, **never by `INDEX_NAME`**. This is the crux of the change: the same logical constraint has different names depending on how the database was built. A migrated database names it `idx_supplier_orders_purchase_number_unique`; a fresh `database/schema.sql` install gets MySQL's auto-generated `purchase_number` from the inline `VARCHAR(100) NOT NULL UNIQUE`. Both are fully migrated, so a name-based check would raise a false "pending migration" alarm on every fresh install. Query shape mirrors the migration's own idempotency guard.
+- A `unique_column` → `column` → `table` detection priority in `system_health_check()`. `unique_column` is an **optional** key; all 24 pre-existing rows omit it and resolve exactly as before, so this adds a case rather than altering one.
+
+**Why not `SYSTEM_HEALTH_INDEXES`:** that set is hardcoded to attribute every missing index to `migrate_production_hardening.php`, so it would have named the wrong script, and it matches on `INDEX_NAME`, which is unstable here. Its behaviour is entirely unchanged by this commit.
+
+**Registered (3 rows):**
+- `migrate_supplier_order_currency.php` → `supplier_orders.foreign_total` and `supplier_order_items.unit_cost_myr`. Two rows because the migration alters two tables and one sentinel cannot span both. Each deliberately checks the **last** column added to its table, not the first: the `ALTER`s run in order, so a present `foreign_total`/`unit_cost_myr` implies the earlier columns landed. Sentinelling on `currency` would report green even when `exchange_rate`/`foreign_total` had failed — exactly the partial state that breaks supplier order creation.
+- `migrate_supplier_order_purchase_number_unique.php` → `supplier_orders.purchase_number` via the new `unique_column` check.
+
+**Page change (`modules/settings/system_health.php`):** the artifact descriptor branches on `column`, so the new row would have rendered as "supplier_orders table" — implying a table-existence check. Its descriptor now mirrors the same three-way priority and shows "supplier_orders.purchase_number unique". One `echo` expression; no other page logic touched. *(This was missed in the approved plan, which stated no page change was needed.)*
+
+**Coverage:** 22 of 24 migration scripts tracked (was 20). `migrate_sync_logs_index.php` and `migrate_webhooks.php` remain untracked — out of scope here, still recorded in `docs/MIGRATION_SYSTEM_AUDIT.md`.
+
+**Explicitly NOT changed:** no migration was executed by this change; no migration script, `database/migrate.php`, `database/schema.sql`, or any supplier-order code was touched. This is read-only detection only — `schema_migrations` gains no rows from it.
+
+**Testing:** static verification — no PHP runtime or database is available in this environment, so the page was not loaded and `php -l` was not run. Verified by tooling: all 27 registered checks parsed and resolved through a simulation of `system_health_check()`'s exact priority (1 unique, 15 column, 11 table); zero pre-existing rows resolve differently than before; zero rows fail to resolve; every tracked migration name matches a real file on disk. The negative tests (dropping each artifact and confirming the correct script is named) require a throwaway database and **have not been run** — see the testing checklist in `docs/IMPLEMENTATION_STATUS.md`.
+
 ### Bug fix — `app_forbidden()` was called but never defined
 
 **Reason:** `modules/finance/bank_accounts.php:23` and `modules/finance/manual_income.php:32` (both Phase B) were written against an `app_forbidden()` helper that does not exist anywhere in the codebase. A `finance.view`-only user submitting a POST to either page hit a PHP fatal "undefined function" error — a 500 plus an error-log entry — instead of the intended 403 message. It **failed closed** (the fatal aborts the request before any write), so no unauthorised change was ever possible; this was an error-handling defect, not a privilege-escalation hole. Found during Phase C implementation, when the same pattern was copied into `asset_view.php` and the missing symbol surfaced during a function-resolution cross-check.
@@ -28,7 +51,7 @@ Three design points worth recording: **`asset_code` is `NULL UNIQUE`** — Maria
 
 **Migration:** idempotent via `migrate_table_exists()`. Depends on Phase B (`bank_accounts` FK target); run order is handled automatically by `database/migrate.php`'s glob+sort discovery (`_phase_a` → `_phase_b` → `_phase_c`). Run standalone against a database missing Phase B, the `CREATE TABLE` fails on the missing FK target, is recorded as a failure, and nothing is left half-built.
 
-**System Health (`includes/system_health.php`):** 2 rows registered in `SYSTEM_HEALTH_MIGRATIONS` **in the same change as the migration itself** — plain table-existence checks per table (unambiguous here, with no pre-existing scaffolding to cause the false positive Phase A had to work around). Coverage is now 21 of 24 scripts.
+**System Health (`includes/system_health.php`):** 2 rows registered in `SYSTEM_HEALTH_MIGRATIONS` **in the same change as the migration itself** — plain table-existence checks per table (unambiguous here, with no pre-existing scaffolding to cause the false positive Phase A had to work around). Coverage is now 20 of 24 scripts. *(Corrected 2026-08-04: this entry originally said "21 of 24" — an arithmetic slip. 24 scripts existed with 4 untracked — `migrate_sync_logs_index.php`, `migrate_webhooks.php`, `migrate_supplier_order_currency.php`, `migrate_supplier_order_purchase_number_unique.php` — so the correct figure was 20.)*
 
 **Business logic (`includes/finance.php`, appended — no existing function modified):** `ASSET_STATUSES`/`ASSET_CATEGORIES` constants (a PHP list, not a lookup table, matching how `MANUAL_INCOME_CATEGORIES`/`BANK_ACCOUNT_TYPES` already handle small closed sets in the same file), `asset_status_labels()`, `asset_code_normalise()` (trim → uppercase → empty-to-NULL), `asset_code_in_use()`, `asset_validate_form()` (shared by create and edit), `asset_create()`, `asset_update()`, `asset_get()`, `assets_list()` (owns its own WHERE clause and returns its own totals, so count and rows can never be filtered differently), `asset_dispose()`, and three `asset_attachment_*` functions reusing `includes/receipt_storage.php` unchanged.
 
