@@ -1,5 +1,10 @@
 <?php
 
+// variation_effective_cost()/variation_effective_price()/catalog_product_effective_price() -
+// reused by product_cost_calculate_units_batch() rather than reimplemented. No cycle: that file
+// requires inventory.php/product_images.php, neither of which requires this one.
+require_once __DIR__ . '/product_variations.php';
+
 /**
  * Phase 7C - Product Cost Engine (completed in Phase 7F). The single reusable place that
  * computes "true landed cost" - product pages, Purchasing, Margin Report, and any future
@@ -37,6 +42,11 @@
  *     for how that reference line is chosen, and database/schema.sql's
  *     supplier_order_item_costs table comment for why this lives at the supplier-order-line
  *     level rather than as fixed columns on `products`.
+ *
+ * Two entry points, both reusing product_cost_build_breakdown() so the formula exists once:
+ * product_cost_calculate_batch() at product grain (unchanged, still correct for the consumers
+ * that roll stock up per product) and product_cost_calculate_units_batch() at sellable-unit
+ * grain (SO-A2B, for consumers that iterate product+variation).
  *
  * If Currency Conversion itself isn't configured, Landed Cost/Gross Profit/Gross Margin are
  * all null ("Not configured") rather than computed from an unconverted foreign-currency number
@@ -193,6 +203,234 @@ function product_cost_calculate(PDO $pdo, int $productId): ?array
     $batch = product_cost_calculate_batch($pdo, [$productId]);
 
     return $batch[$productId] ?? null;
+}
+
+/**
+ * SO-A2B - the same Landed Cost calculation at SELLABLE UNIT grain (product + variation) rather
+ * than product grain. Additive: product_cost_calculate_batch() above is unchanged and remains
+ * correct for the product-grained consumers (Margin Report, Purchasing, cost-history comparisons
+ * - all of which roll stock up per product by design). This exists for the consumers that
+ * genuinely iterate units, where applying one product-level cost to every variation is wrong.
+ *
+ * $units: list of ['product_id' => int, 'variation_id' => int|null]. Returns a map keyed by the
+ * codebase's existing sellable-unit key convention, "productId:variationId" with a null variation
+ * collapsed to 0 (same shape catalog_sellable_units() and mewmii_inventory.variation_key use), so
+ * callers holding units can index directly without re-deriving anything.
+ *
+ * Three inputs differ from the product-level function, each fixing a defect that is invisible at
+ * product grain:
+ *
+ *   1. Purchase cost is the newest non-cancelled supplier order line for THAT EXACT
+ *      product+variation. Same rules as Lookup A (cancelled excluded, is_historical included,
+ *      0.00 = not set, newest line only), one grain finer.
+ *   2. The master-cost fallback goes through variation_effective_cost(), so a variation's own
+ *      cost_price wins over its parent's product_cost - the product-level path ignores that
+ *      column entirely.
+ *   3. Selling price (and therefore margin) is the unit's own effective price via
+ *      variation_effective_price() + catalog_product_effective_price(), honouring
+ *      price_mode/custom_price AND sale windows. Those helpers are REUSED, never reimplemented -
+ *      pricing rules live in one place and this is not it.
+ *
+ * Shipping Allocation and Additional Costs also resolve per product+variation. A variation with
+ * no allocation of its own reports "not configured" rather than inheriting a sibling's, since
+ * attributing one variation's shipment costs to another is exactly the error this fixes.
+ *
+ * Reuses product_cost_build_breakdown() unchanged - the Landed Cost formula itself exists in one
+ * place only, and this function supplies different inputs to it, never a second copy of it.
+ */
+function product_cost_calculate_units_batch(PDO $pdo, array $units): array
+{
+    $normalised = [];
+    $productIdSet = [];
+    $variationIdSet = [];
+
+    foreach ($units as $unit) {
+        $productId = (int) ($unit['product_id'] ?? 0);
+        if ($productId < 1) {
+            continue;
+        }
+        $variationId = isset($unit['variation_id']) && $unit['variation_id'] !== null ? (int) $unit['variation_id'] : null;
+        $key = $productId . ':' . ($variationId ?? 0);
+        if (isset($normalised[$key])) {
+            continue;
+        }
+        $normalised[$key] = ['product_id' => $productId, 'variation_id' => $variationId];
+        $productIdSet[$productId] = true;
+        if ($variationId !== null) {
+            $variationIdSet[$variationId] = true;
+        }
+    }
+
+    if ($normalised === []) {
+        return [];
+    }
+
+    $productIds = array_keys($productIdSet);
+    $variationIds = array_keys($variationIdSet);
+    $placeholders = implode(',', array_fill(0, count($productIds), '?'));
+
+    // Sale columns are selected because catalog_product_effective_price() needs them - a unit's
+    // margin must reflect the price actually charged today, not the raw selling_price.
+    $productStmt = $pdo->prepare("
+        SELECT id, product_cost, cost_currency, exchange_rate, selling_price,
+               sale_enabled, sale_price, sale_start_date, preorder_closing_date
+        FROM products
+        WHERE id IN ({$placeholders})
+    ");
+    $productStmt->execute($productIds);
+    $productsById = [];
+    foreach ($productStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $productsById[(int) $row['id']] = $row;
+    }
+
+    $variationsById = [];
+    if ($variationIds !== []) {
+        $variationPlaceholders = implode(',', array_fill(0, count($variationIds), '?'));
+        $variationStmt = $pdo->prepare("
+            SELECT id, product_id, price_mode, custom_price, cost_price
+            FROM product_variations
+            WHERE id IN ({$variationPlaceholders})
+        ");
+        $variationStmt->execute($variationIds);
+        foreach ($variationStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $variationsById[(int) $row['id']] = $row;
+        }
+    }
+
+    // Unit-grain Lookup A - newest non-cancelled purchase line per product+variation.
+    $purchaseByUnit = [];
+    $purchaseDecided = [];
+    $purchaseStmt = $pdo->prepare("
+        SELECT soi.product_id, soi.variation_id, soi.unit_cost_myr, soi.supplier_price
+        FROM supplier_order_items soi
+        INNER JOIN supplier_orders so ON so.id = soi.supplier_order_id
+        WHERE soi.product_id IN ({$placeholders})
+          AND so.status <> 'cancelled'
+        ORDER BY so.order_date DESC, so.id DESC, soi.id DESC
+    ");
+    $purchaseStmt->execute($productIds);
+    foreach ($purchaseStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $key = (int) $row['product_id'] . ':' . (int) ($row['variation_id'] ?? 0);
+        if (isset($purchaseDecided[$key])) {
+            continue;
+        }
+        $purchaseDecided[$key] = true;
+
+        $unitCostMyr = $row['unit_cost_myr'] !== null ? (float) $row['unit_cost_myr'] : 0.0;
+        $supplierPrice = $row['supplier_price'] !== null ? (float) $row['supplier_price'] : 0.0;
+        if ($unitCostMyr > 0) {
+            $purchaseByUnit[$key] = ['cost' => $unitCostMyr, 'source' => 'po_unit_cost_myr'];
+        } elseif ($supplierPrice > 0) {
+            $purchaseByUnit[$key] = ['cost' => $supplierPrice, 'source' => 'po_supplier_price'];
+        }
+    }
+
+    // Unit-grain Lookup B - same predicate as the product-level reference-line query (shipping
+    // and additional costs still always come from ONE line, never mixed across shipments), just
+    // resolved per product+variation.
+    $shippingByUnit = [];
+    $referenceItemByUnit = [];
+    $referenceDecided = [];
+    $referenceStmt = $pdo->prepare("
+        SELECT soi.product_id, soi.variation_id, soi.id AS item_id, soi.shipping_allocated
+        FROM supplier_order_items soi
+        INNER JOIN supplier_orders so ON so.id = soi.supplier_order_id
+        LEFT JOIN (
+            SELECT supplier_order_item_id, SUM(amount) AS total_other_cost
+            FROM supplier_order_item_costs
+            GROUP BY supplier_order_item_id
+        ) agg ON agg.supplier_order_item_id = soi.id
+        WHERE soi.product_id IN ({$placeholders})
+          AND (soi.shipping_allocated IS NOT NULL OR agg.total_other_cost IS NOT NULL)
+        ORDER BY so.order_date DESC, so.id DESC, soi.id DESC
+    ");
+    $referenceStmt->execute($productIds);
+    foreach ($referenceStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $key = (int) $row['product_id'] . ':' . (int) ($row['variation_id'] ?? 0);
+        if (isset($referenceDecided[$key])) {
+            continue;
+        }
+        $referenceDecided[$key] = true;
+        $shippingByUnit[$key] = $row['shipping_allocated'] !== null ? (float) $row['shipping_allocated'] : null;
+        $referenceItemByUnit[$key] = (int) $row['item_id'];
+    }
+
+    $otherCostsByItem = [];
+    if ($referenceItemByUnit !== []) {
+        $referenceItemIds = array_values(array_unique($referenceItemByUnit));
+        $itemPlaceholders = implode(',', array_fill(0, count($referenceItemIds), '?'));
+        $otherCostsStmt = $pdo->prepare("
+            SELECT supplier_order_item_id, cost_type, amount, notes
+            FROM supplier_order_item_costs
+            WHERE supplier_order_item_id IN ({$itemPlaceholders})
+            ORDER BY id ASC
+        ");
+        $otherCostsStmt->execute($referenceItemIds);
+        foreach ($otherCostsStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $otherCostsByItem[(int) $row['supplier_order_item_id']][] = [
+                'cost_type' => $row['cost_type'],
+                'amount' => (float) $row['amount'],
+                'notes' => $row['notes'],
+            ];
+        }
+    }
+
+    $results = [];
+    foreach ($normalised as $key => $unit) {
+        $productId = $unit['product_id'];
+        $variationId = $unit['variation_id'];
+        if (!isset($productsById[$productId])) {
+            continue;
+        }
+        $product = $productsById[$productId];
+        $variation = $variationId !== null ? ($variationsById[$variationId] ?? null) : null;
+
+        // Effective selling price for THIS unit - parent's sale-aware price, then the variation's
+        // own custom price if it has one. Both helpers reused as-is.
+        $effectiveParentPrice = catalog_product_effective_price($product);
+        $unitSellingPrice = $variation !== null
+            ? variation_effective_price($variation, $effectiveParentPrice)
+            : $effectiveParentPrice;
+
+        $shippingAllocated = $shippingByUnit[$key] ?? null;
+        $otherCostsBreakdown = isset($referenceItemByUnit[$key])
+            ? ($otherCostsByItem[$referenceItemByUnit[$key]] ?? [])
+            : [];
+
+        $purchase = $purchaseByUnit[$key] ?? null;
+
+        if ($purchase !== null) {
+            // Already MYR - product_cost_build_breakdown() suppresses conversion for this path.
+            $costRow = [
+                'product_cost' => $purchase['cost'],
+                'cost_currency' => null,
+                'exchange_rate' => null,
+                'selling_price' => $unitSellingPrice,
+            ];
+            $results[$key] = product_cost_build_breakdown(
+                $costRow,
+                $shippingAllocated,
+                $otherCostsBreakdown,
+                $purchase['cost'],
+                $purchase['source']
+            );
+
+            continue;
+        }
+
+        // Master-cost fallback, honouring the variation's own cost_price when it has one. The
+        // currency pair stays the parent's - a variation's cost_price is quoted in the same
+        // currency as the product it belongs to.
+        $costRow = [
+            'product_cost' => variation_effective_cost($variation['cost_price'] ?? null, $product['product_cost']),
+            'cost_currency' => $product['cost_currency'],
+            'exchange_rate' => $product['exchange_rate'],
+            'selling_price' => $unitSellingPrice,
+        ];
+        $results[$key] = product_cost_build_breakdown($costRow, $shippingAllocated, $otherCostsBreakdown);
+    }
+
+    return $results;
 }
 
 /**
