@@ -16,10 +16,12 @@ app_require_permission('inventory.view');
  *   - The exact "valid order" condition modules/reports/sales.php uses
  *     (payment_status = 'paid' AND order_status <> 'cancelled'), via the same
  *     includes/reports.php period helper sales.php now also uses.
- *   - Phase 7G: Capital Tied Up / Total / Slow-Moving Inventory Value now come from
- *     includes/product_cost.php's product_cost_calculate_batch() (true Landed Cost - Supplier
- *     Cost + Currency Conversion + Shipping Allocation + Additional Costs), the same source
- *     modules/reports/margins.php and modules/purchasing/index.php use, instead of raw
+ *   - Phase 7G / SO-A2C: Capital Tied Up / Total / Slow-Moving Inventory Value come from
+ *     includes/product_cost.php's product_cost_calculate_units_batch() (true Landed Cost -
+ *     Supplier Cost + Currency Conversion + Shipping Allocation + Additional Costs), resolved
+ *     per product+variation because this page values units, not products. margins.php and
+ *     purchasing/index.php keep using the product-level product_cost_calculate_batch(), which
+ *     is correct for them - both roll stock up per product. Either way, instead of raw
  *     product_cost/variation cost_price. That engine works at the PARENT PRODUCT level only
  *     (no per-variation cost), so every variation of the same variable product now shows the
  *     same landed cost - consistent with how Purchasing/Margin Report already treat cost, but
@@ -45,9 +47,13 @@ $units = array_values(array_filter(
     static fn (array $unit): bool => $unit['product_type'] === 'ready_stock' && ($unit['status'] ?? 'draft') !== 'archived'
 ));
 
-// Phase 7G - one batched product_cost_calculate_batch() call for every distinct product
-// behind these units, not one per unit and not one per variation.
-$costByProduct = product_cost_calculate_batch($pdo, array_column($units, 'product_id'));
+// SO-A2C - one batched call at SELLABLE UNIT grain. This page iterates units (a variable
+// product contributes one unit per variation), so the previous product-level call applied a
+// single blended cost to every variation of a product regardless of what each actually cost to
+// buy. product_cost_calculate_units_batch() resolves purchase cost, shipping allocation,
+// additional costs, and the effective selling price per product+variation instead. Still one
+// batched call, not one per unit - the N+1 avoidance Phase 7G established is unchanged.
+$costByUnit = product_cost_calculate_units_batch($pdo, $units);
 
 $deadStock = [];
 $fastMovers = [];
@@ -104,7 +110,9 @@ if ($units !== []) {
         // figure). A product whose cost data isn't configured contributes an unknown amount -
         // capital_value stays null rather than guessed as 0 or as raw product_cost, and is
         // excluded from both sum cards below, same convention as modules/reports/margins.php.
-        $cost = $costByProduct[$unit['product_id']] ?? null;
+        // Same "productId:variationId" key catalog_sellable_units() and $stockByUnit above
+        // already use - a null variation collapses to 0.
+        $cost = $costByUnit[$unit['product_id'] . ':' . (int) ($unit['variation_id'] ?? 0)] ?? null;
         $landedCost = $cost['landed_cost'] ?? null;
         $capitalValue = $landedCost !== null ? $onHand * $landedCost : null;
         if ($capitalValue !== null) {
