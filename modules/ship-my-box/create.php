@@ -112,8 +112,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$customersStmt = $pdo->query('SELECT id, name, email FROM customers ORDER BY name ASC LIMIT 200');
-$allCustomers = $customersStmt->fetchAll(PDO::FETCH_ASSOC);
+// Pins the ?customer_id= customer so the Customer Storage shortcuts always resolve. See
+// app_customer_options().
+$allCustomers = app_customer_options($pdo, $customerId > 0 ? $customerId : null);
 
 $storedItems = [];
 $selectedCustomer = null;

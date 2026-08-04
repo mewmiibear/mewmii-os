@@ -211,8 +211,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$customersStmt = $pdo->query('SELECT id, name, email, instagram_username FROM customers ORDER BY name ASC LIMIT 200');
-$allCustomers = $customersStmt->fetchAll(PDO::FETCH_ASSOC);
+// Pins this order's own customer - without it an order belonging to a customer outside the
+// alphabetical top 200 rendered with nothing selected and could not be saved. See
+// app_customer_options().
+$allCustomers = app_customer_options($pdo, $form['customer_id'] !== '' ? (int) $form['customer_id'] : null);
 
 $pickerCategories = catalog_list_categories_tree($pdo);
 $pickerBrands = $pdo->query('SELECT id, name FROM brands ORDER BY name ASC')->fetchAll(PDO::FETCH_ASSOC);

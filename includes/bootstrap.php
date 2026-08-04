@@ -179,6 +179,54 @@ function app_customer_dropdown_label(array $customer): string
     return $label;
 }
 
+/**
+ * Customer options for a dropdown, capped for page weight but GUARANTEEING that
+ * $ensureCustomerId is present when it exists.
+ *
+ * BUGFIX. Every customer dropdown loaded `ORDER BY name ASC LIMIT 200`, so once the catalogue
+ * passed 200 customers, everyone alphabetically after the cutoff had no <option> at all. Two real
+ * consequences, both on daily workflows:
+ *
+ *   - modules/orders/edit.php: an order belonging to such a customer rendered with NO option
+ *     selected, so saving failed "Select a customer." - that order could not be edited at all
+ *     without reassigning it to somebody else.
+ *   - modules/orders/create.php and modules/ship-my-box/create.php: the ?customer_id= shortcuts
+ *     from a customer's own page silently landed on an empty selector.
+ *
+ * Pinning the selected customer fixes both without loading every customer into the page. The cap
+ * still applies to BROWSING - finding an unlisted customer by scrolling remains limited, which
+ * needs a searchable/AJAX selector rather than a bigger number.
+ *
+ * Returns id/name/email/instagram_username - the superset app_customer_dropdown_label() needs and
+ * every current caller renders from.
+ */
+function app_customer_options(PDO $pdo, ?int $ensureCustomerId = null, int $limit = 200): array
+{
+    $limit = max(1, $limit);
+    $stmt = $pdo->query("SELECT id, name, email, instagram_username FROM customers ORDER BY name ASC LIMIT {$limit}");
+    $customers = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    if ($ensureCustomerId === null || $ensureCustomerId < 1) {
+        return $customers;
+    }
+
+    foreach ($customers as $customer) {
+        if ((int) $customer['id'] === $ensureCustomerId) {
+            return $customers;
+        }
+    }
+
+    $pinnedStmt = $pdo->prepare('SELECT id, name, email, instagram_username FROM customers WHERE id = ?');
+    $pinnedStmt->execute([$ensureCustomerId]);
+    $pinned = $pinnedStmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($pinned !== false) {
+        array_unshift($customers, $pinned);
+    }
+
+    return $customers;
+}
+
 function app_customer_find_existing_by_identity(PDO $pdo, array $identityFields, ?int $excludeId = null): ?array
 {
     $checks = [];
