@@ -488,6 +488,30 @@ function shipment_update_tracking(PDO $pdo, int $shipmentId, ?string $carrier, ?
     }
 }
 
+/**
+ * The carrier used on the most recently dispatched shipment, or '' when nothing has shipped
+ * yet - a display default for the carrier field on every dispatch form, since a day's parcels
+ * almost always go out with one courier. Factored out of modules/shipments/index.php, which
+ * was the only page prefilling it; modules/shipments/view.php and modules/ship-my-box/view.php
+ * left the operator retyping the same courier name per parcel.
+ *
+ * Read-only convenience: it is never applied without an explicit submit, the operator can
+ * always overwrite it, and shipment_mark_shipped() remains the only thing that writes
+ * shipments.carrier. Deliberately NOT used on the "edit tracking info" form of an existing
+ * shipment - that one is prefilled with that shipment's own carrier, which this must not
+ * override.
+ */
+function shipment_last_used_carrier(PDO $pdo): string
+{
+    $carrier = $pdo->query("
+        SELECT carrier FROM shipments
+        WHERE carrier IS NOT NULL AND carrier <> '' AND shipping_status IN ('shipped', 'delivered')
+        ORDER BY shipped_at DESC, id DESC LIMIT 1
+    ")->fetchColumn();
+
+    return $carrier !== false ? (string) $carrier : '';
+}
+
 function shipment_get(PDO $pdo, int $shipmentId): ?array
 {
     $stmt = $pdo->prepare('

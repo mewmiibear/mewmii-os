@@ -147,6 +147,13 @@ if ($linkedShipment !== null) {
 
 $timeline = ship_request_timeline($pdo, $shipRequest, $linkedShipment);
 
+// Display default for the Create Shipment form's carrier field - the same default
+// modules/shipments/index.php's inline dispatch already used, shared via
+// shipment_last_used_carrier() (includes/shipments.php, reached through ship_my_box.php).
+// Fetched after the POST handler above so a request dispatched on this very request is itself
+// the most recent one.
+$lastCarrier = shipment_last_used_carrier($pdo);
+
 $canManage = app_has_permission('ship-my-box.manage');
 
 require_once __DIR__ . '/../../includes/header.php';
@@ -257,7 +264,11 @@ require_once __DIR__ . '/../../includes/header.php';
                             <input type="hidden" name="new_status" value="<?php echo app_escape($nextAction['target_status']); ?>">
 
                             <?php if ($nextAction['needs_tracking']): ?>
-                                <input type="text" class="form-control form-control-sm" style="max-width: 160px;" name="carrier" placeholder="Carrier" required>
+                                <?php /* Defaults to the last courier actually dispatched with - see
+                                         shipment_last_used_carrier(). This form feeds
+                                         ship_request_process() -> shipment_mark_shipped(), the same
+                                         shipments.carrier column, so the same default applies. */ ?>
+                                <input type="text" class="form-control form-control-sm" style="max-width: 160px;" name="carrier" value="<?php echo app_escape($lastCarrier); ?>" placeholder="Carrier" required>
                                 <input type="text" class="form-control form-control-sm" style="max-width: 160px;" name="tracking_number" placeholder="Tracking #" required>
                             <?php endif; ?>
 

@@ -88,14 +88,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // Carrier pre-fill for the inline dispatch controls - a day's parcels almost always go out with
-// one courier, so defaulting to the last one used removes a retyped field per parcel. Read-only
-// convenience; the operator can overwrite it, and it is never applied without an explicit submit.
-$lastCarrier = $pdo->query("
-    SELECT carrier FROM shipments
-    WHERE carrier IS NOT NULL AND carrier <> '' AND shipping_status IN ('shipped', 'delivered')
-    ORDER BY shipped_at DESC, id DESC LIMIT 1
-")->fetchColumn();
-$lastCarrier = $lastCarrier !== false ? (string) $lastCarrier : '';
+// one courier, so defaulting to the last one used removes a retyped field per parcel. The query
+// itself now lives in shipment_last_used_carrier() (includes/shipments.php) so the other
+// dispatch forms can share the same default instead of leaving the field blank.
+$lastCarrier = shipment_last_used_carrier($pdo);
 
 // UI/UX Phase 5C: search + status filter - same additive, SELECT-only pattern already used by
 // modules/orders/index.php and modules/supplier-orders/index.php. shipment_list_all() itself

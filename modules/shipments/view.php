@@ -108,6 +108,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $items = shipment_list_items($pdo, $shipmentId);
 $events = shipment_list_events($pdo, $shipmentId);
 
+// Display default for the Confirm Shipped form's carrier field only - the same default
+// modules/shipments/index.php's inline dispatch already used. Fetched after the POST handler
+// above so a shipment dispatched on this very request is itself the most recent one. The "edit
+// tracking info" form further down deliberately does NOT use this: it shows this shipment's own
+// stored carrier.
+$lastCarrier = shipment_last_used_carrier($pdo);
+
 // UI/UX Phase 5C: package/order summary counts - purely derived from $items already fetched
 // above, no new query.
 $packageItemCount = count($items);
@@ -244,7 +251,10 @@ require_once __DIR__ . '/../../includes/header.php';
                         <input type="hidden" name="action" value="mark_shipped">
                         <div class="mb-2">
                             <label class="form-label">Carrier</label>
-                            <input type="text" class="form-control form-control-sm" name="carrier" placeholder="e.g. Ninja Van, J&amp;T Express, Pos Laju" required>
+                            <?php /* Defaults to the last courier actually dispatched with - see
+                                     shipment_last_used_carrier(). Still required, so an empty
+                                     default (nothing shipped yet) forces the operator to enter one. */ ?>
+                            <input type="text" class="form-control form-control-sm" name="carrier" value="<?php echo app_escape($lastCarrier); ?>" placeholder="e.g. Ninja Van, J&amp;T Express, Pos Laju" required>
                         </div>
                         <div class="mb-2">
                             <label class="form-label">Tracking Number</label>
