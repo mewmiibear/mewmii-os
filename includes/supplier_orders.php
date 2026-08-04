@@ -766,11 +766,11 @@ function supplier_order_validate_form(PDO $pdo, array $form, array $postedUnitKe
  * supplier_order_events. Caller is responsible for the surrounding transaction and for
  * blocking this entirely once the order is 'completed' (see modules/supplier-orders/edit.php).
  */
-function supplier_order_apply_edit(PDO $pdo, int $orderId, int $supplierId, string $notes, array $newLines, float $shippingFee = 0.00, ?string $paymentStatus = null, ?string $currency = null, ?float $exchangeRate = null): void
+function supplier_order_apply_edit(PDO $pdo, int $orderId, int $supplierId, string $notes, array $newLines, float $shippingFee = 0.00, ?string $paymentStatus = null, ?string $currency = null, ?float $exchangeRate = null, ?string $orderDate = null): void
 {
     // supplier_id is selected for the P7a guard below - the previous value is needed to detect a
     // reassignment attempt on an order that already has received stock.
-    $oldRowStmt = $pdo->prepare('SELECT supplier_id, shipping_fee, payment_status, purchase_number, is_historical, currency, exchange_rate FROM supplier_orders WHERE id = ?');
+    $oldRowStmt = $pdo->prepare('SELECT supplier_id, shipping_fee, payment_status, purchase_number, is_historical, currency, exchange_rate, order_date FROM supplier_orders WHERE id = ?');
     $oldRowStmt->execute([$orderId]);
     $oldRow = $oldRowStmt->fetch(PDO::FETCH_ASSOC);
     // A historical (imported) supplier order must never go through
@@ -825,6 +825,15 @@ function supplier_order_apply_edit(PDO $pdo, int $orderId, int $supplierId, stri
 
         if ($currency !== $oldCurrency) {
             throw new RuntimeException('This order already has received stock, so its currency can no longer be changed - doing so would rewrite the recorded cost of stock already received.');
+        }
+
+        // order_date is locked for the same reason the cost fields are: includes/product_cost.php
+        // picks BOTH the purchase-cost line (SO-A1 Lookup A) and the shipping/additional-cost
+        // reference line (Lookup B) with ORDER BY so.order_date DESC. Re-dating a received order
+        // can therefore silently change which line supplies a product's landed cost. It also
+        // feeds supplier_lead_time_stats_batch()'s DATEDIFF(received_date, order_date).
+        if ($orderDate !== null && $orderDate !== (string) ($oldRow['order_date'] ?? '')) {
+            throw new RuntimeException('This order already has received stock, so its order date can no longer be changed - it determines which purchase line supplies landed cost.');
         }
 
         $rateChanged = ($exchangeRate === null) !== ($oldExchangeRate === null)
@@ -959,8 +968,18 @@ function supplier_order_apply_edit(PDO $pdo, int $orderId, int $supplierId, stri
     $foreignTotalStmt->execute([$orderId]);
     $foreignTotal = round((float) $foreignTotalStmt->fetchColumn(), 2);
 
-    $pdo->prepare('UPDATE supplier_orders SET supplier_id = ?, estimated_cost = ?, shipping_fee = ?, payment_status = ?, notes = ?, currency = ?, exchange_rate = ?, foreign_total = ? WHERE id = ?')
-        ->execute([$supplierId, $estimatedCost, round($shippingFee, 2), $paymentStatus, $notes !== '' ? $notes : null, $currency, $exchangeRate, $foreignTotal, $orderId]);
+    // order_date null = caller didn't post it, so keep whatever the order already had - the same
+    // "unchanged unless explicitly posted" convention $paymentStatus/$currency use above.
+    $oldOrderDate = (string) ($oldRow['order_date'] ?? '');
+    if ($orderDate === null || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $orderDate)) {
+        $orderDate = $oldOrderDate !== '' ? $oldOrderDate : null;
+    }
+    if ($orderDate !== null && $orderDate !== $oldOrderDate) {
+        supplier_order_log_event($pdo, $orderId, 'Order date changed ' . ($oldOrderDate !== '' ? $oldOrderDate : 'not set') . ' -> ' . $orderDate);
+    }
+
+    $pdo->prepare('UPDATE supplier_orders SET supplier_id = ?, estimated_cost = ?, shipping_fee = ?, payment_status = ?, notes = ?, currency = ?, exchange_rate = ?, foreign_total = ?, order_date = ? WHERE id = ?')
+        ->execute([$supplierId, $estimatedCost, round($shippingFee, 2), $paymentStatus, $notes !== '' ? $notes : null, $currency, $exchangeRate, $foreignTotal, $orderDate, $orderId]);
 
     activity_log($pdo, 'supplier_orders', 'edit', $orderId, 'Edited supplier order ' . $oldRow['purchase_number']);
 }

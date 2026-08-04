@@ -89,6 +89,7 @@ $form = [
     'notes' => (string) ($order['notes'] ?? ''),
     'shipping_fee' => (string) $order['shipping_fee'],
     'payment_status' => (string) $order['payment_status'],
+    'order_date' => (string) ($order['order_date'] ?? ''),
     'currency' => in_array($orderCurrency, SUPPLIER_ORDER_CURRENCY_OPTIONS, true) ? $orderCurrency : 'OTHER',
     'currency_other' => in_array($orderCurrency, SUPPLIER_ORDER_CURRENCY_OPTIONS, true) ? '' : $orderCurrency,
     'exchange_rate' => $order['exchange_rate'] !== null ? (string) $order['exchange_rate'] : '',
@@ -104,6 +105,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form['notes'] = trim((string) ($_POST['notes'] ?? ''));
     $form['shipping_fee'] = trim((string) ($_POST['shipping_fee'] ?? ''));
     $form['payment_status'] = in_array($_POST['payment_status'] ?? '', SUPPLIER_ORDER_PAYMENT_STATUSES, true) ? $_POST['payment_status'] : $form['payment_status'];
+    $form['order_date'] = trim((string) ($_POST['order_date'] ?? $form['order_date']));
 
     // Shipping fee is purely a Supplier Order-level expense, never tied to
     // products/receiving history - it stays editable even once the order is Completed
@@ -188,7 +190,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->beginTransaction();
 
             try {
-                supplier_order_apply_edit($pdo, $orderId, $supplierId, $form['notes'], $validItems, $shippingFee, $form['payment_status'], $currency, $exchangeRate);
+                supplier_order_apply_edit($pdo, $orderId, $supplierId, $form['notes'], $validItems, $shippingFee, $form['payment_status'], $currency, $exchangeRate, $form['order_date'] !== '' ? $form['order_date'] : null);
 
                 $pdo->commit();
             } catch (RuntimeException $exception) {
@@ -312,6 +314,19 @@ require_once __DIR__ . '/../../includes/header.php';
                 <div class="col-md-6">
                     <label class="form-label">Purchase Number</label>
                     <input type="text" class="form-control" value="<?php echo app_escape($form['purchase_number']); ?>" readonly disabled>
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Order Date</label>
+                    <input type="date" class="form-control" value="<?php echo app_escape($form['order_date']); ?>"
+                           <?php echo $lockSourcingFields ? 'disabled' : 'name="order_date"'; ?>>
+                    <?php if ($lockSourcingFields): ?>
+                        <?php /* disabled inputs do not submit - carry the unchanged value explicitly */ ?>
+                        <input type="hidden" name="order_date" value="<?php echo app_escape($form['order_date']); ?>">
+                        <div class="form-text">Locked &mdash; it decides which purchase line supplies landed cost, and stock has already been received.</div>
+                    <?php else: ?>
+                        <div class="form-text">When the purchase was placed, not when stock arrived. Receiving dates and inventory movements are unaffected.</div>
+                    <?php endif; ?>
                 </div>
 
                 <div class="col-md-3">

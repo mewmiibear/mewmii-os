@@ -17,6 +17,10 @@ const SUPPLIER_ORDER_CURRENCY_OPTIONS = ['MYR', 'JPY', 'CNY', 'USD', 'EUR', 'GBP
 $form = [
     'supplier_id' => '',
     'purchase_number' => 'PO-' . date('Ymd') . '-' . strtoupper(substr(bin2hex(random_bytes(2)), 0, 4)),
+    // When the purchase actually happened. Defaults to today; back-dating is allowed so
+    // historical purchases can be recorded during migration. Deliberately NOT the same thing as
+    // received_date / inventory movement timestamps - see the field's note in the form below.
+    'order_date' => date('Y-m-d'),
     'notes' => '',
     'shipping_fee' => '0.00',
     'payment_status' => 'unpaid',
@@ -35,6 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $form['supplier_id'] = trim((string) ($_POST['supplier_id'] ?? ''));
     $form['purchase_number'] = trim((string) ($_POST['purchase_number'] ?? ''));
+    $form['order_date'] = trim((string) ($_POST['order_date'] ?? ''));
     $form['notes'] = trim((string) ($_POST['notes'] ?? ''));
     $form['shipping_fee'] = trim((string) ($_POST['shipping_fee'] ?? ''));
     $form['payment_status'] = in_array($_POST['payment_status'] ?? '', SUPPLIER_ORDER_PAYMENT_STATUSES, true) ? $_POST['payment_status'] : 'unpaid';
@@ -67,7 +72,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($error === '') {
-        if ($form['purchase_number'] === '' || strlen($form['purchase_number']) > 100) {
+        if ($form['order_date'] === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $form['order_date'])) {
+            $error = 'Enter a valid order date.';
+        } elseif ($form['purchase_number'] === '' || strlen($form['purchase_number']) > 100) {
             $error = 'Purchase number is required and must be 100 characters or fewer.';
         }
     }
@@ -106,9 +113,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $orderStmt = $pdo->prepare("
                 INSERT INTO supplier_orders (supplier_id, purchase_number, status, payment_status, estimated_cost, shipping_fee, currency, exchange_rate, foreign_total, order_date, notes)
-                VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, ?, CURDATE(), ?)
+                VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?)
             ");
-            $orderStmt->execute([$supplierId, $form['purchase_number'], $form['payment_status'], round($estimatedCost, 2), $shippingFee, $currency, $exchangeRate, round($foreignTotal, 2), $form['notes'] !== '' ? $form['notes'] : null]);
+            $orderStmt->execute([$supplierId, $form['purchase_number'], $form['payment_status'], round($estimatedCost, 2), $shippingFee, $currency, $exchangeRate, round($foreignTotal, 2), $form['order_date'], $form['notes'] !== '' ? $form['notes'] : null]);
             $orderId = (int) $pdo->lastInsertId();
 
             $itemStmt = $pdo->prepare('
@@ -221,6 +228,12 @@ require_once __DIR__ . '/../../includes/header.php';
             <div class="col-md-6">
                 <label class="form-label">Purchase Number</label>
                 <input type="text" class="form-control" name="purchase_number" value="<?php echo app_escape($form['purchase_number']); ?>" maxlength="100" required>
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">Order Date</label>
+                <input type="date" class="form-control" name="order_date" value="<?php echo app_escape($form['order_date']); ?>" required>
+                <div class="form-text">When the purchase was placed. Back-date it to record a past order. Stock still enters inventory on the day you actually receive it.</div>
             </div>
 
             <div class="col-md-3">
