@@ -1303,7 +1303,12 @@ require_once __DIR__ . '/../../includes/header.php';
 // re-validates it inside the row lock regardless.
 (function () {
     var modalEl = document.getElementById('reverseReceiptModal');
-    if (!modalEl || !window.bootstrap) { return; }
+    // Bootstrap is loaded by includes/footer.php, which is required AFTER this script - so
+    // window.bootstrap does not exist yet at parse time. Gating the whole block on it here made
+    // this return early, attach no listeners, and leave the button silently dead. Listeners are
+    // attached unconditionally; bootstrap is resolved lazily inside the handler, by which point
+    // the footer has loaded it.
+    if (!modalEl) { return; }
 
     document.querySelectorAll('.js-reverse-receipt').forEach(function (btn) {
         btn.addEventListener('click', function () {
@@ -1331,7 +1336,27 @@ require_once __DIR__ . '/../../includes/header.php';
                 note.classList.add('d-none');
             }
 
-            window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
+            if (window.bootstrap && window.bootstrap.Modal) {
+                window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
+            } else {
+                // Bootstrap genuinely unavailable (CDN blocked/offline) - fall back to showing
+                // the modal directly rather than leaving the button doing nothing.
+                modalEl.classList.add('show');
+                modalEl.style.display = 'block';
+                modalEl.removeAttribute('aria-hidden');
+            }
+        });
+    });
+
+    // Plain-DOM close for the fallback path above; harmless when Bootstrap is present because it
+    // handles its own dismissal first.
+    modalEl.querySelectorAll('[data-bs-dismiss="modal"]').forEach(function (closer) {
+        closer.addEventListener('click', function () {
+            if (!window.bootstrap || !window.bootstrap.Modal) {
+                modalEl.classList.remove('show');
+                modalEl.style.display = 'none';
+                modalEl.setAttribute('aria-hidden', 'true');
+            }
         });
     });
 })();
