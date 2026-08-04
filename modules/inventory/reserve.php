@@ -60,6 +60,14 @@ if ($product['catalog_type'] === 'variable') {
 
 $canManage = app_has_permission('inventory.manage');
 
+// UX U1 - single context-aware Back, replacing two competing ones. Defaults to the Reservation
+// Center, the queue this page acts for. Preserved across this page's own POST -> redirect -> GET
+// so Back still works after reserving.
+$backUrl = app_safe_return_url($_GET['return_url'] ?? null, '/modules/inventory/reservation-center.php');
+$returnUrlQuery = isset($_GET['return_url']) && $backUrl !== '/modules/inventory/reservation-center.php'
+    ? '&return_url=' . urlencode($backUrl)
+    : '';
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         app_require_csrf();
@@ -130,7 +138,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         . ($variationId !== null ? '&variation_id=' . $variationId : '')
                         . '&reserved=1'
                         . '&order_ids=' . implode(',', array_keys($touchedOrderIds));
-                    app_redirect($redirect);
+                    app_redirect($redirect . $returnUrlQuery);
                 } catch (RuntimeException $exception) {
                     $pdo->rollBack();
                     inventory_discard_pending_woocommerce_resync();
@@ -153,7 +161,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     . ($variationId !== null ? '&variation_id=' . $variationId : '')
                     . '&reserved=' . count($result['reservations'])
                     . '&order_ids=' . implode(',', $result['order_ids']);
-                app_redirect($redirect);
+                app_redirect($redirect . $returnUrlQuery);
             } catch (RuntimeException $exception) {
                 $error = $exception->getMessage();
             } catch (Exception $exception) {
@@ -230,8 +238,11 @@ require_once __DIR__ . '/../../includes/header.php';
         </p>
     </div>
     <div class="d-flex gap-2">
-        <a class="btn btn-outline-secondary btn-sm" href="/modules/inventory/reservation-center.php">Back to Reservation Center</a>
-        <a class="btn btn-outline-secondary btn-sm" href="/modules/inventory/index.php">Back to Inventory</a>
+        <?php /* UX U1 - was two Back buttons of equal weight ("Back to Reservation Center" and
+                 "Back to Inventory"), so the operator had to remember which one they came
+                 through. One context-aware Back instead, defaulting to the Reservation Center -
+                 the queue this page is the action target of. */ ?>
+        <a class="btn btn-outline-secondary btn-sm" href="<?php echo app_escape($backUrl); ?>">Back</a>
     </div>
 </div>
 

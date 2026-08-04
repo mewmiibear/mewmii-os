@@ -121,6 +121,104 @@ function app_redirect(string $path): void
     exit;
 }
 
+/**
+ * Context-aware "Back" support (UX U1). A page reachable from several places had exactly one
+ * hardcoded Back target, so most entries dead-ended somewhere the operator never came from -
+ * e.g. modules/supplier-orders/view.php has ten inbound links from six modules and one
+ * "Back to Supplier Orders". These three helpers let a source page hand its own location to the
+ * destination as ?return_url=, which the destination validates and uses instead of its default.
+ *
+ * Generalises the one place that already did this correctly: modules/shipments/create.php picks
+ * its Back target from whether it was opened with an order_id.
+ *
+ * SECURITY - app_safe_return_url() is the only thing that may turn a request value into a link
+ * or redirect target. It accepts a SITE-RELATIVE PATH ONLY and falls back to the caller's own
+ * hardcoded destination on anything else, so a crafted return_url can never send an operator
+ * (or a Location: header) off-site. Rejected: absolute/scheme URLs (http:, javascript:, data:),
+ * protocol-relative "//host", backslash variants browsers may normalise to "/", anything
+ * carrying a host/port/credentials, control characters (header injection), and over-long values.
+ */
+const APP_RETURN_URL_MAX_LENGTH = 512;
+
+function app_safe_return_url(?string $candidate, string $fallback): string
+{
+    if ($candidate === null) {
+        return $fallback;
+    }
+
+    $candidate = trim($candidate);
+
+    if ($candidate === '' || strlen($candidate) > APP_RETURN_URL_MAX_LENGTH) {
+        return $fallback;
+    }
+
+    // Control characters (incl. CR/LF) would allow response-splitting via Location:.
+    if (preg_match('/[\x00-\x1F\x7F]/', $candidate) === 1) {
+        return $fallback;
+    }
+
+    // A backslash is treated as a path separator by some browsers, so "/\evil.com" and
+    // "\\evil.com" can resolve off-site. Nothing legitimate here contains one.
+    if (str_contains($candidate, '\\')) {
+        return $fallback;
+    }
+
+    // Must be rooted at this site, and must not be protocol-relative ("//evil.com").
+    if ($candidate[0] !== '/' || str_starts_with($candidate, '//')) {
+        return $fallback;
+    }
+
+    $parts = parse_url($candidate);
+
+    if ($parts === false || !isset($parts['path']) || $parts['path'] === '') {
+        return $fallback;
+    }
+
+    // Any of these present means it is not a bare site-relative path.
+    foreach (['scheme', 'host', 'port', 'user', 'pass'] as $authorityPart) {
+        if (isset($parts[$authorityPart])) {
+            return $fallback;
+        }
+    }
+
+    return $candidate;
+}
+
+/**
+ * The current page's own location, for handing to a destination as ?return_url=. Transient
+ * one-shot flags are stripped so returning here never re-fires a success banner the operator
+ * has already seen, and a nested return_url is dropped so the value cannot grow per hop.
+ */
+function app_build_return_url(): string
+{
+    $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/';
+
+    $query = $_GET;
+    unset($query['return_url']);
+    foreach ([
+        'created', 'updated', 'deleted', 'added', 'adjusted', 'received', 'reversed',
+        'reserved', 'allocated', 'released', 'generated', 'skipped', 'bulk_result',
+        'shipping_allocated', 'cost_added', 'delete_error', 'order_ids',
+    ] as $flashKey) {
+        unset($query[$flashKey]);
+    }
+
+    return $path . ($query !== [] ? ('?' . http_build_query($query)) : '');
+}
+
+/**
+ * Appends an already-built return context to an outbound link. Raw (unescaped) - callers pass
+ * the result through app_escape() like any other href.
+ */
+function app_link_with_return(string $url, string $returnUrl): string
+{
+    if ($returnUrl === '') {
+        return $url;
+    }
+
+    return $url . (str_contains($url, '?') ? '&' : '?') . 'return_url=' . urlencode($returnUrl);
+}
+
 function app_now(): string
 {
     return date('Y-m-d H:i:s');

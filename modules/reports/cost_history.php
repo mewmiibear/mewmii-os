@@ -81,6 +81,10 @@ $canViewProducts = app_has_permission('products.view');
 $canViewSupplierOrders = app_has_permission('supplier-orders.view');
 $naBadge = '<span class="text-muted">Not available</span>';
 
+// UX U1 - this page's own location, handed to context-aware destinations so their
+// Back returns here instead of their hardcoded default. See app_build_return_url().
+$returnContext = app_build_return_url();
+
 require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="page-header d-flex justify-content-between align-items-center">
@@ -170,7 +174,7 @@ require_once __DIR__ . '/../../includes/header.php';
                                     <td><?php echo app_escape($snapshot['captured_at']); ?></td>
                                     <td>
                                         <?php if ($canViewSupplierOrders): ?>
-                                            <a href="/modules/supplier-orders/view.php?id=<?php echo (int) $snapshot['supplier_order_id']; ?>"><?php echo app_escape($snapshot['purchase_number']); ?></a>
+                                            <a href="/modules/supplier-orders/view.php?id=<?php echo (int) $snapshot['supplier_order_id']; ?>&return_url=<?php echo urlencode($returnContext); ?>"><?php echo app_escape($snapshot['purchase_number']); ?></a>
                                         <?php else: ?>
                                             <?php echo app_escape($snapshot['purchase_number']); ?>
                                         <?php endif; ?>

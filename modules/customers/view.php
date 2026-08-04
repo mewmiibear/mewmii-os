@@ -20,7 +20,11 @@ $customerId = (int) ($_GET['id'] ?? 0);
 
 if ($customerId < 1) {
     http_response_code(404);
-    require_once __DIR__ . '/../../includes/header.php';
+    // UX U1 - this page's own location, handed to context-aware destinations so their
+// Back returns here instead of their hardcoded default. See app_build_return_url().
+$returnContext = app_build_return_url();
+
+require_once __DIR__ . '/../../includes/header.php';
     echo '<div class="alert alert-danger">Customer not found.</div>';
     require_once __DIR__ . '/../../includes/footer.php';
     exit;
@@ -276,10 +280,10 @@ require_once __DIR__ . '/../../includes/header.php';
     </table>
     <div class="d-flex gap-3 align-items-center flex-wrap">
         <?php if ($canViewCustomerStorage): ?>
-            <a class="small" href="/modules/customer-storage/view.php?customer_id=<?php echo (int) $customerId; ?>">Full storage history &rarr;</a>
+            <a class="small" href="/modules/customer-storage/view.php?customer_id=<?php echo (int) $customerId; ?>&return_url=<?php echo urlencode($returnContext); ?>">Full storage history &rarr;</a>
         <?php endif; ?>
         <?php if ($canShipMyBox && $storageItems !== []): ?>
-            <a class="btn btn-sm btn-primary ms-auto" href="/modules/ship-my-box/create.php?customer_id=<?php echo (int) $customerId; ?>">Ship My Box</a>
+            <a class="btn btn-sm btn-primary ms-auto" href="/modules/ship-my-box/create.php?customer_id=<?php echo (int) $customerId; ?>&return_url=<?php echo urlencode($returnContext); ?>">Ship My Box</a>
         <?php endif; ?>
     </div>
 </div>

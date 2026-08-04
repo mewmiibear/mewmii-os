@@ -100,6 +100,10 @@ $canManage = app_has_permission('customer-storage.manage');
 // permission that page itself requires.
 $canShipMyBox = app_has_permission('ship-my-box.manage');
 
+// UX U1 - this page's own location, handed to context-aware destinations so their
+// Back returns here instead of their hardcoded default. See app_build_return_url().
+$returnContext = app_build_return_url();
+
 require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -188,9 +192,9 @@ require_once __DIR__ . '/../../includes/header.php';
                         <td><?php echo app_escape((string) $row['total_quantity']); ?></td>
                         <td class="text-end">
                             <?php if ($canShipMyBox): ?>
-                                <a class="btn btn-sm btn-primary" href="/modules/ship-my-box/create.php?customer_id=<?php echo (int) $row['customer_id']; ?>">Ship My Box</a>
+                                <a class="btn btn-sm btn-primary" href="/modules/ship-my-box/create.php?customer_id=<?php echo (int) $row['customer_id']; ?>&return_url=<?php echo urlencode($returnContext); ?>">Ship My Box</a>
                             <?php endif; ?>
-                            <a class="btn btn-sm btn-outline-primary" href="/modules/customer-storage/view.php?customer_id=<?php echo (int) $row['customer_id']; ?>">View</a>
+                            <a class="btn btn-sm btn-outline-primary" href="/modules/customer-storage/view.php?customer_id=<?php echo (int) $row['customer_id']; ?>&return_url=<?php echo urlencode($returnContext); ?>">View</a>
                         </td>
                     </tr>
                 <?php endforeach; ?>

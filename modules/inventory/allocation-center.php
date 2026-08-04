@@ -69,6 +69,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // disappear (or its Need Allocate drop) without a manual refresh.
 $queue = inventory_allocation_queue($pdo);
 
+// UX U1 - this page's own location, handed to context-aware destinations so their
+// Back returns here instead of their hardcoded default. See app_build_return_url().
+$returnContext = app_build_return_url();
+
 require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -157,7 +161,7 @@ require_once __DIR__ . '/../../includes/header.php';
                                                 <input type="hidden" name="variation_id" value="<?php echo (int) $unit['variation_id']; ?>">
                                                 <button type="submit" class="btn btn-sm btn-primary">Auto Allocate</button>
                                             </form>
-                                            <a class="btn btn-sm btn-outline-secondary" href="/modules/inventory/allocate.php?product_id=<?php echo (int) $product['product_id']; ?>&variation_id=<?php echo (int) $unit['variation_id']; ?>">Manual</a>
+                                            <a class="btn btn-sm btn-outline-secondary" href="/modules/inventory/allocate.php?product_id=<?php echo (int) $product['product_id']; ?>&variation_id=<?php echo (int) $unit['variation_id']; ?>&return_url=<?php echo urlencode($returnContext); ?>">Manual</a>
                                         <?php endif; ?>
                                     </td>
                                 </tr>
@@ -181,7 +185,7 @@ require_once __DIR__ . '/../../includes/header.php';
                                             <input type="hidden" name="product_id" value="<?php echo (int) $product['product_id']; ?>">
                                             <button type="submit" class="btn btn-sm btn-primary">Auto Allocate</button>
                                         </form>
-                                        <a class="btn btn-sm btn-outline-secondary" href="/modules/inventory/allocate.php?product_id=<?php echo (int) $product['product_id']; ?>">Manual</a>
+                                        <a class="btn btn-sm btn-outline-secondary" href="/modules/inventory/allocate.php?product_id=<?php echo (int) $product['product_id']; ?>&return_url=<?php echo urlencode($returnContext); ?>">Manual</a>
                                     <?php endif; ?>
                                 </td>
                             </tr>

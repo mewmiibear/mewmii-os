@@ -569,6 +569,10 @@ function inventory_availability_phrase(string $productType, string $overrideValu
     return $typeLabel . ' Open';
 }
 
+// UX U1 - this page's own location, handed to context-aware destinations so their
+// Back returns here instead of their hardcoded default. See app_build_return_url().
+$returnContext = app_build_return_url();
+
 require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="page-header d-flex justify-content-between align-items-center">
@@ -800,7 +804,7 @@ require_once __DIR__ . '/../../includes/header.php';
                                 <a class="btn btn-sm btn-outline-secondary" href="/modules/products/edit.php?id=<?php echo (int) $product['id']; ?>" title="Edit Product">&#9998;</a>
                             <?php endif; ?>
                             <?php if (!$isVariable && (int) $product['arrived_stock'] > 0): ?>
-                                <a class="btn btn-sm btn-outline-primary" href="/modules/inventory/allocate.php?product_id=<?php echo (int) $product['id']; ?>">Allocate</a>
+                                <a class="btn btn-sm btn-outline-primary" href="/modules/inventory/allocate.php?product_id=<?php echo (int) $product['id']; ?>&return_url=<?php echo urlencode($returnContext); ?>">Allocate</a>
                             <?php endif; ?>
                         </div>
                     </td>
@@ -857,7 +861,7 @@ require_once __DIR__ . '/../../includes/header.php';
                                         <a class="btn btn-sm btn-outline-secondary" href="/modules/products/edit.php?id=<?php echo (int) $product['id']; ?>" title="Edit Product">&#9998;</a>
                                     <?php endif; ?>
                                     <?php if ((int) $variation['arrived_stock'] > 0): ?>
-                                        <a class="btn btn-sm btn-outline-primary" href="/modules/inventory/allocate.php?product_id=<?php echo (int) $product['id']; ?>&variation_id=<?php echo (int) $variation['variation_id']; ?>">Allocate</a>
+                                        <a class="btn btn-sm btn-outline-primary" href="/modules/inventory/allocate.php?product_id=<?php echo (int) $product['id']; ?>&variation_id=<?php echo (int) $variation['variation_id']; ?>&return_url=<?php echo urlencode($returnContext); ?>">Allocate</a>
                                     <?php endif; ?>
                                 </div>
                             </td>

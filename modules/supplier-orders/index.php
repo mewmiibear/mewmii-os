@@ -123,6 +123,10 @@ unset($supplierOrder);
 
 $canManage = app_has_permission('supplier-orders.manage');
 
+// UX U1 - this page's own location, handed to context-aware destinations so their
+// Back returns here instead of their hardcoded default. See app_build_return_url().
+$returnContext = app_build_return_url();
+
 require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="page-header d-flex justify-content-between align-items-center">
@@ -249,9 +253,9 @@ require_once __DIR__ . '/../../includes/header.php';
                                          something still outstanding. units_outstanding is already forced to
                                          0 for cancelled/completed orders above, so those are covered too.
                                          view.php re-checks all of it on load regardless. */ ?>
-                                <a class="btn btn-sm btn-primary" href="/modules/supplier-orders/view.php?id=<?php echo (int) $order['id']; ?>#receive-batch-form">Receive</a>
+                                <a class="btn btn-sm btn-primary" href="/modules/supplier-orders/view.php?id=<?php echo (int) $order['id']; ?>&return_url=<?php echo urlencode($returnContext); ?>#receive-batch-form">Receive</a>
                             <?php endif; ?>
-                            <a class="btn btn-sm btn-outline-primary" href="/modules/supplier-orders/view.php?id=<?php echo (int) $order['id']; ?>">View</a>
+                            <a class="btn btn-sm btn-outline-primary" href="/modules/supplier-orders/view.php?id=<?php echo (int) $order['id']; ?>&return_url=<?php echo urlencode($returnContext); ?>">View</a>
                             <?php if ($canManage): ?>
                                 <a class="btn btn-sm btn-outline-secondary" href="/modules/supplier-orders/edit.php?id=<?php echo (int) $order['id']; ?>">Edit</a>
                             <?php endif; ?>

@@ -61,6 +61,14 @@ if ($product['catalog_type'] === 'variable') {
 
 $canManage = app_has_permission('inventory.manage');
 
+// UX U1 - single context-aware Back, replacing two competing ones. Defaults to the Allocation
+// Center, the queue this page acts for. Preserved across this page's own POST -> redirect -> GET
+// so Back still works after allocating or releasing.
+$backUrl = app_safe_return_url($_GET['return_url'] ?? null, '/modules/inventory/allocation-center.php');
+$returnUrlQuery = isset($_GET['return_url']) && $backUrl !== '/modules/inventory/allocation-center.php'
+    ? '&return_url=' . urlencode($backUrl)
+    : '';
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         app_require_csrf();
@@ -168,7 +176,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         . ($variationId !== null ? '&variation_id=' . $variationId : '')
                         . '&allocated=1'
                         . '&order_ids=' . implode(',', array_keys($touchedOrderIds));
-                    app_redirect($redirect);
+                    app_redirect($redirect . $returnUrlQuery);
                 } catch (RuntimeException $exception) {
                     $pdo->rollBack();
                     inventory_discard_pending_woocommerce_resync();
@@ -192,7 +200,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     . ($variationId !== null ? '&variation_id=' . $variationId : '')
                     . '&allocated=' . count($result['allocations'])
                     . '&order_ids=' . implode(',', $result['order_ids']);
-                app_redirect($redirect);
+                app_redirect($redirect . $returnUrlQuery);
             } catch (RuntimeException $exception) {
                 $error = $exception->getMessage();
             } catch (Exception $exception) {
@@ -227,7 +235,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $redirect = '/modules/inventory/allocate.php?product_id=' . $productId
                         . ($variationId !== null ? '&variation_id=' . $variationId : '')
                         . '&released=1';
-                    app_redirect($redirect);
+                    app_redirect($redirect . $returnUrlQuery);
                 } catch (RuntimeException $exception) {
                     $pdo->rollBack();
                     inventory_discard_pending_woocommerce_resync();
@@ -309,8 +317,10 @@ require_once __DIR__ . '/../../includes/header.php';
         </p>
     </div>
     <div class="d-flex gap-2">
-        <a class="btn btn-outline-secondary btn-sm" href="/modules/inventory/allocation-center.php">Back to Allocation Center</a>
-        <a class="btn btn-outline-secondary btn-sm" href="/modules/inventory/index.php">Back to Inventory</a>
+        <?php /* UX U1 - was two Back buttons of equal weight ("Back to Allocation Center" and
+                 "Back to Inventory"). One context-aware Back instead, defaulting to the
+                 Allocation Center - the queue this page is the action target of. */ ?>
+        <a class="btn btn-outline-secondary btn-sm" href="<?php echo app_escape($backUrl); ?>">Back</a>
     </div>
 </div>
 

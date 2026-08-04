@@ -13,13 +13,27 @@ $customerId = (int) ($_GET['customer_id'] ?? 0);
 
 if ($customerId < 1) {
     http_response_code(404);
-    require_once __DIR__ . '/../../includes/header.php';
+    // UX U1 - this page's own location, handed to context-aware destinations so their
+// Back returns here instead of their hardcoded default. See app_build_return_url().
+$returnContext = app_build_return_url();
+
+require_once __DIR__ . '/../../includes/header.php';
     echo '<div class="alert alert-danger">Customer not found.</div>';
     require_once __DIR__ . '/../../includes/footer.php';
     exit;
 }
 
 $pdo = app_db();
+
+// UX U1 - reachable from the Customer Storage list and from a customer's own page, but Back
+// always returned to the storage list, losing the customer context an operator arrived with.
+// See app_safe_return_url(): anything that is not a site-relative path falls back to the
+// original hardcoded destination, so behaviour is unchanged when ?return_url= is absent.
+$backUrl = app_safe_return_url($_GET['return_url'] ?? null, '/modules/customer-storage/index.php');
+// Carried across this page's own add/remove/update-location POST -> redirect -> GET cycle.
+$returnUrlQuery = isset($_GET['return_url']) && $backUrl !== '/modules/customer-storage/index.php'
+    ? '&return_url=' . urlencode($backUrl)
+    : '';
 
 $customerStmt = $pdo->prepare('SELECT id, name, email, phone FROM customers WHERE id = ? LIMIT 1');
 $customerStmt->execute([$customerId]);
@@ -65,7 +79,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     customer_storage_add($pdo, $customerId, $unit['product_id'], $quantity, $arrivalDate !== '' ? $arrivalDate : null, $unit['variation_id']);
                     $pdo->commit();
 
-                    app_redirect('/modules/customer-storage/view.php?customer_id=' . $customerId . '&updated=1');
+                    app_redirect('/modules/customer-storage/view.php?customer_id=' . $customerId . '&updated=1' . $returnUrlQuery);
                 } catch (RuntimeException $exception) {
                     $pdo->rollBack();
                     $error = $exception->getMessage();
@@ -86,7 +100,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare('UPDATE customer_storage SET storage_location = ? WHERE id = ? AND customer_id = ?')
                     ->execute([$storageLocation !== '' ? $storageLocation : null, $storageId, $customerId]);
 
-                app_redirect('/modules/customer-storage/view.php?customer_id=' . $customerId . '&updated=1');
+                app_redirect('/modules/customer-storage/view.php?customer_id=' . $customerId . '&updated=1' . $returnUrlQuery);
             }
         } elseif ($action === 'remove') {
             $storageId = (int) ($_POST['storage_id'] ?? 0);
@@ -133,7 +147,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     $pdo->commit();
 
-                    app_redirect('/modules/customer-storage/view.php?customer_id=' . $customerId . '&updated=1');
+                    app_redirect('/modules/customer-storage/view.php?customer_id=' . $customerId . '&updated=1' . $returnUrlQuery);
                 } catch (RuntimeException $exception) {
                     $pdo->rollBack();
                     $error = $exception->getMessage();
@@ -216,9 +230,9 @@ require_once __DIR__ . '/../../includes/header.php';
     </div>
     <div class="d-flex gap-2">
         <?php if ($canShipMyBox && $storedItems !== []): ?>
-            <a class="btn btn-primary btn-sm" href="/modules/ship-my-box/create.php?customer_id=<?php echo (int) $customerId; ?>">Ship My Box</a>
+            <a class="btn btn-primary btn-sm" href="/modules/ship-my-box/create.php?customer_id=<?php echo (int) $customerId; ?>&return_url=<?php echo urlencode($returnContext); ?>">Ship My Box</a>
         <?php endif; ?>
-        <a class="btn btn-outline-secondary btn-sm" href="/modules/customer-storage/index.php">Back to Customer Storage</a>
+        <a class="btn btn-outline-secondary btn-sm" href="<?php echo app_escape($backUrl); ?>">Back to Customer Storage</a>
     </div>
 </div>
 

@@ -25,6 +25,18 @@ if ($orderId < 1) {
 
 $pdo = app_db();
 
+// UX U1 - this page has ten inbound links from six modules (Products, Reports, Suppliers,
+// Supplier Orders itself), but one hardcoded "Back to Supplier Orders", so most entries
+// dead-ended in a list the operator never came from. ?return_url= carries the caller's own
+// location; app_safe_return_url() rejects anything that is not a site-relative path and falls
+// back to the original hardcoded destination, so behaviour is unchanged when it is absent.
+$backUrl = app_safe_return_url($_GET['return_url'] ?? null, '/modules/supplier-orders/index.php');
+// Preserved across this page's own POST -> redirect -> GET cycle (receiving, reverse receipt,
+// payments, costs, status changes) so Back still works after an action.
+$returnUrlQuery = isset($_GET['return_url']) && $backUrl !== '/modules/supplier-orders/index.php'
+    ? '&return_url=' . urlencode($backUrl)
+    : '';
+
 $orderStmt = $pdo->prepare('
     SELECT so.*, s.name AS supplier_name
     FROM supplier_orders so
@@ -81,7 +93,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo->commit();
                     inventory_flush_woocommerce_resync($pdo);
 
-                    app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1&received=1');
+                    app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1&received=1' . $returnUrlQuery);
                 } catch (RuntimeException $exception) {
                     $pdo->rollBack();
                     inventory_discard_pending_woocommerce_resync();
@@ -112,7 +124,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo->commit();
                     inventory_flush_woocommerce_resync($pdo);
 
-                    app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1&reversed=1');
+                    app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1&reversed=1' . $returnUrlQuery);
                 } catch (RuntimeException $exception) {
                     $pdo->rollBack();
                     inventory_discard_pending_woocommerce_resync();
@@ -158,7 +170,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo->commit();
                     inventory_flush_woocommerce_resync($pdo);
 
-                    app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1&received=1');
+                    app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1&received=1' . $returnUrlQuery);
                 } catch (RuntimeException $exception) {
                     $pdo->rollBack();
                     inventory_discard_pending_woocommerce_resync();
@@ -180,7 +192,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo->commit();
                     inventory_flush_woocommerce_resync($pdo);
 
-                    app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1&received=1');
+                    app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1&received=1' . $returnUrlQuery);
                 } catch (RuntimeException $exception) {
                     $pdo->rollBack();
                     inventory_discard_pending_woocommerce_resync();
@@ -206,7 +218,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo->prepare('UPDATE supplier_orders SET status = ? WHERE id = ?')->execute([$targetStatus, $orderId]);
                     $pdo->commit();
 
-                    app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1');
+                    app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1' . $returnUrlQuery);
                 } catch (Exception $exception) {
                     $pdo->rollBack();
                     $error = 'Failed to update status.';
@@ -240,7 +252,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     activity_log($pdo, 'supplier_orders', 'payment_added', $orderId, 'Added payment of RM' . number_format($amount, 2) . ' to ' . $order['purchase_number']);
                     $pdo->commit();
 
-                    app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1');
+                    app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1' . $returnUrlQuery);
                 } catch (RuntimeException $exception) {
                     $pdo->rollBack();
                     $error = $exception->getMessage();
@@ -262,7 +274,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     activity_log($pdo, 'supplier_orders', 'payment_deleted', $orderId, 'Deleted a payment from ' . $order['purchase_number']);
                     $pdo->commit();
 
-                    app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1');
+                    app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1' . $returnUrlQuery);
                 } catch (Exception $exception) {
                     $pdo->rollBack();
                     $error = 'Failed to delete payment.';
@@ -283,7 +295,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 supplier_order_log_event($pdo, $orderId, 'Shipping cost allocated (' . str_replace('_', ' ', $allocationMethod) . '): RM ' . number_format($totalShippingCost, 2));
                 $pdo->commit();
 
-                app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1&shipping_allocated=1');
+                app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1&shipping_allocated=1' . $returnUrlQuery);
             } catch (RuntimeException $exception) {
                 $pdo->rollBack();
                 $error = $exception->getMessage();
@@ -305,7 +317,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 supplier_order_log_event($pdo, $orderId, 'Additional cost added (' . $costType . '): RM ' . number_format($amount, 2));
                 $pdo->commit();
 
-                app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1&cost_added=1');
+                app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1&cost_added=1' . $returnUrlQuery);
             } catch (RuntimeException $exception) {
                 $pdo->rollBack();
                 $error = $exception->getMessage();
@@ -326,7 +338,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     supplier_order_log_event($pdo, $orderId, 'Additional cost removed from an order line.');
                     $pdo->commit();
 
-                    app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1');
+                    app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1' . $returnUrlQuery);
                 } catch (Exception $exception) {
                     $pdo->rollBack();
                     $error = 'Failed to delete additional cost.';
@@ -340,7 +352,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->commit();
                 inventory_flush_woocommerce_resync($pdo);
 
-                app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1');
+                app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1' . $returnUrlQuery);
             } catch (RuntimeException $exception) {
                 $pdo->rollBack();
                 inventory_discard_pending_woocommerce_resync();
@@ -571,7 +583,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 Received &mdash; cannot be deleted
             </span>
         <?php endif; ?>
-        <a class="btn btn-outline-secondary btn-sm" href="/modules/supplier-orders/index.php">Back to Supplier Orders</a>
+        <a class="btn btn-outline-secondary btn-sm" href="<?php echo app_escape($backUrl); ?>">Back to Supplier Orders</a>
     </div>
 </div>
 

@@ -13,7 +13,11 @@ $productId = (int) ($_GET['id'] ?? 0);
 
 if ($productId < 1) {
     http_response_code(404);
-    require_once __DIR__ . '/../../includes/header.php';
+    // UX U1 - this page's own location, handed to context-aware destinations so their
+// Back returns here instead of their hardcoded default. See app_build_return_url().
+$returnContext = app_build_return_url();
+
+require_once __DIR__ . '/../../includes/header.php';
     echo '<div class="alert alert-danger">Product not found.</div>';
     require_once __DIR__ . '/../../includes/footer.php';
     exit;
@@ -126,7 +130,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 <div class="mt-1 small">
                     Last order:
                     <?php if ($controlCenterPermissions['supplierOrders']): ?>
-                        <a href="/modules/supplier-orders/view.php?id=<?php echo (int) $lastSupplierOrder['id']; ?>"><?php echo app_escape($lastSupplierOrder['purchase_number']); ?></a>
+                        <a href="/modules/supplier-orders/view.php?id=<?php echo (int) $lastSupplierOrder['id']; ?>&return_url=<?php echo urlencode($returnContext); ?>"><?php echo app_escape($lastSupplierOrder['purchase_number']); ?></a>
                     <?php else: ?>
                         <?php echo app_escape($lastSupplierOrder['purchase_number']); ?>
                     <?php endif; ?>
@@ -209,7 +213,7 @@ require_once __DIR__ . '/../../includes/header.php';
                                 <tr>
                                     <td>
                                         <?php if ($controlCenterPermissions['supplierOrders']): ?>
-                                            <a href="/modules/supplier-orders/view.php?id=<?php echo (int) $historyOrder['id']; ?>"><?php echo app_escape($historyOrder['purchase_number']); ?></a>
+                                            <a href="/modules/supplier-orders/view.php?id=<?php echo (int) $historyOrder['id']; ?>&return_url=<?php echo urlencode($returnContext); ?>"><?php echo app_escape($historyOrder['purchase_number']); ?></a>
                                         <?php else: ?>
                                             <?php echo app_escape($historyOrder['purchase_number']); ?>
                                         <?php endif; ?>

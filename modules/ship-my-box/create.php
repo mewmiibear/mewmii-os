@@ -10,6 +10,16 @@ $pdo = app_db();
 
 $customerId = (int) ($_GET['customer_id'] ?? 0);
 
+// UX U1 - opened from the Customer Storage list, a customer's storage page, a customer's own
+// page, or the Ship My Box list, but Back always returned to the Ship My Box list. Read from
+// POST as well as GET because this form re-renders in place on a validation error, which would
+// otherwise drop the context. app_safe_return_url() falls back to the original hardcoded
+// destination for anything that is not a site-relative path.
+$backUrl = app_safe_return_url(
+    $_POST['return_url'] ?? $_GET['return_url'] ?? null,
+    '/modules/ship-my-box/index.php'
+);
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         app_require_csrf();
@@ -155,7 +165,7 @@ require_once __DIR__ . '/../../includes/header.php';
         <h2 class="mb-1">New Ship Request</h2>
         <p class="text-muted mb-0">Select a customer, then choose which stored items to ship.</p>
     </div>
-    <a class="btn btn-outline-secondary btn-sm" href="/modules/ship-my-box/index.php">Back to Ship My Box</a>
+    <a class="btn btn-outline-secondary btn-sm" href="<?php echo app_escape($backUrl); ?>">Back to Ship My Box</a>
 </div>
 
 <?php if ($error !== ''): ?>
@@ -165,6 +175,10 @@ require_once __DIR__ . '/../../includes/header.php';
 <div class="card p-4 mb-4">
     <h5 class="mb-3">Customer</h5>
     <form method="get" class="d-flex gap-2">
+        <?php /* Keeps the origin through the customer-picker round trip, which is a GET. */ ?>
+        <?php if ($backUrl !== '/modules/ship-my-box/index.php'): ?>
+            <input type="hidden" name="return_url" value="<?php echo app_escape($backUrl); ?>">
+        <?php endif; ?>
         <select class="form-select" name="customer_id" required>
             <option value="">Select a customer&hellip;</option>
             <?php foreach ($allCustomers as $customer): ?>
@@ -201,6 +215,10 @@ require_once __DIR__ . '/../../includes/header.php';
             <form method="post">
                 <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                 <input type="hidden" name="customer_id" value="<?php echo (int) $selectedCustomer['id']; ?>">
+                <?php /* Survives an in-place re-render after a validation error. */ ?>
+                <?php if ($backUrl !== '/modules/ship-my-box/index.php'): ?>
+                    <input type="hidden" name="return_url" value="<?php echo app_escape($backUrl); ?>">
+                <?php endif; ?>
 
                 <?php if ($prefillTotal > 0): ?>
                     <div class="d-flex justify-content-between align-items-center mb-3">

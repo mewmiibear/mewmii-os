@@ -12,7 +12,11 @@ $productId = (int) ($_GET['id'] ?? 0);
 
 if ($productId < 1) {
     http_response_code(404);
-    require_once __DIR__ . '/../../includes/header.php';
+    // UX U1 - this page's own location, handed to context-aware destinations so their
+// Back returns here instead of their hardcoded default. See app_build_return_url().
+$returnContext = app_build_return_url();
+
+require_once __DIR__ . '/../../includes/header.php';
     echo '<div class="alert alert-danger">Product not found.</div>';
     require_once __DIR__ . '/../../includes/footer.php';
     exit;
@@ -327,7 +331,7 @@ computed stage: <?php echo var_export($debugViewStage, true); ?>
                         <td><?php echo app_escape($snapshot['captured_at']); ?></td>
                         <td>
                             <?php if ($canViewSupplierOrdersForHistory): ?>
-                                <a href="/modules/supplier-orders/view.php?id=<?php echo (int) $snapshot['supplier_order_id']; ?>"><?php echo app_escape($snapshot['purchase_number']); ?></a>
+                                <a href="/modules/supplier-orders/view.php?id=<?php echo (int) $snapshot['supplier_order_id']; ?>&return_url=<?php echo urlencode($returnContext); ?>"><?php echo app_escape($snapshot['purchase_number']); ?></a>
                             <?php else: ?>
                                 <?php echo app_escape($snapshot['purchase_number']); ?>
                             <?php endif; ?>
