@@ -472,7 +472,14 @@ $canManage = app_has_permission('supplier-orders.manage');
 $nextStatus = supplier_order_status_next((string) $order['status']);
 // Same eligibility as delete - once anything has actually been received, a supplier order
 // can no longer be cancelled (see supplier_order_cancel()'s guard).
-$canCancel = $canManage && empty($order['is_historical']) && !in_array($order['status'], ['cancelled', 'completed'], true) && !supplier_order_has_receiving_history($pdo, $orderId);
+$hasReceivedStock = supplier_order_has_receiving_history($pdo, $orderId);
+$canCancel = $canManage && empty($order['is_historical']) && !in_array($order['status'], ['cancelled', 'completed'], true) && !$hasReceivedStock;
+// Delete was previously offered to any manager regardless of receiving history, so on a received
+// order the operator confirmed a "cannot be undone" dialog and only THEN hit the server guard's
+// error. supplier_order_delete_if_unreceived() has always blocked it - inventory was never at
+// risk - but the button should not offer an action that can never succeed. Same condition the
+// server enforces, evaluated once and shared with $canCancel above.
+$canDelete = $canManage && !$hasReceivedStock;
 
 // Overdue flag - same definition as the dashboard's Overdue card and supplier-orders/index.php's
 // ?filter=overdue, never re-derived.
@@ -516,12 +523,16 @@ require_once __DIR__ . '/../../includes/header.php';
                 <button type="submit" class="btn btn-outline-warning btn-sm">Cancel Order</button>
             </form>
         <?php endif; ?>
-        <?php if ($canManage): ?>
+        <?php if ($canDelete): ?>
             <form method="post" action="/modules/supplier-orders/delete.php" class="d-inline" onsubmit="return confirm('Delete this supplier order? This cannot be undone.');">
                 <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                 <input type="hidden" name="order_id" value="<?php echo (int) $orderId; ?>">
                 <button type="submit" class="btn btn-outline-danger btn-sm">Delete</button>
             </form>
+        <?php elseif ($canManage && $hasReceivedStock): ?>
+            <span class="text-muted small align-self-center" title="Deleting would discard this order's frozen landed-cost history while leaving the received stock on the shelf.">
+                Received &mdash; cannot be deleted
+            </span>
         <?php endif; ?>
         <a class="btn btn-outline-secondary btn-sm" href="/modules/supplier-orders/index.php">Back to Supplier Orders</a>
     </div>

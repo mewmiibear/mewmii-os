@@ -551,6 +551,34 @@ function order_picker_products(PDO $pdo): array
         }
     }
 
+    // Simple products' on-hand stock, batched. The variable branch above already gets this from
+    // its own LEFT JOIN, but simple products used to run one SELECT per product inside the loop
+    // below - up to 500 extra queries every time the New Order page loaded. Same source and same
+    // "no row means 0" rule, just fetched once. Purely a query-count change; no availability rule
+    // is altered (order_unit_is_available() still decides).
+    $simpleAvailability = [];
+    if ($products !== []) {
+        $simpleIds = [];
+        foreach ($products as $row) {
+            if ($row['catalog_type'] !== 'variable') {
+                $simpleIds[] = (int) $row['id'];
+            }
+        }
+
+        if ($simpleIds !== []) {
+            $placeholders = implode(',', array_fill(0, count($simpleIds), '?'));
+            $stmt = $pdo->prepare("
+                SELECT product_id, available_quantity
+                FROM mewmii_inventory
+                WHERE variation_id IS NULL AND product_id IN ({$placeholders})
+            ");
+            $stmt->execute($simpleIds);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $simpleAvailability[(int) $row['product_id']] = (int) $row['available_quantity'];
+            }
+        }
+    }
+
     $result = [];
     foreach ($products as $product) {
         $productId = (int) $product['id'];
@@ -573,13 +601,15 @@ function order_picker_products(PDO $pdo): array
                     'label' => variation_build_label($pdo, $variationId),
                     'price' => $price,
                     'is_available' => $isAvailable,
+                    // Already computed for is_available above - surfaced so the picker can show
+                    // HOW MANY are on hand, not just yes/no. Meaningless for preorder/early-bird
+                    // (they sell against future supply, not shelf stock), so those report null and
+                    // the picker omits it rather than showing a misleading 0.
+                    'available_quantity' => $product['product_type'] === 'ready_stock' ? $available : null,
                 ];
             }
         } else {
-            $available = 0;
-            $invStmt = $pdo->prepare('SELECT available_quantity FROM mewmii_inventory WHERE product_id = ? AND variation_id IS NULL');
-            $invStmt->execute([$productId]);
-            $available = (int) $invStmt->fetchColumn();
+            $available = $simpleAvailability[$productId] ?? 0;
 
             $units[] = [
                 'key' => $productId . ':0',
@@ -587,6 +617,7 @@ function order_picker_products(PDO $pdo): array
                 'label' => null,
                 'price' => catalog_product_effective_price($product),
                 'is_available' => order_unit_is_available($product, $stage, $override, $product['product_type'], $available),
+                'available_quantity' => $product['product_type'] === 'ready_stock' ? $available : null,
             ];
         }
 

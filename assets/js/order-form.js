@@ -215,9 +215,19 @@
 
     function renderUnitOption(product, unit, added, text) {
         var isAdded = added.indexOf(unit.key) !== -1;
-        var availabilityBadge = unit.is_available
-            ? '<span class="badge bg-success">Available</span>'
-            : '<span class="badge bg-danger">Unavailable</span>';
+        // Show HOW MANY are on hand, not just yes/no - the picker already receives the figure it
+        // used to decide is_available (order_picker_products()), and "can I sell 3 of these?" is
+        // the question an operator otherwise leaves the order form to answer in Inventory.
+        // available_quantity is null for preorder/early-bird, which sell against future supply
+        // rather than shelf stock, so those keep the plain Available badge.
+        var availabilityBadge;
+        if (unit.is_available) {
+            availabilityBadge = unit.available_quantity !== null && unit.available_quantity !== undefined
+                ? '<span class="badge bg-success">' + escapeHtml(String(unit.available_quantity)) + ' in stock</span>'
+                : '<span class="badge bg-success">Available</span>';
+        } else {
+            availabilityBadge = '<span class="badge bg-danger">Unavailable</span>';
+        }
 
         return '<label class="d-block checkbox-item">' +
             '<input type="checkbox" class="picker-unit-checkbox" value="' + escapeHtml(unit.key) +
