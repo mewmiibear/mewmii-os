@@ -63,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // since those are pure bookkeeping and never move inventory. This must be the
         // first branch of the chain below (not a separate preceding "if"), since none of
         // the other branches re-check $error before running.
-        if (!empty($order['is_historical']) && in_array($action, ['receive', 'mark_arrived', 'advance_status', 'cancel'], true)) {
+        if (!empty($order['is_historical']) && in_array($action, ['receive', 'receive_batch', 'reverse_receipt', 'mark_arrived', 'advance_status', 'cancel'], true)) {
             $error = 'This is a historical (imported) supplier order - it cannot receive stock or change status.';
         } elseif ($action === 'receive') {
             $itemId = (int) ($_POST['item_id'] ?? 0);
@@ -90,6 +90,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo->rollBack();
                     inventory_discard_pending_woocommerce_resync();
                     $error = 'Failed to receive item.';
+                }
+            }
+        } elseif ($action === 'reverse_receipt') {
+            // Reverse Receiving. supplier_order_reverse_receipt() owns every rule - net-received
+            // ceiling inside the row lock, free-stock guard, negative ledger entry, status
+            // recompute. Nothing about receiving or reversal is decided here.
+            $reverseItemId = (int) ($_POST['reverse_item_id'] ?? 0);
+            $reverseQuantity = (int) ($_POST['reverse_quantity'] ?? 0);
+            $reverseReason = trim((string) ($_POST['reverse_reason'] ?? ''));
+
+            if ($reverseItemId < 1) {
+                $error = 'Invalid order line.';
+            } elseif ($reverseReason === '') {
+                $error = 'Enter a reason for reversing this receipt.';
+            } else {
+                $pdo->beginTransaction();
+
+                try {
+                    supplier_order_reverse_receipt($pdo, $reverseItemId, $reverseQuantity, $reverseReason);
+                    $pdo->commit();
+                    inventory_flush_woocommerce_resync($pdo);
+
+                    app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1&reversed=1');
+                } catch (RuntimeException $exception) {
+                    $pdo->rollBack();
+                    inventory_discard_pending_woocommerce_resync();
+                    $error = $exception->getMessage();
+                } catch (Exception $exception) {
+                    $pdo->rollBack();
+                    inventory_discard_pending_woocommerce_resync();
+                    $error = 'Failed to reverse receipt.';
                 }
             }
         } elseif ($action === 'receive_batch') {
@@ -349,6 +380,12 @@ $totalReceivedQty = 0;
 foreach ($items as &$item) {
     $item['received_quantity'] = supplier_order_item_received_quantity($pdo, (int) $item['id']);
     $item['remaining_quantity'] = (int) $item['total_quantity'] - $item['received_quantity'];
+    // Reverse Receiving - how much of this line can be undone right now, and what holds the rest.
+    // Same function the server guard uses, so the UI can never offer a reversal the server would
+    // refuse. Only computed for lines that actually have received stock.
+    $item['reversible'] = $item['received_quantity'] > 0
+        ? supplier_order_reversible_quantity($pdo, (int) $item['id'])
+        : null;
     $item['variation_label'] = $item['variation_id'] !== null ? variation_build_label($pdo, (int) $item['variation_id']) : '';
     $orderTotal += (float) $item['subtotal'];
     $totalOrderedQty += (int) $item['total_quantity'];
@@ -819,6 +856,19 @@ require_once __DIR__ . '/../../includes/header.php';
                                     <?php else: ?>
                                         <span class="badge bg-success">Complete</span>
                                     <?php endif; ?>
+                                    <?php if ($item['reversible'] !== null): ?>
+                                        <?php /* Compact trigger only - the quantity/reason form lives in one shared
+                                                 modal below, rather than repeating a full form on every received row. */ ?>
+                                        <button type="button" class="btn btn-sm btn-outline-warning mt-1 js-reverse-receipt"
+                                                data-item-id="<?php echo (int) $item['id']; ?>"
+                                                data-label="<?php echo app_escape($item['sku'] . ' - ' . $item['product_name']); ?>"
+                                                data-received="<?php echo (int) $item['reversible']['received']; ?>"
+                                                data-reversible="<?php echo (int) $item['reversible']['reversible']; ?>"
+                                                data-blocked="<?php echo (int) $item['reversible']['blocked']; ?>"
+                                                data-preorder="<?php echo in_array($item['reversible']['product_type'], ['preorder', 'early_bird'], true) ? '1' : '0'; ?>">
+                                            Reverse Receipt
+                                        </button>
+                                    <?php endif; ?>
                                 </td>
                             <?php endif; ?>
                         </tr>
@@ -1207,6 +1257,87 @@ require_once __DIR__ . '/../../includes/header.php';
         })();
     </script>
 <?php endif; ?>
+<?php if ($canManage && empty($order['is_historical'])): ?>
+<div class="modal fade" id="reverseReceiptModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <form method="post" class="modal-content">
+            <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+            <input type="hidden" name="action" value="reverse_receipt">
+            <input type="hidden" name="reverse_item_id" id="reverse-item-id" value="">
+            <div class="modal-header">
+                <h5 class="modal-title">Reverse Receipt</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-2"><strong id="reverse-item-label"></strong></p>
+                <p class="text-muted small">
+                    Received: <span id="reverse-received">0</span> &middot; Reversible now: <strong id="reverse-max">0</strong>
+                </p>
+                <div class="alert alert-warning py-2 small d-none" id="reverse-blocked-note"></div>
+                <div class="mb-3">
+                    <label class="form-label">Quantity to reverse</label>
+                    <input type="number" class="form-control" name="reverse_quantity" id="reverse-quantity" min="1" required>
+                </div>
+                <div class="mb-1">
+                    <label class="form-label">Reason <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" name="reverse_reason" maxlength="100" required
+                           placeholder="e.g. wrong product received">
+                    <div class="form-text">Recorded on the inventory ledger and the order timeline.</div>
+                </div>
+                <p class="text-muted small mb-0 mt-3">
+                    Stock returns to Incoming and the original receipt stays on the ledger &mdash; a reversing
+                    entry is added instead. Nothing is deleted.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-warning">Reverse Receipt</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+// One shared Reverse Receipt modal, populated from the clicked row's data attributes - keeps a
+// single form on the page instead of repeating one per received line. Max quantity comes from
+// supplier_order_reversible_quantity(), the same function the server guard uses; the server
+// re-validates it inside the row lock regardless.
+(function () {
+    var modalEl = document.getElementById('reverseReceiptModal');
+    if (!modalEl || !window.bootstrap) { return; }
+
+    document.querySelectorAll('.js-reverse-receipt').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var reversible = parseInt(btn.getAttribute('data-reversible'), 10) || 0;
+            var blocked = parseInt(btn.getAttribute('data-blocked'), 10) || 0;
+            var isPreorder = btn.getAttribute('data-preorder') === '1';
+
+            document.getElementById('reverse-item-id').value = btn.getAttribute('data-item-id');
+            document.getElementById('reverse-item-label').textContent = btn.getAttribute('data-label');
+            document.getElementById('reverse-received').textContent = btn.getAttribute('data-received');
+            document.getElementById('reverse-max').textContent = String(reversible);
+
+            var qty = document.getElementById('reverse-quantity');
+            qty.max = String(reversible);
+            qty.value = reversible > 0 ? String(reversible) : '';
+            qty.disabled = reversible < 1;
+
+            var note = document.getElementById('reverse-blocked-note');
+            if (blocked > 0) {
+                note.textContent = blocked + ' unit(s) cannot be reversed - they are '
+                    + (isPreorder ? 'allocated to customer storage' : 'reserved or already shipped to customers')
+                    + '. Release those first.';
+                note.classList.remove('d-none');
+            } else {
+                note.classList.add('d-none');
+            }
+
+            window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        });
+    });
+})();
+</script>
+<?php endif; ?>
+
 <script>
 // Batch-receive helpers. Progressive enhancement only - with JS off the quantity inputs and the
 // Receive Entered button still work exactly the same; these just speed up the common cases.

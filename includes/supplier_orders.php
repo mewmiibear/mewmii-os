@@ -204,8 +204,12 @@ function supplier_order_delete_payment(PDO $pdo, int $paymentId): void
  */
 function supplier_order_has_receiving_history(PDO $pdo, int $orderId): bool
 {
+    // SUM, not COUNT. Reverse Receiving records a NEGATIVE 'supplier_receive' row rather than
+    // deleting the original, so both rows survive - counting them would leave a fully reversed
+    // order permanently locked from edit/cancel/delete and the reversal would unlock nothing.
+    // Summing asks the real question: is any stock still received against this order?
     $stmt = $pdo->prepare("
-        SELECT COUNT(*)
+        SELECT COALESCE(SUM(it.quantity), 0)
         FROM inventory_transactions it
         INNER JOIN supplier_order_items soi ON soi.id = it.reference_id AND it.reference_type = 'supplier_order_item'
         WHERE soi.supplier_order_id = ? AND it.transaction_type = 'supplier_receive'
@@ -393,6 +397,29 @@ function supplier_order_receive_item(PDO $pdo, int $itemId, int $quantity): void
         inventory_log_transaction($pdo, $productId, 'supplier_receive', $quantity, 'supplier_order_item', $itemId, $variationId);
     }
 
+    supplier_order_recompute_receiving_status($pdo, $orderId);
+}
+
+/**
+ * Rolls every line's net received quantity up into the order's status. Extracted verbatim from
+ * supplier_order_receive_item() so Reverse Receiving can reuse the identical rule instead of a
+ * second copy - both directions of the same decision belong in one place.
+ *
+ * The two UPWARD branches are byte-identical to the original, including their exact status
+ * exclusion lists, so receiving behaves exactly as before (a cancelled order that becomes fully
+ * received still flips to 'received', as it always did - preserved deliberately rather than
+ * "fixed" here, since that would be a behaviour change smuggled into an extraction).
+ *
+ * Two DOWNWARD branches are new and are unreachable from receiving (which only ever increases
+ * received quantity) - they exist for reversal:
+ *   - fully received -> something reversed  => 'partially_received', received_date cleared
+ *   - everything reversed                   => 'ordered',            received_date cleared
+ *
+ * product_cost_history_capture() stays here, still gated on the transition INTO 'received', so a
+ * reversal never captures a snapshot and a later re-receive captures a fresh one.
+ */
+function supplier_order_recompute_receiving_status(PDO $pdo, int $orderId): void
+{
     $itemsStmt = $pdo->prepare('SELECT id, total_quantity FROM supplier_order_items WHERE supplier_order_id = ?');
     $itemsStmt->execute([$orderId]);
     $allItems = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -422,11 +449,23 @@ function supplier_order_receive_item(PDO $pdo, int $itemId, int $quantity): void
             // into 'received'/'completed', never again on a later call).
             product_cost_history_capture($pdo, $orderId);
         }
-    } elseif ($anyReceived && !in_array($currentStatus, ['partially_received', 'received', 'completed', 'cancelled'], true)) {
-        // Some lines/quantities have arrived but not all - auto-label the order
-        // 'partially_received' (see SUPPLIER_ORDER_WORKFLOW's doc comment). Only ever
-        // moves it OUT of draft/ordered; never overrides a status already further along.
-        $pdo->prepare("UPDATE supplier_orders SET status = 'partially_received' WHERE id = ?")
+    } elseif ($anyReceived) {
+        if (!in_array($currentStatus, ['partially_received', 'received', 'completed', 'cancelled'], true)) {
+            // Some lines/quantities have arrived but not all - auto-label the order
+            // 'partially_received' (see SUPPLIER_ORDER_WORKFLOW's doc comment). Only ever
+            // moves it OUT of draft/ordered; never overrides a status already further along.
+            $pdo->prepare("UPDATE supplier_orders SET status = 'partially_received' WHERE id = ?")
+                ->execute([$orderId]);
+        } elseif ($currentStatus === 'received') {
+            // Reversal only: the order is no longer fully received.
+            $pdo->prepare("UPDATE supplier_orders SET status = 'partially_received', received_date = NULL WHERE id = ?")
+                ->execute([$orderId]);
+        }
+    } elseif (in_array($currentStatus, ['received', 'partially_received'], true)) {
+        // Reversal only: nothing is received any more, so the order returns to 'ordered' and
+        // supplier_order_has_receiving_history() goes false - which is what re-opens edit,
+        // cancel and delete for the correction.
+        $pdo->prepare("UPDATE supplier_orders SET status = 'ordered', received_date = NULL WHERE id = ?")
             ->execute([$orderId]);
     }
 }
@@ -452,6 +491,170 @@ function supplier_order_receive_all_remaining(PDO $pdo, int $orderId): void
             supplier_order_receive_item($pdo, $itemId, $remaining);
         }
     }
+}
+
+/**
+ * How much of one line's received quantity can be reversed right now, and what is holding the
+ * rest. Shared by supplier_order_reverse_receipt()'s guard and the UI, so the button and the
+ * server can never disagree about what is reversible.
+ *
+ * "Free" means the units are still sitting where receiving put them and have not been promised
+ * to a customer:
+ *   - ready_stock          -> mewmii_inventory.available_quantity (reserved/shipped units left it)
+ *   - preorder/early_bird  -> mewmii_inventory.arrived_quantity   (allocated units left it)
+ *
+ * Customer allocations are NEVER unwound automatically - the caller is told what blocks the
+ * reversal and releases it deliberately.
+ *
+ * @return array{received:int, free:int, reversible:int, blocked:int, product_type:string}
+ */
+function supplier_order_reversible_quantity(PDO $pdo, int $itemId): array
+{
+    $stmt = $pdo->prepare('
+        SELECT soi.product_id, soi.variation_id, p.product_type
+        FROM supplier_order_items soi
+        INNER JOIN products p ON p.id = soi.product_id
+        WHERE soi.id = ?
+    ');
+    $stmt->execute([$itemId]);
+    $item = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($item === false) {
+        throw new RuntimeException('Supplier order item not found.');
+    }
+
+    $productId = (int) $item['product_id'];
+    $variationId = $item['variation_id'] !== null ? (int) $item['variation_id'] : null;
+    $productType = (string) $item['product_type'];
+    $received = supplier_order_item_received_quantity($pdo, $itemId);
+
+    $column = in_array($productType, ['preorder', 'early_bird'], true) ? 'arrived_quantity' : 'available_quantity';
+    $freeStmt = $pdo->prepare("SELECT {$column} FROM mewmii_inventory WHERE product_id = ? AND variation_id <=> ?");
+    $freeStmt->execute([$productId, $variationId]);
+    $freeRaw = $freeStmt->fetchColumn();
+    $free = $freeRaw !== false ? (int) $freeRaw : 0;
+
+    $reversible = max(0, min($received, $free));
+
+    return [
+        'received' => $received,
+        'free' => $free,
+        'reversible' => $reversible,
+        'blocked' => max(0, $received - $reversible),
+        'product_type' => $productType,
+    ];
+}
+
+/**
+ * Reverse Receiving - undoes a receipt that should not have happened, WITHOUT deleting or editing
+ * any receiving history.
+ *
+ * A reversal is a negative-quantity 'supplier_receive' ledger row. That specific shape is
+ * deliberate: received quantity is DERIVED everywhere by SUM(quantity) over that transaction_type
+ * (supplier_order_item_received_quantity(), inventory_unit_arrived_total(),
+ * inventory_allocation_queue()), so a negative row is picked up correctly by every consumer with
+ * no change to any of them. A distinct transaction_type would be invisible to all three sums.
+ *
+ * Inventory moves back exactly the way receiving moved it forward, returning stock to INCOMING
+ * (not removing it) because the purchase order line still exists and can be received again.
+ *
+ * Refuses when the units are no longer free - reserved to a customer order, shipped, or allocated
+ * into customer storage. Those are never unwound automatically; the operator releases them first.
+ *
+ * Caller owns the surrounding transaction. Throws RuntimeException with an admin-facing message.
+ */
+function supplier_order_reverse_receipt(PDO $pdo, int $itemId, int $quantity, string $reason): void
+{
+    $reason = trim($reason);
+    if ($reason === '') {
+        throw new RuntimeException('Enter a reason for reversing this receipt.');
+    }
+    if (strlen($reason) > 100) {
+        throw new RuntimeException('Reason must be 100 characters or fewer.');
+    }
+    if ($quantity < 1) {
+        throw new RuntimeException('Reversal quantity must be at least 1.');
+    }
+
+    // FOR UPDATE first: everything below - the net-received ceiling and the free-stock guard -
+    // must be evaluated and acted on atomically, so two concurrent reversals cannot each pass
+    // their own check and together reverse more than was ever received.
+    $itemStmt = $pdo->prepare('SELECT * FROM supplier_order_items WHERE id = ? FOR UPDATE');
+    $itemStmt->execute([$itemId]);
+    $item = $itemStmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($item === false) {
+        throw new RuntimeException('Supplier order item not found.');
+    }
+
+    $orderId = (int) $item['supplier_order_id'];
+    $productId = (int) $item['product_id'];
+    $variationId = $item['variation_id'] !== null ? (int) $item['variation_id'] : null;
+
+    $orderStmt = $pdo->prepare('SELECT status, purchase_number, is_historical FROM supplier_orders WHERE id = ? FOR UPDATE');
+    $orderStmt->execute([$orderId]);
+    $order = $orderStmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($order === false) {
+        throw new RuntimeException('Supplier order not found.');
+    }
+    if (!empty($order['is_historical'])) {
+        throw new RuntimeException('This is a historical (imported) supplier order - its receiving cannot be reversed.');
+    }
+    if (in_array((string) $order['status'], ['completed', 'cancelled'], true)) {
+        throw new RuntimeException('A completed or cancelled supplier order cannot have its receiving reversed.');
+    }
+
+    $state = supplier_order_reversible_quantity($pdo, $itemId);
+
+    // Explicit net-received ceiling, re-evaluated inside the lock.
+    if ($quantity > $state['received']) {
+        throw new RuntimeException('Cannot reverse ' . $quantity . ' unit(s) - only ' . $state['received'] . ' are currently received on this line.');
+    }
+    if ($quantity > $state['reversible']) {
+        $where = in_array($state['product_type'], ['preorder', 'early_bird'], true)
+            ? 'allocated to customer storage'
+            : 'reserved or already shipped to customers';
+        throw new RuntimeException(
+            'Only ' . $state['reversible'] . ' of ' . $state['received'] . ' received unit(s) can be reversed - the other '
+            . $state['blocked'] . ' are ' . $where . '. Release those first, then reverse.'
+        );
+    }
+
+    // Mirror image of receiving: stock returns to incoming, because the line can be received again.
+    if (in_array($state['product_type'], ['preorder', 'early_bird'], true)) {
+        $pdo->prepare('
+            UPDATE mewmii_inventory
+            SET arrived_quantity = GREATEST(arrived_quantity - ?, 0),
+                incoming_quantity = incoming_quantity + ?
+            WHERE product_id = ? AND variation_id <=> ?
+        ')->execute([$quantity, $quantity, $productId, $variationId]);
+    } else {
+        $pdo->prepare('
+            UPDATE mewmii_inventory
+            SET available_quantity = GREATEST(available_quantity - ?, 0),
+                incoming_quantity = incoming_quantity + ?
+            WHERE product_id = ? AND variation_id <=> ?
+        ')->execute([$quantity, $quantity, $productId, $variationId]);
+    }
+
+    // The reversing entry. Append-only: the original receipt row is never updated or deleted.
+    inventory_log_transaction(
+        $pdo,
+        $productId,
+        'supplier_receive',
+        -$quantity,
+        'supplier_order_item',
+        $itemId,
+        $variationId,
+        'Reverse receipt',
+        $reason
+    );
+
+    supplier_order_recompute_receiving_status($pdo, $orderId);
+
+    supplier_order_log_event($pdo, $orderId, 'Reversed receipt of ' . $quantity . ' unit(s) on line #' . $itemId . ' - ' . $reason);
+    activity_log($pdo, 'supplier_orders', 'reverse_receipt', $orderId, 'Reversed ' . $quantity . ' received unit(s) on ' . $order['purchase_number'] . ' - ' . $reason);
 }
 
 /**
