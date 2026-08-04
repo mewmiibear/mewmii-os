@@ -48,6 +48,46 @@
         return keys;
     }
 
+    // On-hand quantity for a unit, read from the picker payload already embedded on the page
+    // (order_picker_products()). Looked up rather than passed in, so it works identically for a
+    // row just added from the picker and for rows re-rendered after a validation error.
+    // Returns null for preorder/early-bird (they sell against future supply) and for anything not
+    // in the payload, in which case no warning is shown.
+    function availableForUnit(unitKey) {
+        for (var i = 0; i < products.length; i++) {
+            var units = products[i].units || [];
+            for (var j = 0; j < units.length; j++) {
+                if (units[j].key === unitKey) {
+                    var qty = units[j].available_quantity;
+                    return (qty === null || qty === undefined) ? null : parseInt(qty, 10);
+                }
+            }
+        }
+        return null;
+    }
+
+    // Advisory only. The authoritative stock check is the aggregated one in
+    // modules/orders/create.php, which still runs on submit and still rejects an oversell - this
+    // just says so before the operator fills in the rest of the order and posts it. Same shape as
+    // the MOQ warning supplier-order-form.js already uses. It never blocks submission.
+    function updateStockWarning(row) {
+        var warning = row.querySelector('.item-stock-warning');
+        if (!warning) {
+            return;
+        }
+
+        var available = availableForUnit(row.getAttribute('data-unit-key'));
+        var qty = parseInt(row.querySelector('.item-quantity').value, 10) || 0;
+
+        if (available !== null && qty > available) {
+            warning.textContent = 'Only ' + available + ' in stock';
+            warning.classList.remove('d-none');
+        } else {
+            warning.textContent = '';
+            warning.classList.add('d-none');
+        }
+    }
+
     function recalcRow(row) {
         var qty = parseFloat(row.querySelector('.item-quantity').value) || 0;
         var price = parseFloat(row.querySelector('.item-price').value) || 0;
@@ -102,7 +142,10 @@
             '<td>' + escapeHtml(label) +
             '<input type="hidden" name="unit_key[]" value="' + escapeHtml(unitKey) + '"></td>' +
             '<td>' + escapeHtml(sku) + '</td>' +
-            '<td><input type="number" class="form-control form-control-sm item-quantity" name="quantity[]" min="' + qtyMin + '" style="width:80px;" value="' + escapeHtml(quantity || 1) + '"></td>' +
+            '<td>' +
+            '<input type="number" class="form-control form-control-sm item-quantity" name="quantity[]" min="' + qtyMin + '" style="width:80px;" value="' + escapeHtml(quantity || 1) + '">' +
+            '<div class="text-warning small item-stock-warning d-none"></div>' +
+            '</td>' +
             '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm item-price" name="unit_price[]" style="width:100px;" value="' + escapeHtml(price || '0.00') + '"></td>' +
             '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm item-discount" name="discount[]" style="width:100px;" value="' + escapeHtml(discount || '0.00') + '"></td>' +
             '<td class="item-subtotal">0.00</td>' +
@@ -111,6 +154,7 @@
         ['item-quantity', 'item-price', 'item-discount'].forEach(function (cls) {
             row.querySelector('.' + cls).addEventListener('input', function () {
                 recalcRow(row);
+                updateStockWarning(row);
                 recalcTotals();
             });
         });
@@ -124,6 +168,9 @@
 
         tbody.appendChild(row);
         recalcRow(row);
+        // Runs for rows added from the picker AND for pre-existing rows re-rendered after a
+        // validation error, so a line that already exceeds stock says so immediately.
+        updateStockWarning(row);
         recalcTotals();
     }
 
