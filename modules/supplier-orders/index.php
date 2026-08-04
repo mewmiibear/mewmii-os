@@ -239,6 +239,18 @@ require_once __DIR__ . '/../../includes/header.php';
                     <td data-label="Order Date"><?php echo app_escape($order['order_date'] ?? '-'); ?></td>
                     <td data-label="" class="text-end">
                         <div class="d-flex gap-1 justify-content-end">
+                            <?php if ($canManage && $order['units_outstanding'] > 0 && empty($order['is_historical'])): ?>
+                                <?php /* Receiving is the daily action on this list, but acting on it meant
+                                         opening the order and scrolling to find the receiving controls. A
+                                         plain link to the batch-receive form that view.php already renders
+                                         (id="receive-batch-form") - no second receiving entry point, and
+                                         nothing here decides anything about receiving. Shown on the same
+                                         terms that form appears under: manage permission, not historical,
+                                         something still outstanding. units_outstanding is already forced to
+                                         0 for cancelled/completed orders above, so those are covered too.
+                                         view.php re-checks all of it on load regardless. */ ?>
+                                <a class="btn btn-sm btn-primary" href="/modules/supplier-orders/view.php?id=<?php echo (int) $order['id']; ?>#receive-batch-form">Receive</a>
+                            <?php endif; ?>
                             <a class="btn btn-sm btn-outline-primary" href="/modules/supplier-orders/view.php?id=<?php echo (int) $order['id']; ?>">View</a>
                             <?php if ($canManage): ?>
                                 <a class="btn btn-sm btn-outline-secondary" href="/modules/supplier-orders/edit.php?id=<?php echo (int) $order['id']; ?>">Edit</a>
