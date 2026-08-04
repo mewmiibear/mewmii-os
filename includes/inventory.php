@@ -554,6 +554,50 @@ function inventory_reserve_fifo(PDO $pdo, int $productId, ?int $variationId): ar
 }
 
 /**
+ * inventory_reserve_fifo() wrapped in its transaction + order-status recompute + WooCommerce
+ * resync flush - the whole "Reserve Automatically (FIFO)" action as one call, factored out of
+ * modules/inventory/reserve.php (whose handler this is, unchanged) purely so
+ * modules/inventory/reservation-center.php can trigger the same action from its queue without
+ * a second copy of the sequence. Exact mirror of inventory_allocate_fifo_apply()
+ * (includes/customer_storage.php) for the ready-stock side. Reserves nothing itself -
+ * inventory_reserve_fifo() remains the only thing that decides what gets reserved.
+ *
+ * Callers must have loaded includes/order_fulfillment.php for order_recompute_status(): this
+ * file cannot require it, since order_fulfillment.php already requires this one.
+ *
+ * Returns the reservations made plus the distinct order ids touched (both already needed by
+ * reserve.php's success message). Throws RuntimeException when there is nothing to reserve.
+ */
+function inventory_reserve_fifo_apply(PDO $pdo, int $productId, ?int $variationId): array
+{
+    $pdo->beginTransaction();
+
+    try {
+        $reservations = inventory_reserve_fifo($pdo, $productId, $variationId);
+
+        if ($reservations === []) {
+            throw new RuntimeException('Nothing to reserve - no available stock or no outstanding paid orders for this item.');
+        }
+
+        $touchedOrderIds = [];
+        foreach ($reservations as $reservation) {
+            order_recompute_status($pdo, $reservation['order_id']);
+            $touchedOrderIds[$reservation['order_id']] = true;
+        }
+
+        $pdo->commit();
+        inventory_flush_woocommerce_resync($pdo);
+
+        return ['reservations' => $reservations, 'order_ids' => array_keys($touchedOrderIds)];
+    } catch (Throwable $exception) {
+        $pdo->rollBack();
+        inventory_discard_pending_woocommerce_resync();
+
+        throw $exception;
+    }
+}
+
+/**
  * order_status -> cancelled: return any still-outstanding reserved stock to available.
  * No-op per item if nothing was ever reserved for it.
  */

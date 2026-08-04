@@ -2,6 +2,9 @@
 require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/inventory.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
+// order_recompute_status(), needed by inventory_reserve_fifo_apply() - see its docblock for why
+// includes/inventory.php cannot require this itself without creating a cycle.
+require_once __DIR__ . '/../../includes/order_fulfillment.php';
 app_require_permission('inventory.view');
 
 /**
@@ -17,8 +20,51 @@ app_require_permission('inventory.view');
 $appTitle = 'Reservation Center';
 $pdo = app_db();
 
-$queue = inventory_reservation_queue($pdo);
 $canManage = app_has_permission('inventory.manage');
+
+$reserveMessage = '';
+$reserveError = '';
+
+// Reserve straight from the queue. Every row here already had a "Reserve" button, but it
+// navigated to modules/inventory/reserve.php, where the operator clicked "Reserve Automatically
+// (FIFO)" and came back - two page loads per unit, repeated for every line of a ready-stock
+// restock. This runs the identical action in place via inventory_reserve_fifo_apply(), the same
+// function reserve.php now calls; no reservation logic exists here. reserve.php remains the
+// place to go for manual, per-order reservation. Mirrors modules/inventory/allocation-center.php.
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    try {
+        app_require_csrf();
+
+        if (!$canManage) {
+            http_response_code(403);
+            $reserveError = 'You do not have permission to reserve inventory.';
+        } elseif ((string) ($_POST['action'] ?? '') === 'reserve_fifo') {
+            $productId = (int) ($_POST['product_id'] ?? 0);
+            $variationId = isset($_POST['variation_id']) && (int) $_POST['variation_id'] > 0 ? (int) $_POST['variation_id'] : null;
+
+            if ($productId < 1) {
+                $reserveError = 'Invalid product.';
+            } else {
+                try {
+                    $result = inventory_reserve_fifo_apply($pdo, $productId, $variationId);
+                    $reserveMessage = 'Reserved for ' . count($result['reservations']) . ' order'
+                        . (count($result['reservations']) === 1 ? '' : 's') . '.';
+                } catch (RuntimeException $exception) {
+                    $reserveError = $exception->getMessage();
+                } catch (Exception $exception) {
+                    $reserveError = 'Failed to auto-reserve stock.';
+                }
+            }
+        }
+    } catch (RuntimeException $exception) {
+        $reserveError = $exception->getMessage();
+    }
+}
+
+// Built AFTER the handler above so a reservation made on this request is reflected immediately -
+// the queue is a live read over the ledger, so recomputing it here is what makes the row
+// disappear (or its Need Reserve drop) without a manual refresh.
+$queue = inventory_reservation_queue($pdo);
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
@@ -29,6 +75,13 @@ require_once __DIR__ . '/../../includes/header.php';
     </div>
     <a class="btn btn-outline-secondary btn-sm" href="/modules/inventory/index.php">Back to Inventory</a>
 </div>
+
+<?php if ($reserveMessage !== ''): ?>
+    <div class="alert alert-success"><?php echo app_escape($reserveMessage); ?></div>
+<?php endif; ?>
+<?php if ($reserveError !== ''): ?>
+    <div class="alert alert-warning"><?php echo app_escape($reserveError); ?></div>
+<?php endif; ?>
 
 <?php if ($queue === []): ?>
     <div class="card p-4">
@@ -81,7 +134,14 @@ require_once __DIR__ . '/../../includes/header.php';
                                     <td><span class="badge bg-warning text-dark"><?php echo (int) $unit['need_reserve']; ?></span></td>
                                     <td class="text-end">
                                         <?php if ($canManage): ?>
-                                            <a class="btn btn-sm btn-primary" href="/modules/inventory/reserve.php?product_id=<?php echo (int) $product['product_id']; ?>&variation_id=<?php echo (int) $unit['variation_id']; ?>">Reserve</a>
+                                            <form method="post" class="d-inline" onsubmit="return confirm('Automatically reserve available stock for the oldest outstanding orders first?');">
+                                                <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                                                <input type="hidden" name="action" value="reserve_fifo">
+                                                <input type="hidden" name="product_id" value="<?php echo (int) $product['product_id']; ?>">
+                                                <input type="hidden" name="variation_id" value="<?php echo (int) $unit['variation_id']; ?>">
+                                                <button type="submit" class="btn btn-sm btn-primary">Auto Reserve</button>
+                                            </form>
+                                            <a class="btn btn-sm btn-outline-secondary" href="/modules/inventory/reserve.php?product_id=<?php echo (int) $product['product_id']; ?>&variation_id=<?php echo (int) $unit['variation_id']; ?>">Manual</a>
                                         <?php endif; ?>
                                     </td>
                                 </tr>
@@ -97,7 +157,13 @@ require_once __DIR__ . '/../../includes/header.php';
                                 <td><span class="badge bg-warning text-dark"><?php echo (int) $unit['need_reserve']; ?></span></td>
                                 <td class="text-end">
                                     <?php if ($canManage): ?>
-                                        <a class="btn btn-sm btn-primary" href="/modules/inventory/reserve.php?product_id=<?php echo (int) $product['product_id']; ?>">Reserve</a>
+                                        <form method="post" class="d-inline" onsubmit="return confirm('Automatically reserve available stock for the oldest outstanding orders first?');">
+                                            <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                                            <input type="hidden" name="action" value="reserve_fifo">
+                                            <input type="hidden" name="product_id" value="<?php echo (int) $product['product_id']; ?>">
+                                            <button type="submit" class="btn btn-sm btn-primary">Auto Reserve</button>
+                                        </form>
+                                        <a class="btn btn-sm btn-outline-secondary" href="/modules/inventory/reserve.php?product_id=<?php echo (int) $product['product_id']; ?>">Manual</a>
                                     <?php endif; ?>
                                 </td>
                             </tr>

@@ -142,36 +142,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
         } elseif ($action === 'reserve_fifo') {
-            $pdo->beginTransaction();
-
+            // Transaction, status recompute and resync flush all live in
+            // inventory_reserve_fifo_apply() (includes/inventory.php) now, so
+            // modules/inventory/reservation-center.php can run the identical action from its
+            // queue. Same sequence as before - it owns the rollback/discard on failure too.
             try {
-                $reservations = inventory_reserve_fifo($pdo, $productId, $variationId);
-
-                if ($reservations === []) {
-                    throw new RuntimeException('Nothing to reserve - no available stock or no outstanding paid orders for this item.');
-                }
-
-                $touchedOrderIds = [];
-                foreach ($reservations as $reservation) {
-                    order_recompute_status($pdo, $reservation['order_id']);
-                    $touchedOrderIds[$reservation['order_id']] = true;
-                }
-
-                $pdo->commit();
-                inventory_flush_woocommerce_resync($pdo);
+                $result = inventory_reserve_fifo_apply($pdo, $productId, $variationId);
 
                 $redirect = '/modules/inventory/reserve.php?product_id=' . $productId
                     . ($variationId !== null ? '&variation_id=' . $variationId : '')
-                    . '&reserved=' . count($reservations)
-                    . '&order_ids=' . implode(',', array_keys($touchedOrderIds));
+                    . '&reserved=' . count($result['reservations'])
+                    . '&order_ids=' . implode(',', $result['order_ids']);
                 app_redirect($redirect);
             } catch (RuntimeException $exception) {
-                $pdo->rollBack();
-                inventory_discard_pending_woocommerce_resync();
                 $error = $exception->getMessage();
             } catch (Exception $exception) {
-                $pdo->rollBack();
-                inventory_discard_pending_woocommerce_resync();
                 $error = 'Failed to auto-reserve stock.';
             }
         } else {
