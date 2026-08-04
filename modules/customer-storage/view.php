@@ -194,6 +194,12 @@ $activity = $activityStmt->fetchAll(PDO::FETCH_ASSOC);
 $sellableUnits = catalog_sellable_units($pdo);
 
 $canManage = app_has_permission('customer-storage.manage');
+// Shipping a customer's stored items is the obvious next action from this page, but
+// modules/ship-my-box/create.php already accepts ?customer_id= and nothing anywhere linked to
+// it - so an operator looking at this exact customer's storage had to leave, open Ship My Box,
+// and re-pick the same customer from a dropdown. Same permission the destination enforces, so
+// the shortcut is never offered to someone who would just be bounced.
+$canShipMyBox = app_has_permission('ship-my-box.manage');
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
@@ -202,7 +208,12 @@ require_once __DIR__ . '/../../includes/header.php';
         <h2 class="mb-1"><?php echo app_escape($customer['name']); ?></h2>
         <p class="text-muted mb-0"><?php echo app_escape($customer['email'] ?? '-'); ?> &middot; <?php echo app_escape($customer['phone'] ?? '-'); ?></p>
     </div>
-    <a class="btn btn-outline-secondary btn-sm" href="/modules/customer-storage/index.php">Back to Customer Storage</a>
+    <div class="d-flex gap-2">
+        <?php if ($canShipMyBox && $storedItems !== []): ?>
+            <a class="btn btn-primary btn-sm" href="/modules/ship-my-box/create.php?customer_id=<?php echo (int) $customerId; ?>">Ship My Box</a>
+        <?php endif; ?>
+        <a class="btn btn-outline-secondary btn-sm" href="/modules/customer-storage/index.php">Back to Customer Storage</a>
+    </div>
 </div>
 
 <?php if (isset($_GET['updated'])): ?>

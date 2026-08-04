@@ -48,6 +48,14 @@ if (!$customer) {
 $canViewOrders = app_has_permission('orders.view');
 $canViewShipments = app_has_permission('shipments.view');
 $canViewCustomerStorage = app_has_permission('customer-storage.view');
+// Actions an operator on this page almost always wants next, but which previously required
+// going back to the list (Edit) or into another module and re-picking this same customer
+// (New Order, Ship My Box). Each is gated on the permission its own destination enforces:
+// customers/edit.php -> customers.manage, orders/create.php -> orders.manage,
+// ship-my-box/create.php -> ship-my-box.manage.
+$canManageCustomers = app_has_permission('customers.manage');
+$canCreateOrders = app_has_permission('orders.manage');
+$canShipMyBox = app_has_permission('ship-my-box.manage');
 
 // Summary card metrics - one dedicated aggregate query, separate from the Orders list query
 // below so the summary stays correct even if that list's own query later changes (e.g. gains
@@ -113,7 +121,15 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php if (!empty($customer['instagram_username'])): ?> &middot; @<?php echo app_escape($customer['instagram_username']); ?><?php endif; ?>
         </p>
     </div>
-    <a class="btn btn-outline-secondary btn-sm" href="/modules/customers/index.php">Back to Customers</a>
+    <div class="d-flex gap-2 flex-wrap justify-content-end">
+        <?php if ($canCreateOrders): ?>
+            <a class="btn btn-primary btn-sm" href="/modules/orders/create.php?customer_id=<?php echo (int) $customerId; ?>">New Order</a>
+        <?php endif; ?>
+        <?php if ($canManageCustomers): ?>
+            <a class="btn btn-outline-primary btn-sm" href="/modules/customers/edit.php?id=<?php echo (int) $customerId; ?>">Edit</a>
+        <?php endif; ?>
+        <a class="btn btn-outline-secondary btn-sm" href="/modules/customers/index.php">Back to Customers</a>
+    </div>
 </div>
 
 <div class="card p-4 mb-4">
@@ -258,9 +274,14 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php endif; ?>
         </tbody>
     </table>
-    <?php if ($canViewCustomerStorage): ?>
-        <a class="small" href="/modules/customer-storage/view.php?customer_id=<?php echo (int) $customerId; ?>">Full storage history &rarr;</a>
-    <?php endif; ?>
+    <div class="d-flex gap-3 align-items-center flex-wrap">
+        <?php if ($canViewCustomerStorage): ?>
+            <a class="small" href="/modules/customer-storage/view.php?customer_id=<?php echo (int) $customerId; ?>">Full storage history &rarr;</a>
+        <?php endif; ?>
+        <?php if ($canShipMyBox && $storageItems !== []): ?>
+            <a class="btn btn-sm btn-primary ms-auto" href="/modules/ship-my-box/create.php?customer_id=<?php echo (int) $customerId; ?>">Ship My Box</a>
+        <?php endif; ?>
+    </div>
 </div>
 
 <div class="card p-4">

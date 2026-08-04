@@ -15,7 +15,12 @@ $insufficientStockUnit = null;
 $pdo = app_db();
 
 $form = [
-    'customer_id' => '',
+    // Optional ?customer_id= preselects the customer, so "New Order" can be reached from a
+    // customer's own page without re-finding them in the dropdown here. FORM DEFAULT ONLY - it
+    // is overwritten by the POST value below on submit, and the customer is still required and
+    // re-validated server-side further down, exactly as before. An unknown id simply matches no
+    // <option> and the field renders empty.
+    'customer_id' => isset($_GET['customer_id']) && ctype_digit((string) $_GET['customer_id']) ? (string) (int) $_GET['customer_id'] : '',
     'order_number' => 'ORD-' . date('Ymd') . '-' . strtoupper(substr(bin2hex(random_bytes(2)), 0, 4)),
     'shipping_fee' => '0.00',
     'customer_note' => '',

@@ -92,6 +92,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $error = 'Failed to receive item.';
                 }
             }
+        } elseif ($action === 'receive_batch') {
+            // Partial arrivals across several lines in ONE submit. A real shipment usually
+            // arrives incomplete, and each line previously needed its own form submit and page
+            // reload - eight short-shipped lines meant eight round trips.
+            //
+            // supplier_order_receive_item() is called per line, unchanged - the same function the
+            // single-line 'receive' action above uses, and the same one
+            // supplier_order_receive_all_remaining() already loops. It keeps deciding
+            // ready_stock-vs-preorder routing, the remaining-quantity ceiling, order auto-advance
+            // and cost-history capture. Nothing about receiving is reimplemented here.
+            //
+            // One transaction for the whole batch: a shipment either records as entered or not at
+            // all, so a bad line can't leave inventory half-updated.
+            $postedQuantities = (array) ($_POST['receive_qty'] ?? []);
+            $batch = [];
+            foreach ($postedQuantities as $rawItemId => $rawQuantity) {
+                $itemId = (int) $rawItemId;
+                $quantity = (int) $rawQuantity;
+                if ($itemId > 0 && $quantity > 0) {
+                    $batch[$itemId] = $quantity;
+                }
+            }
+
+            if ($batch === []) {
+                $error = 'Enter a quantity on at least one line.';
+            } else {
+                $pdo->beginTransaction();
+
+                try {
+                    foreach ($batch as $itemId => $quantity) {
+                        supplier_order_receive_item($pdo, $itemId, $quantity);
+                    }
+                    $pdo->commit();
+                    inventory_flush_woocommerce_resync($pdo);
+
+                    app_redirect('/modules/supplier-orders/view.php?id=' . $orderId . '&updated=1&received=1');
+                } catch (RuntimeException $exception) {
+                    $pdo->rollBack();
+                    inventory_discard_pending_woocommerce_resync();
+                    $error = $exception->getMessage();
+                } catch (Exception $exception) {
+                    $pdo->rollBack();
+                    inventory_discard_pending_woocommerce_resync();
+                    $error = 'Failed to receive items.';
+                }
+            }
         } elseif ($action === 'mark_arrived') {
             if (!in_array($order['status'], ['ordered', 'partially_received'], true)) {
                 $error = 'Only an Ordered or Partially Received supplier order can be marked arrived.';
@@ -750,13 +796,15 @@ require_once __DIR__ . '/../../includes/header.php';
                                     <?php if (!empty($order['is_historical'])): ?>
                                         <span class="text-muted small">&mdash;</span>
                                     <?php elseif ($item['remaining_quantity'] > 0): ?>
-                                        <form method="post" class="d-flex gap-1 justify-content-end" onsubmit="return confirm('Record a partial receipt for this line?');">
-                                            <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
-                                            <input type="hidden" name="action" value="receive">
-                                            <input type="hidden" name="item_id" value="<?php echo (int) $item['id']; ?>">
-                                            <input type="number" class="form-control form-control-sm" style="width: 80px;" name="quantity" min="1" max="<?php echo (int) $item['remaining_quantity']; ?>" placeholder="Qty" required>
-                                            <button class="btn btn-sm btn-outline-secondary" type="submit">Partial Receive</button>
-                                        </form>
+                                        <?php /* Belongs to the single batch form rendered below the table via the
+                                                 HTML5 form="" attribute - a form cannot be nested inside another,
+                                                 and one submit for the whole shipment is the point. */ ?>
+                                        <input type="number" class="form-control form-control-sm receive-qty ms-auto" style="width: 90px;"
+                                               form="receive-batch-form"
+                                               name="receive_qty[<?php echo (int) $item['id']; ?>]"
+                                               min="0" max="<?php echo (int) $item['remaining_quantity']; ?>"
+                                               data-remaining="<?php echo (int) $item['remaining_quantity']; ?>"
+                                               placeholder="0">
                                     <?php else: ?>
                                         <span class="badge bg-success">Complete</span>
                                     <?php endif; ?>
@@ -772,6 +820,30 @@ require_once __DIR__ . '/../../includes/header.php';
                 </tbody>
             </table>
         </div>
+
+        <?php
+        $hasOutstandingLines = false;
+        foreach ($items as $itemRow) {
+            if ((int) $itemRow['remaining_quantity'] > 0) {
+                $hasOutstandingLines = true;
+                break;
+            }
+        }
+        ?>
+        <?php if ($canManage && empty($order['is_historical']) && $hasOutstandingLines): ?>
+            <form method="post" id="receive-batch-form" class="d-flex flex-wrap gap-2 align-items-center justify-content-end mt-3 border-top pt-3"
+                  onsubmit="return confirm('Receive the quantities entered above?');">
+                <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                <input type="hidden" name="action" value="receive_batch">
+                <span class="text-muted small me-auto">
+                    Enter what actually arrived on each line, then receive them together.
+                    Blank or 0 lines are skipped. <strong id="receive-batch-summary">0</strong> unit(s) entered.
+                </span>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="receive-fill-remaining">Fill Remaining</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="receive-clear">Clear</button>
+                <button type="submit" class="btn btn-sm btn-primary">Receive Entered</button>
+            </form>
+        <?php endif; ?>
 
         <?php if ($items !== []): ?>
             <div class="card p-4 mt-4">
@@ -1124,4 +1196,37 @@ require_once __DIR__ . '/../../includes/header.php';
         })();
     </script>
 <?php endif; ?>
+<script>
+// Batch-receive helpers. Progressive enhancement only - with JS off the quantity inputs and the
+// Receive Entered button still work exactly the same; these just speed up the common cases.
+(function () {
+    var inputs = document.querySelectorAll('.receive-qty');
+    if (!inputs.length) { return; }
+    var summary = document.getElementById('receive-batch-summary');
+    var fillBtn = document.getElementById('receive-fill-remaining');
+    var clearBtn = document.getElementById('receive-clear');
+
+    function sync() {
+        if (!summary) { return; }
+        var total = 0;
+        for (var i = 0; i < inputs.length; i++) {
+            var v = parseInt(inputs[i].value, 10);
+            if (!isNaN(v) && v > 0) { total += v; }
+        }
+        summary.textContent = String(total);
+    }
+
+    function setAll(useRemaining) {
+        for (var i = 0; i < inputs.length; i++) {
+            inputs[i].value = useRemaining ? (inputs[i].getAttribute('data-remaining') || '') : '';
+        }
+        sync();
+    }
+
+    if (fillBtn) { fillBtn.addEventListener('click', function () { setAll(true); }); }
+    if (clearBtn) { clearBtn.addEventListener('click', function () { setAll(false); }); }
+    for (var i = 0; i < inputs.length; i++) { inputs[i].addEventListener('input', sync); }
+    sync();
+})();
+</script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

@@ -1100,6 +1100,57 @@ function supplier_order_picker_products(PDO $pdo): array
         }
     }
 
+    // BUGFIX - per-supplier prices for the picker.
+    //
+    // cost_price below is products.product_cost / product_variations.cost_price, which IS the
+    // preferred supplier's price by construction (SO-C's migration seeded supplier_products from
+    // exactly those columns for products.supplier_id). The picker therefore offered Supplier A's
+    // price even when the purchase order was being raised against Supplier B.
+    //
+    // Every supplier's saved price is embedded here, keyed by supplier id, and the form picks the
+    // one matching the PO's selected supplier when a line is added (assets/js/supplier-order-form.js).
+    // It has to be embedded for ALL suppliers rather than looked up for one, because the picker
+    // JSON is built before a supplier is chosen and the operator can change that choice.
+    //
+    // Pure lookup over the existing supplier_products table - no new pricing rule, and nothing
+    // here writes anything. includes/product_cost.php is untouched: the costing engine still reads
+    // only actual PO lines and products.product_cost, so a quote never enters landed cost except
+    // via a purchase order the operator actually saved.
+    $supplierCostsByUnit = [];
+    if ($products !== []) {
+        $pickerProductIds = array_map(static fn (array $row): int => (int) $row['id'], $products);
+        $placeholders = implode(',', array_fill(0, count($pickerProductIds), '?'));
+        $supplierPriceStmt = $pdo->prepare("
+            SELECT supplier_id, product_id, variation_id, unit_cost, supplier_sku, moq
+            FROM supplier_products
+            WHERE is_active = 1 AND product_id IN ({$placeholders})
+        ");
+        $supplierPriceStmt->execute($pickerProductIds);
+        foreach ($supplierPriceStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $unitKey = (int) $row['product_id'] . ':' . (int) ($row['variation_id'] ?? 0);
+            $supplierCostsByUnit[$unitKey][(int) $row['supplier_id']] = [
+                'unit_cost' => $row['unit_cost'] !== null ? (float) $row['unit_cost'] : null,
+                'supplier_sku' => $row['supplier_sku'],
+                'moq' => $row['moq'] !== null ? (int) $row['moq'] : null,
+            ];
+        }
+    }
+
+    /**
+     * A unit's supplier map, merging any product-level entry (variation_id NULL) with the
+     * variation's own - the variation wins where both exist, mirroring how
+     * variation_effective_cost()/variation_effective_supplier_sku() already resolve
+     * variation-over-parent everywhere else.
+     */
+    $resolveSupplierCosts = static function (int $productId, ?int $variationId) use ($supplierCostsByUnit): array {
+        $productLevel = $supplierCostsByUnit[$productId . ':0'] ?? [];
+        if ($variationId === null) {
+            return $productLevel;
+        }
+
+        return array_replace($productLevel, $supplierCostsByUnit[$productId . ':' . $variationId] ?? []);
+    };
+
     $result = [];
     foreach ($products as $product) {
         $productId = (int) $product['id'];
@@ -1124,6 +1175,9 @@ function supplier_order_picker_products(PDO $pdo): array
                     'label' => variation_build_label($pdo, $variationId),
                     'cost_price' => variation_effective_cost($variation['cost_price'], $product['product_cost']),
                     'moq' => $product['moq'] !== null ? (int) $product['moq'] : null,
+                    // Per-supplier saved prices; the form prefers the PO's selected supplier and
+                    // falls back to cost_price above when that supplier has none on file.
+                    'supplier_costs' => $resolveSupplierCosts($productId, $variationId),
                 ];
             }
         } else {
@@ -1134,6 +1188,7 @@ function supplier_order_picker_products(PDO $pdo): array
                 'label' => null,
                 'cost_price' => (float) $product['product_cost'],
                 'moq' => $product['moq'] !== null ? (int) $product['moq'] : null,
+                'supplier_costs' => $resolveSupplierCosts($productId, null),
             ];
         }
 

@@ -300,6 +300,51 @@
             return;
         }
 
+        // BUGFIX - price the picker against the supplier this purchase order is actually for.
+        //
+        // unit.cost_price is the product's master cost, which is the PREFERRED supplier's price -
+        // using it on a PO raised against a different supplier loaded the wrong figure (e.g. RM20
+        // from Supplier A on a Supplier B order that should be RM16). unit.supplier_costs carries
+        // every supplier's saved price from supplier_products (see
+        // supplier_order_picker_products()); this picks the selected supplier's entry and falls
+        // back to the existing master cost only when that supplier has nothing on file.
+        //
+        // Read live on every render so changing the supplier re-prices the picker before anything
+        // is added. Rows already added keep the value they were added with - re-pricing them
+        // silently would overwrite figures the operator may have typed deliberately.
+        var selectedSupplierId = (function () {
+            var select = document.querySelector('select[name="supplier_id"]');
+            return select && select.value ? String(select.value) : '';
+        })();
+
+        function unitCostFor(unit) {
+            if (selectedSupplierId && unit.supplier_costs) {
+                var entry = unit.supplier_costs[selectedSupplierId];
+                if (entry && entry.unit_cost !== null && entry.unit_cost !== undefined && entry.unit_cost !== '') {
+                    return entry.unit_cost;
+                }
+            }
+            return unit.cost_price || 0;
+        }
+
+        function supplierSkuFor(unit) {
+            if (selectedSupplierId && unit.supplier_costs) {
+                var entry = unit.supplier_costs[selectedSupplierId];
+                if (entry && entry.supplier_sku) {
+                    return entry.supplier_sku;
+                }
+            }
+            return unit.supplier_sku;
+        }
+
+        // True when the price shown came from the selected supplier's own saved entry, so the
+        // picker can say so instead of silently presenting a fallback as if it were theirs.
+        function hasSupplierPrice(unit) {
+            if (!selectedSupplierId || !unit.supplier_costs) { return false; }
+            var entry = unit.supplier_costs[selectedSupplierId];
+            return !!(entry && entry.unit_cost !== null && entry.unit_cost !== undefined && entry.unit_cost !== '');
+        }
+
         var search = (document.getElementById('picker-search').value || '').trim();
         var supplierFilter = document.getElementById('picker-supplier-filter').value;
         var categoryFilter = document.getElementById('picker-category-filter').value;
@@ -342,10 +387,11 @@
                         '" data-variation-id="' + escapeHtml(keyParts[1] || '0') +
                         '" data-label="' + escapeHtml(product.name + ' - ' + (unit.label || '')) +
                         '" data-sku="' + escapeHtml(unit.sku) +
-                        '" data-cost="' + escapeHtml(formatMoney(unit.cost_price || 0)) +
+                        '" data-cost="' + escapeHtml(formatMoney(unitCostFor(unit))) +
                         '" data-moq="' + escapeHtml(unit.moq || '') + '"' + (checked ? ' checked disabled' : '') + '> ' +
                         escapeHtml(unit.label || '(no attributes)') + ' <span class="text-muted small">' + escapeHtml(unit.sku) +
-                        (unit.supplier_sku ? ' &middot; Supplier SKU: ' + escapeHtml(unit.supplier_sku) : '') + '</span>' +
+                        (supplierSkuFor(unit) ? ' &middot; Supplier SKU: ' + escapeHtml(supplierSkuFor(unit)) : '') +
+                        (hasSupplierPrice(unit) ? ' &middot; <span class="text-success">supplier price</span>' : '') + '</span>' +
                         (checked ? ' <span class="badge bg-secondary">Added</span>' : '') +
                         '</label>';
                 });
@@ -360,8 +406,9 @@
                     '" data-variation-id="' + escapeHtml(keyParts[1] || '0') +
                     '" data-label="' + escapeHtml(product.name) +
                     '" data-sku="' + escapeHtml(unit.sku) +
-                    '" data-cost="' + escapeHtml(formatMoney(unit.cost_price || 0)) +
+                    '" data-cost="' + escapeHtml(formatMoney(unitCostFor(unit))) +
                     '" data-moq="' + escapeHtml(unit.moq || '') + '"' + (isAdded ? ' checked disabled' : '') + '> Add this product' +
+                    (hasSupplierPrice(unit) ? ' <span class="text-success small">supplier price</span>' : '') +
                     (isAdded ? ' <span class="badge bg-secondary">Added</span>' : '') +
                     '</label>';
             }
@@ -393,17 +440,21 @@
             }
         });
 
+        // Changing the order's supplier re-prices the picker, so the costs shown always belong to
+        // the supplier the PO is actually for. Only affects what the picker offers - lines already
+        // added keep the values they were added with.
+        var orderSupplierSelect = document.querySelector('select[name="supplier_id"]');
+        if (orderSupplierSelect) {
+            orderSupplierSelect.addEventListener('change', renderPicker);
+        }
+
         document.getElementById('picker-add-selected-btn').addEventListener('click', function () {
             document.querySelectorAll('.picker-unit-checkbox:checked:not(:disabled)').forEach(function (checkbox) {
-                // TEMPORARY DEBUG - remove once cost auto-fill is confirmed fixed on the
-                // live server. Confirms the value actually present in the DOM at add-time,
-                // independent of anything the addRow()/recalc pipeline does afterwards.
-                console.log('variation', checkbox.dataset.variationId, 'cost', checkbox.dataset.cost);
-
-                // Unit Cost is pre-filled from the product's current cost_price but stays a
-                // plain editable input from here on - editing it only affects this one
-                // supplier order line, never products.cost_price itself. Quantity defaults
-                // to the MOQ (addRow() falls back to it when quantity is left undefined).
+                // Unit Cost is pre-filled from the selected supplier's saved price when they have
+                // one on file, otherwise from the product's cost_price - see unitCostFor(). It
+                // stays a plain editable input from here on: editing it only affects this one
+                // supplier order line, never products.cost_price or supplier_products. Quantity
+                // defaults to the MOQ (addRow() falls back to it when quantity is undefined).
                 addRow(checkbox.value, checkbox.dataset.label, checkbox.dataset.sku, undefined, checkbox.dataset.cost || '0.00', 0, checkbox.dataset.moq);
             });
             window.bootstrap.Modal.getOrCreateInstance(modalEl).hide();

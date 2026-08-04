@@ -92,6 +92,11 @@ $allCustomers = $customersStmt->fetchAll(PDO::FETCH_ASSOC);
 $sellableUnits = catalog_sellable_units($pdo);
 
 $canManage = app_has_permission('customer-storage.manage');
+// Every row here is, by definition, a customer with stored items - so "ship these" is the
+// obvious action. modules/ship-my-box/create.php already accepts ?customer_id=; nothing linked
+// to it before, forcing the operator to re-pick the customer from a dropdown there. Gated on the
+// permission that page itself requires.
+$canShipMyBox = app_has_permission('ship-my-box.manage');
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
@@ -180,6 +185,9 @@ require_once __DIR__ . '/../../includes/header.php';
                         <td><?php echo app_escape((string) $row['product_count']); ?></td>
                         <td><?php echo app_escape((string) $row['total_quantity']); ?></td>
                         <td class="text-end">
+                            <?php if ($canShipMyBox): ?>
+                                <a class="btn btn-sm btn-primary" href="/modules/ship-my-box/create.php?customer_id=<?php echo (int) $row['customer_id']; ?>">Ship My Box</a>
+                            <?php endif; ?>
                             <a class="btn btn-sm btn-outline-primary" href="/modules/customer-storage/view.php?customer_id=<?php echo (int) $row['customer_id']; ?>">View</a>
                         </td>
                     </tr>
