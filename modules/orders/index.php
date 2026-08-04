@@ -194,6 +194,18 @@ $viewLabels = ['active' => 'Active', 'completed' => 'Completed', 'cancelled' => 
             <?php echo app_escape($viewLabel); ?>
         </a>
     <?php endforeach; ?>
+    <?php
+    // Fulfillment queue: one click to today's shippable work. The ?status= filter already
+    // existed and is already whitelisted against ORDER_STATUS_WORKFLOW above - this only makes
+    // the single most-used value reachable without going through the filter dropdown. No new
+    // status logic: order_recompute_status() remains the only writer of order_status.
+    $readyParams = array_merge($_GET, ['view' => 'active', 'status' => 'ready_to_ship']);
+    unset($readyParams['page']);
+    $readyActive = $filterStatus === 'ready_to_ship';
+    ?>
+    <a class="btn btn-sm <?php echo $readyActive ? 'btn-primary' : 'btn-outline-primary'; ?>" href="/modules/orders/index.php?<?php echo http_build_query($readyParams); ?>">
+        Ready to Ship
+    </a>
 </div>
 
 <?php render_saved_views_widget($pdo, 'orders'); ?>

@@ -180,44 +180,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
         } elseif ($action === 'allocate_fifo') {
-            $pdo->beginTransaction();
-
+            // The whole sequence (FIFO allocate + per-order event + order_recompute_status +
+            // transaction + WooCommerce resync) now lives in inventory_allocate_fifo_apply()
+            // (includes/customer_storage.php), so modules/inventory/allocation-center.php can
+            // run the identical action from its queue without a second copy. Extraction only -
+            // the behaviour, ordering and error messages here are unchanged.
             try {
-                $allocations = inventory_allocate_fifo($pdo, $productId, $variationId);
-
-                if ($allocations === []) {
-                    throw new RuntimeException('Nothing to allocate - no arrived stock or no outstanding orders for this item.');
-                }
-
-                $touchedOrderIds = [];
-                foreach ($allocations as $allocation) {
-                    inventory_log_allocation_event(
-                        $pdo,
-                        $allocation['order_id'],
-                        'Preorder item(s) arrived and stored (qty ' . $allocation['quantity'] . '). Customer notification: "Your preorder item has arrived and is now stored."'
-                    );
-                    $touchedOrderIds[$allocation['order_id']] = true;
-                }
-
-                foreach (array_keys($touchedOrderIds) as $touchedOrderId) {
-                    order_recompute_status($pdo, $touchedOrderId);
-                }
-
-                $pdo->commit();
-                inventory_flush_woocommerce_resync($pdo);
+                $result = inventory_allocate_fifo_apply($pdo, $productId, $variationId);
 
                 $redirect = '/modules/inventory/allocate.php?product_id=' . $productId
                     . ($variationId !== null ? '&variation_id=' . $variationId : '')
-                    . '&allocated=' . count($allocations)
-                    . '&order_ids=' . implode(',', array_keys($touchedOrderIds));
+                    . '&allocated=' . count($result['allocations'])
+                    . '&order_ids=' . implode(',', $result['order_ids']);
                 app_redirect($redirect);
             } catch (RuntimeException $exception) {
-                $pdo->rollBack();
-                inventory_discard_pending_woocommerce_resync();
                 $error = $exception->getMessage();
             } catch (Exception $exception) {
-                $pdo->rollBack();
-                inventory_discard_pending_woocommerce_resync();
                 $error = 'Failed to auto-allocate stock.';
             }
         } elseif ($action === 'release') {

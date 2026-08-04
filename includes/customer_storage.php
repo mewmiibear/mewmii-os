@@ -301,6 +301,68 @@ function inventory_allocate_fifo(PDO $pdo, int $productId, ?int $variationId): a
 }
 
 /**
+ * The complete "auto-allocate this unit" action: inventory_allocate_fifo() plus everything that
+ * must happen around it - a per-order allocation event, order_recompute_status() for every order
+ * touched, and the transaction/WooCommerce-resync handling.
+ *
+ * Extracted verbatim from modules/inventory/allocate.php's 'allocate_fifo' branch (behaviour
+ * unchanged) purely so modules/inventory/allocation-center.php can trigger the same action from
+ * its queue rows without copying the orchestration. This is the ONLY place that sequence lives;
+ * both pages call it.
+ *
+ * Owns its own transaction (callers must not open one): a rollback here must also discard the
+ * pending WooCommerce resync, which is why the two are paired inside rather than left to callers.
+ *
+ * REQUIRES THE CALLER TO HAVE LOADED includes/order_fulfillment.php (for
+ * order_recompute_status()). Deliberately not required here: order_fulfillment.php pulls
+ * supplier_orders.php, which pulls this file back, so requiring it would introduce a cycle. This
+ * matches the arrangement inventory_allocate_fifo() above already relies on for
+ * supplier_order_item_customer_storage_allocated(). Both current callers
+ * (modules/inventory/allocate.php, modules/inventory/allocation-center.php) load it.
+ *
+ * Throws RuntimeException when there is nothing to allocate, matching what allocate.php surfaced
+ * to the operator before.
+ *
+ * @return array{allocations: array, order_ids: int[]}
+ */
+function inventory_allocate_fifo_apply(PDO $pdo, int $productId, ?int $variationId): array
+{
+    $pdo->beginTransaction();
+
+    try {
+        $allocations = inventory_allocate_fifo($pdo, $productId, $variationId);
+
+        if ($allocations === []) {
+            throw new RuntimeException('Nothing to allocate - no arrived stock or no outstanding orders for this item.');
+        }
+
+        $touchedOrderIds = [];
+        foreach ($allocations as $allocation) {
+            inventory_log_allocation_event(
+                $pdo,
+                $allocation['order_id'],
+                'Preorder item(s) arrived and stored (qty ' . $allocation['quantity'] . '). Customer notification: "Your preorder item has arrived and is now stored."'
+            );
+            $touchedOrderIds[$allocation['order_id']] = true;
+        }
+
+        foreach (array_keys($touchedOrderIds) as $touchedOrderId) {
+            order_recompute_status($pdo, $touchedOrderId);
+        }
+
+        $pdo->commit();
+        inventory_flush_woocommerce_resync($pdo);
+
+        return ['allocations' => $allocations, 'order_ids' => array_keys($touchedOrderIds)];
+    } catch (Throwable $exception) {
+        $pdo->rollBack();
+        inventory_discard_pending_woocommerce_resync();
+
+        throw $exception;
+    }
+}
+
+/**
  * Take units out of an existing stored lot, returning them to available inventory.
  * Marks the lot 'shipped' once its quantity reaches zero, preserving it as history
  * rather than deleting it.

@@ -513,6 +513,14 @@ require_once __DIR__ . '/../../includes/header.php';
                 <button type="submit" class="btn btn-outline-danger btn-sm">Delete</button>
             </form>
         <?php endif; ?>
+        <?php if ($canCreateShipments && empty($order['is_historical']) && in_array($order['order_status'], ['ready_to_ship', 'partially_fulfilled'], true)): ?>
+            <?php /* Workflow: when an order is actually shippable, that is the operator's next
+                     action - but the only route to it was a small text link inside the Shipments
+                     card far down the page. Same destination, same permission and same
+                     is_historical guard as that link; this just surfaces it without scrolling.
+                     The in-card link stays for every other status. */ ?>
+            <a class="btn btn-primary btn-sm" href="/modules/shipments/create.php?order_id=<?php echo (int) $orderId; ?>">Create Shipment</a>
+        <?php endif; ?>
         <?php if ($canManage): ?>
             <a class="btn btn-outline-primary btn-sm" href="/modules/orders/edit.php?id=<?php echo (int) $orderId; ?>">Edit Order</a>
         <?php endif; ?>

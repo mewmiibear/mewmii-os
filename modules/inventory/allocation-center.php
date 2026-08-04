@@ -5,6 +5,9 @@ require_once __DIR__ . '/../../includes/customer_storage.php';
 require_once __DIR__ . '/../../includes/supplier_orders.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
 require_once __DIR__ . '/../../includes/catalog.php';
+// order_recompute_status(), needed by inventory_allocate_fifo_apply() - see its docblock for why
+// includes/customer_storage.php cannot require this itself without creating a cycle.
+require_once __DIR__ . '/../../includes/order_fulfillment.php';
 app_require_permission('inventory.view');
 
 /**
@@ -20,8 +23,51 @@ app_require_permission('inventory.view');
 $appTitle = 'Allocate Preorders';
 $pdo = app_db();
 
-$queue = inventory_allocation_queue($pdo);
 $canManage = app_has_permission('inventory.manage');
+
+$allocateMessage = '';
+$allocateError = '';
+
+// Allocate straight from the queue. Every row here already had an "Allocate" button, but it
+// navigated to modules/inventory/allocate.php, where the operator clicked "Allocate
+// Automatically (FIFO)" and came back - two page loads per product, repeated for every line of
+// an arriving preorder shipment. This runs the identical action in place via
+// inventory_allocate_fifo_apply(), the same function allocate.php now calls; no allocation logic
+// exists here. allocate.php remains the place to go for manual, per-order allocation.
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    try {
+        app_require_csrf();
+
+        if (!$canManage) {
+            http_response_code(403);
+            $allocateError = 'You do not have permission to allocate inventory.';
+        } elseif ((string) ($_POST['action'] ?? '') === 'allocate_fifo') {
+            $productId = (int) ($_POST['product_id'] ?? 0);
+            $variationId = isset($_POST['variation_id']) && (int) $_POST['variation_id'] > 0 ? (int) $_POST['variation_id'] : null;
+
+            if ($productId < 1) {
+                $allocateError = 'Invalid product.';
+            } else {
+                try {
+                    $result = inventory_allocate_fifo_apply($pdo, $productId, $variationId);
+                    $allocateMessage = 'Allocated to ' . count($result['allocations']) . ' order'
+                        . (count($result['allocations']) === 1 ? '' : 's') . '.';
+                } catch (RuntimeException $exception) {
+                    $allocateError = $exception->getMessage();
+                } catch (Exception $exception) {
+                    $allocateError = 'Failed to auto-allocate stock.';
+                }
+            }
+        }
+    } catch (RuntimeException $exception) {
+        $allocateError = $exception->getMessage();
+    }
+}
+
+// Built AFTER the handler above so an allocation made on this request is reflected immediately -
+// the queue is a live read over the ledger, so recomputing it here is what makes the row
+// disappear (or its Need Allocate drop) without a manual refresh.
+$queue = inventory_allocation_queue($pdo);
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
@@ -32,6 +78,13 @@ require_once __DIR__ . '/../../includes/header.php';
     </div>
     <a class="btn btn-outline-secondary btn-sm" href="/modules/inventory/index.php">Back to Inventory</a>
 </div>
+
+<?php if ($allocateMessage !== ''): ?>
+    <div class="alert alert-success"><?php echo app_escape($allocateMessage); ?></div>
+<?php endif; ?>
+<?php if ($allocateError !== ''): ?>
+    <div class="alert alert-warning"><?php echo app_escape($allocateError); ?></div>
+<?php endif; ?>
 
 <?php if ($queue === []): ?>
     <div class="card p-4">
@@ -97,7 +150,14 @@ require_once __DIR__ . '/../../includes/header.php';
                                     <td><?php echo (int) $unit['remaining']; ?></td>
                                     <td class="text-end">
                                         <?php if ($canManage): ?>
-                                            <a class="btn btn-sm btn-primary" href="/modules/inventory/allocate.php?product_id=<?php echo (int) $product['product_id']; ?>&variation_id=<?php echo (int) $unit['variation_id']; ?>">Allocate</a>
+                                            <form method="post" class="d-inline" onsubmit="return confirm('Automatically allocate arrived stock to the oldest outstanding orders first?');">
+                                                <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                                                <input type="hidden" name="action" value="allocate_fifo">
+                                                <input type="hidden" name="product_id" value="<?php echo (int) $product['product_id']; ?>">
+                                                <input type="hidden" name="variation_id" value="<?php echo (int) $unit['variation_id']; ?>">
+                                                <button type="submit" class="btn btn-sm btn-primary">Auto Allocate</button>
+                                            </form>
+                                            <a class="btn btn-sm btn-outline-secondary" href="/modules/inventory/allocate.php?product_id=<?php echo (int) $product['product_id']; ?>&variation_id=<?php echo (int) $unit['variation_id']; ?>">Manual</a>
                                         <?php endif; ?>
                                     </td>
                                 </tr>
@@ -115,7 +175,13 @@ require_once __DIR__ . '/../../includes/header.php';
                                 <td><?php echo (int) $unit['remaining']; ?></td>
                                 <td class="text-end">
                                     <?php if ($canManage): ?>
-                                        <a class="btn btn-sm btn-primary" href="/modules/inventory/allocate.php?product_id=<?php echo (int) $product['product_id']; ?>">Allocate</a>
+                                        <form method="post" class="d-inline" onsubmit="return confirm('Automatically allocate arrived stock to the oldest outstanding orders first?');">
+                                            <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                                            <input type="hidden" name="action" value="allocate_fifo">
+                                            <input type="hidden" name="product_id" value="<?php echo (int) $product['product_id']; ?>">
+                                            <button type="submit" class="btn btn-sm btn-primary">Auto Allocate</button>
+                                        </form>
+                                        <a class="btn btn-sm btn-outline-secondary" href="/modules/inventory/allocate.php?product_id=<?php echo (int) $product['product_id']; ?>">Manual</a>
                                     <?php endif; ?>
                                 </td>
                             </tr>

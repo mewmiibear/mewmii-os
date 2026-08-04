@@ -219,6 +219,36 @@ require_once __DIR__ . '/../../includes/header.php';
     <?php endif; ?>
 
     <?php if ($order !== null): ?>
+        <?php
+        // Picking workflow: this page only ever lists items that are already reserved/stored and
+        // not yet shipped, so "ship everything shown" is the normal case and a partial shipment
+        // is the exception. Quantities are therefore pre-filled to each line's available amount
+        // instead of 0 - previously an operator had to type a number into every row before the
+        // form could do anything, which is the single biggest click cost in daily fulfilment.
+        //
+        // This changes only the FORM DEFAULT. shipment_create() still validates every quantity
+        // against shipment_order_item_available_to_ship()/shipment_storage_lot_available_to_ship(),
+        // so nothing can be over-shipped, and the operator reviews the figures before submitting.
+        $prefillTotal = 0;
+        foreach ($eligibleOrderItems as $eligible) {
+            $prefillTotal += (int) $eligible['available'];
+        }
+        foreach ($eligibleStorageLots as $lot) {
+            $prefillTotal += (int) $lot['available'];
+        }
+        ?>
+        <?php if ($prefillTotal > 0): ?>
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <span class="text-muted small">
+                    <strong id="shipment-selected-total"><?php echo (int) $prefillTotal; ?></strong> of <?php echo (int) $prefillTotal; ?> available unit<?php echo $prefillTotal === 1 ? '' : 's'; ?> selected
+                </span>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="shipment-select-all-qty">Ship All Remaining</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="shipment-clear-qty">Clear</button>
+                </div>
+            </div>
+        <?php endif; ?>
+
         <div class="card p-4 mb-4">
             <h5 class="mb-3">Ready Stock Items (Reserved)</h5>
             <?php if ($eligibleOrderItems === []): ?>
@@ -232,7 +262,7 @@ require_once __DIR__ . '/../../includes/header.php';
                                 <td><?php echo app_escape($eligible['sku']); ?></td>
                                 <td><?php echo app_escape($eligible['label']); ?></td>
                                 <td><?php echo (int) $eligible['available']; ?></td>
-                                <td><input type="number" class="form-control" style="max-width: 120px;" name="order_item[<?php echo (int) $eligible['order_item_id']; ?>]" min="0" max="<?php echo (int) $eligible['available']; ?>" value="0"></td>
+                                <td><input type="number" class="form-control shipment-qty" style="max-width: 120px;" name="order_item[<?php echo (int) $eligible['order_item_id']; ?>]" min="0" max="<?php echo (int) $eligible['available']; ?>" value="<?php echo (int) $eligible['available']; ?>" data-available="<?php echo (int) $eligible['available']; ?>"></td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
@@ -254,7 +284,7 @@ require_once __DIR__ . '/../../includes/header.php';
                                 <td><?php echo app_escape($lot['label']); ?></td>
                                 <td><?php echo app_escape($lot['arrival_date'] ?? '-'); ?></td>
                                 <td><?php echo (int) $lot['available']; ?></td>
-                                <td><input type="number" class="form-control" style="max-width: 120px;" name="storage[<?php echo (int) $lot['storage_id']; ?>]" min="0" max="<?php echo (int) $lot['available']; ?>" value="0"></td>
+                                <td><input type="number" class="form-control shipment-qty" style="max-width: 120px;" name="storage[<?php echo (int) $lot['storage_id']; ?>]" min="0" max="<?php echo (int) $lot['available']; ?>" value="<?php echo (int) $lot['available']; ?>" data-available="<?php echo (int) $lot['available']; ?>"></td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
@@ -300,5 +330,42 @@ require_once __DIR__ . '/../../includes/header.php';
 
     <button type="submit" class="btn btn-primary">Create Shipment</button>
 </form>
+
+<?php if ($order !== null): ?>
+<script>
+// Picking helpers for the pre-filled quantities above. Progressive enhancement only - the
+// quantities are already correct server-side, so with JS off the form still submits a full
+// shipment; these buttons just make adjusting a partial one fast.
+(function () {
+    var inputs = document.querySelectorAll('.shipment-qty');
+    if (!inputs.length) { return; }
+    var totalEl = document.getElementById('shipment-selected-total');
+    var allBtn = document.getElementById('shipment-select-all-qty');
+    var clearBtn = document.getElementById('shipment-clear-qty');
+
+    function sync() {
+        if (!totalEl) { return; }
+        var total = 0;
+        for (var i = 0; i < inputs.length; i++) {
+            var v = parseInt(inputs[i].value, 10);
+            if (!isNaN(v) && v > 0) { total += v; }
+        }
+        totalEl.textContent = String(total);
+    }
+
+    function setAll(useAvailable) {
+        for (var i = 0; i < inputs.length; i++) {
+            inputs[i].value = useAvailable ? (inputs[i].getAttribute('data-available') || '0') : '0';
+        }
+        sync();
+    }
+
+    if (allBtn) { allBtn.addEventListener('click', function () { setAll(true); }); }
+    if (clearBtn) { clearBtn.addEventListener('click', function () { setAll(false); }); }
+    for (var i = 0; i < inputs.length; i++) { inputs[i].addEventListener('input', sync); }
+    sync();
+})();
+</script>
+<?php endif; ?>
 
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

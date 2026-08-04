@@ -57,11 +57,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($packed === 0 && $failures === []) {
                 $bulkError = 'Select at least one pending shipment.';
             }
+        } elseif ((string) ($_POST['row_action'] ?? '') === 'mark_shipped') {
+            // Inline dispatch from the list - identical inputs and identical call to what
+            // modules/shipments/view.php's Confirm Shipped form does. shipment_mark_shipped()
+            // remains the single source of truth: it consumes the ledger, writes tracking, and
+            // recomputes each affected order's status. Nothing is duplicated here.
+            $shipmentId = (int) ($_POST['shipment_id'] ?? 0);
+            $carrier = trim((string) ($_POST['carrier'] ?? ''));
+            $trackingNumber = trim((string) ($_POST['tracking_number'] ?? ''));
+
+            if ($shipmentId < 1) {
+                $bulkError = 'Invalid shipment.';
+            } elseif ($carrier === '' || $trackingNumber === '') {
+                $bulkError = 'Enter both a carrier and a tracking number to mark a shipment shipped.';
+            } else {
+                $pdo->beginTransaction();
+                try {
+                    shipment_mark_shipped($pdo, $shipmentId, $carrier, $trackingNumber, date('Y-m-d'));
+                    $pdo->commit();
+                    $bulkMessage = 'Shipment marked Shipped (' . $carrier . ' ' . $trackingNumber . ').';
+                } catch (Exception $exception) {
+                    $pdo->rollBack();
+                    $bulkError = 'Could not mark shipped: ' . $exception->getMessage();
+                }
+            }
         }
     } catch (RuntimeException $exception) {
         $bulkError = $exception->getMessage();
     }
 }
+
+// Carrier pre-fill for the inline dispatch controls - a day's parcels almost always go out with
+// one courier, so defaulting to the last one used removes a retyped field per parcel. Read-only
+// convenience; the operator can overwrite it, and it is never applied without an explicit submit.
+$lastCarrier = $pdo->query("
+    SELECT carrier FROM shipments
+    WHERE carrier IS NOT NULL AND carrier <> '' AND shipping_status IN ('shipped', 'delivered')
+    ORDER BY shipped_at DESC, id DESC LIMIT 1
+")->fetchColumn();
+$lastCarrier = $lastCarrier !== false ? (string) $lastCarrier : '';
 
 // UI/UX Phase 5C: search + status filter - same additive, SELECT-only pattern already used by
 // modules/orders/index.php and modules/supplier-orders/index.php. shipment_list_all() itself
@@ -188,15 +222,22 @@ require_once __DIR__ . '/../../includes/header.php';
 
 <div class="card p-4">
     <?php $pendingCount = count(array_filter($shipments, static fn (array $s): bool => $s['shipping_status'] === 'pending')); ?>
+    <?php
+    // The bulk form deliberately does NOT wrap the table: each shippable row carries its own
+    // inline dispatch form, and HTML forbids nesting one form inside another. Row controls join
+    // this form via the HTML5 form="" attribute instead, which keeps both interactions on one
+    // page with no navigation.
+    ?>
     <form method="post" id="shipment-bulk-form">
-    <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
-    <input type="hidden" name="bulk_action" value="mark_packed">
-    <?php if ($canManage && $pendingCount > 0): ?>
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <span class="text-muted small"><?php echo (int) $pendingCount; ?> pending shipment<?php echo $pendingCount === 1 ? '' : 's'; ?> on this page</span>
-            <button type="submit" class="btn btn-sm btn-primary" id="shipment-bulk-pack-btn" disabled>Mark Packed</button>
-        </div>
-    <?php endif; ?>
+        <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+        <input type="hidden" name="bulk_action" value="mark_packed">
+        <?php if ($canManage && $pendingCount > 0): ?>
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <span class="text-muted small"><?php echo (int) $pendingCount; ?> pending shipment<?php echo $pendingCount === 1 ? '' : 's'; ?> on this page</span>
+                <button type="submit" class="btn btn-sm btn-primary" id="shipment-bulk-pack-btn" disabled>Mark Packed</button>
+            </div>
+        <?php endif; ?>
+    </form>
     <div class="table-responsive">
     <table class="table table-hover align-middle responsive-stack-table">
         <thead>
@@ -222,7 +263,7 @@ require_once __DIR__ . '/../../includes/header.php';
                     <?php if ($canManage && $pendingCount > 0): ?>
                         <td data-label="">
                             <?php if ($shipment['shipping_status'] === 'pending'): ?>
-                                <input type="checkbox" class="form-check-input shipment-select" name="shipment_ids[]" value="<?php echo (int) $shipment['id']; ?>">
+                                <input type="checkbox" class="form-check-input shipment-select" form="shipment-bulk-form" name="shipment_ids[]" value="<?php echo (int) $shipment['id']; ?>">
                             <?php endif; ?>
                         </td>
                     <?php endif; ?>
@@ -243,7 +284,23 @@ require_once __DIR__ . '/../../includes/header.php';
                     <td data-label="Created"><?php echo app_escape($shipment['created_at']); ?></td>
                     <td data-label="" class="text-end">
                         <?php if ($canManage && $shipment['shipping_status'] === 'pending'): ?>
-                            <button type="submit" class="btn btn-sm btn-primary" name="shipment_ids[]" value="<?php echo (int) $shipment['id']; ?>">Mark Packed</button>
+                            <button type="submit" class="btn btn-sm btn-primary" form="shipment-bulk-form" name="shipment_ids[]" value="<?php echo (int) $shipment['id']; ?>">Mark Packed</button>
+                        <?php endif; ?>
+                        <?php if ($canManage && in_array($shipment['shipping_status'], ['pending', 'packed'], true)): ?>
+                            <?php /* Inline dispatch - the same carrier/tracking/date that
+                                     modules/shipments/view.php's Confirm Shipped form collects, and the
+                                     same shipment_mark_shipped() behind it. Entering tracking for a day's
+                                     parcels previously cost one page load each; this keeps it on the list.
+                                     Carrier pre-fills from the most recently shipped parcel, since a
+                                     batch almost always goes out with one courier. */ ?>
+                            <form method="post" class="d-inline-flex gap-1 align-items-center flex-wrap justify-content-end mt-1">
+                                <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+                                <input type="hidden" name="row_action" value="mark_shipped">
+                                <input type="hidden" name="shipment_id" value="<?php echo (int) $shipment['id']; ?>">
+                                <input type="text" class="form-control form-control-sm" style="max-width:110px;" name="carrier" required placeholder="Carrier" value="<?php echo app_escape($lastCarrier ?? ''); ?>">
+                                <input type="text" class="form-control form-control-sm" style="max-width:130px;" name="tracking_number" required placeholder="Tracking no.">
+                                <button type="submit" class="btn btn-sm btn-success">Ship</button>
+                            </form>
                         <?php endif; ?>
                         <a class="btn btn-sm btn-outline-primary" href="/modules/shipments/view.php?id=<?php echo (int) $shipment['id']; ?>">View</a>
                     </td>
@@ -266,7 +323,6 @@ require_once __DIR__ . '/../../includes/header.php';
         </tbody>
     </table>
     </div>
-    </form>
 
     <?php
     $pageUrl = static function (int $targetPage): string {
@@ -301,11 +357,13 @@ require_once __DIR__ . '/../../includes/header.php';
     if (!form) { return; }
     var selectAll = document.getElementById('shipment-select-all');
     var bulkBtn = document.getElementById('shipment-bulk-pack-btn');
-    var boxes = form.querySelectorAll('.shipment-select');
+    // Scoped to the document, not the form: the checkboxes live in the table and join the form
+    // via the HTML5 form="" attribute, so they are NOT descendants of the form element.
+    var boxes = document.querySelectorAll('.shipment-select');
 
     function sync() {
         if (!bulkBtn) { return; }
-        var checked = form.querySelectorAll('.shipment-select:checked').length;
+        var checked = document.querySelectorAll('.shipment-select:checked').length;
         bulkBtn.disabled = checked === 0;
         bulkBtn.textContent = checked > 0 ? ('Mark Packed (' + checked + ')') : 'Mark Packed';
     }
