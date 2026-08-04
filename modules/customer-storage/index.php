@@ -86,8 +86,10 @@ $storageStmt = $pdo->prepare("
 $storageStmt->execute();
 $customerStorage = $storageStmt->fetchAll(PDO::FETCH_ASSOC);
 
-$customersStmt = $pdo->query('SELECT id, name, email FROM customers ORDER BY name ASC LIMIT 200');
-$allCustomers = $customersStmt->fetchAll(PDO::FETCH_ASSOC);
+// Shared helper rather than a second copy of the same capped customer query - see
+// app_customer_options(). No pinned id: this is a blank "add to storage" form, so no
+// particular customer has to be guaranteed present in the list.
+$allCustomers = app_customer_options($pdo);
 
 $sellableUnits = catalog_sellable_units($pdo);
 
@@ -127,7 +129,7 @@ require_once __DIR__ . '/../../includes/header.php';
                     <option value="">Select a customer&hellip;</option>
                     <?php foreach ($allCustomers as $customer): ?>
                         <option value="<?php echo (int) $customer['id']; ?>">
-                            <?php echo app_escape($customer['name']); ?><?php if (!empty($customer['email'])): ?> (<?php echo app_escape($customer['email']); ?>)<?php endif; ?>
+                            <?php echo app_escape(app_customer_dropdown_label($customer)); ?>
                         </option>
                     <?php endforeach; ?>
                 </select>

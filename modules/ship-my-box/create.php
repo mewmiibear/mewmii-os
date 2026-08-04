@@ -169,7 +169,7 @@ require_once __DIR__ . '/../../includes/header.php';
             <option value="">Select a customer&hellip;</option>
             <?php foreach ($allCustomers as $customer): ?>
                 <option value="<?php echo (int) $customer['id']; ?>" <?php echo $customerId === (int) $customer['id'] ? 'selected' : ''; ?>>
-                    <?php echo app_escape($customer['name']); ?><?php if (!empty($customer['email'])): ?> (<?php echo app_escape($customer['email']); ?>)<?php endif; ?>
+                    <?php echo app_escape(app_customer_dropdown_label($customer)); ?>
                 </option>
             <?php endforeach; ?>
         </select>

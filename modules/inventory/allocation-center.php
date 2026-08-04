@@ -20,7 +20,7 @@ app_require_permission('inventory.view');
  * the "Allocate" button on each row/variation here.
  */
 
-$appTitle = 'Allocate Preorders';
+$appTitle = 'Allocation Center';
 $pdo = app_db();
 
 $canManage = app_has_permission('inventory.manage');
@@ -73,7 +73,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1">Allocate Preorders</h2>
+        <h2 class="mb-1">Allocation Center</h2>
         <p class="text-muted mb-0">Arrived preorder/early-bird stock waiting to be matched to customer orders.</p>
     </div>
     <a class="btn btn-outline-secondary btn-sm" href="/modules/inventory/index.php">Back to Inventory</a>

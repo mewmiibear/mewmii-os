@@ -178,8 +178,11 @@ if ($order !== null) {
 
 $sellableUnits = $order === null ? catalog_sellable_units($pdo) : [];
 
-$customersStmt = $pdo->query('SELECT id, name, email FROM customers ORDER BY name ASC LIMIT 200');
-$allCustomers = $customersStmt->fetchAll(PDO::FETCH_ASSOC);
+// Shared helper rather than a second copy of the same capped customer query - see
+// app_customer_options(). Only the manual (no order_id) mode renders a customer dropdown at
+// all, so this is fetched on the same condition as $sellableUnits above rather than on every
+// order-sourced page load. No pinned id: nothing is preselected in that mode.
+$allCustomers = $order === null ? app_customer_options($pdo) : [];
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
@@ -211,7 +214,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 <option value="">Select a customer&hellip;</option>
                 <?php foreach ($allCustomers as $customer): ?>
                     <option value="<?php echo (int) $customer['id']; ?>">
-                        <?php echo app_escape($customer['name']); ?><?php if (!empty($customer['email'])): ?> (<?php echo app_escape($customer['email']); ?>)<?php endif; ?>
+                        <?php echo app_escape(app_customer_dropdown_label($customer)); ?>
                     </option>
                 <?php endforeach; ?>
             </select>
