@@ -254,6 +254,10 @@ const SYSTEM_HEALTH_MIGRATIONS = [
     ['label' => 'Supplier payment bank account link', 'migration' => 'migrate_supplier_order_payment_bank_account.php', 'table' => 'supplier_order_payments', 'column' => 'bank_account_id'],
     // SO-C - multi-supplier sourcing catalogue. Registered in the same change as the migration.
     ['label' => 'Multi-supplier sourcing catalogue', 'migration' => 'migrate_supplier_products.php', 'table' => 'supplier_products', 'column' => null],
+    // SO-D - a pure performance index. Uses the 'index' check type rather than
+    // SYSTEM_HEALTH_INDEXES below, because that set attributes every miss to
+    // migrate_production_hardening.php and would name the wrong script here.
+    ['label' => 'Supplier order date index', 'migration' => 'migrate_supplier_order_date_index.php', 'table' => 'supplier_orders', 'column' => null, 'index' => 'idx_supplier_orders_order_date'],
 ];
 
 // A subset of migrate_production_hardening.php's own performance indexes - grouped as one
@@ -597,12 +601,18 @@ function system_health_check(PDO $pdo): array
     $pending = [];
 
     foreach (SYSTEM_HEALTH_MIGRATIONS as $check) {
-        // Detection priority: unique_column -> column -> table. 'unique_column' is an OPTIONAL
-        // key for the one migration whose only artifact is a UNIQUE constraint (no new table,
-        // no new column) - every other row omits it entirely and resolves exactly as it always
-        // did, so this branch adds a case rather than changing any existing one.
+        // Detection priority: unique_column -> index -> column -> table. Both 'unique_column'
+        // and 'index' are OPTIONAL keys, for migrations whose only artifact is a constraint or a
+        // plain index rather than a new table or column. Every other row omits them and resolves
+        // exactly as it always did, so each adds a case rather than changing an existing one.
+        //
+        // 'index' is checked here rather than via SYSTEM_HEALTH_INDEXES below because that set
+        // attributes every miss to migrate_production_hardening.php - correct for the indexes it
+        // owns, wrong for anything added since.
         if (isset($check['unique_column'])) {
             $applied = system_health_unique_index_exists($pdo, $check['table'], $check['unique_column']);
+        } elseif (isset($check['index'])) {
+            $applied = system_health_index_exists($pdo, $check['table'], $check['index']);
         } elseif ($check['column'] !== null) {
             $applied = system_health_column_exists($pdo, $check['table'], $check['column']);
         } else {

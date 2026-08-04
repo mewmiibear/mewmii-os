@@ -126,6 +126,8 @@ require_once __DIR__ . '/../../includes/header.php';
                     // unique-constraint check would describe itself as a table-existence check.
                     if (isset($check['unique_column'])) {
                         echo app_escape($check['table'] . '.' . $check['unique_column']) . ' unique';
+                    } elseif (isset($check['index'])) {
+                        echo app_escape($check['table'] . '.' . $check['index']) . ' index';
                     } elseif ($check['column'] !== null) {
                         echo app_escape($check['table'] . '.' . $check['column']);
                     } else {

@@ -39,6 +39,15 @@ if (!$order) {
 $isCompleted = $order['status'] === 'completed';
 $showSentWarning = !$isCompleted && $order['status'] !== 'draft';
 
+// P7a - once any stock has been received, supplier/currency/exchange rate are locked, and any
+// line that has received stock has its unit cost locked. Enforced server-side in
+// supplier_order_apply_edit(); mirrored here so the fields render disabled with an explanation
+// rather than letting a submission fail after the user has typed. Everything else - notes,
+// payment status, shipping fee, adding lines, increasing quantities, editing lines with nothing
+// received - stays editable exactly as before.
+$hasReceivingHistory = supplier_order_has_receiving_history($pdo, $orderId);
+$lockSourcingFields = $hasReceivingHistory && !$isCompleted;
+
 $itemsStmt = $pdo->prepare('
     SELECT soi.id, soi.product_id, soi.variation_id, soi.total_quantity, soi.supplier_price, soi.unit_cost_foreign,
            COALESCE(pv.sku, p.sku) AS sku, p.name AS product_name, p.moq AS parent_moq
@@ -141,6 +150,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $exchangeRate = $formResult['exchange_rate'];
         $validItems = $formResult['valid_items'];
         $existingItems = $formResult['existing_items'];
+
+        // P7a - supplier_order_validate_form() is shared with create.php and so doesn't carry
+        // received quantities. Re-attach them by unit_key before re-rendering, otherwise a
+        // validation error would silently unlock the cost inputs on already-received lines.
+        // (The server-side guard in supplier_order_apply_edit() still holds either way; this
+        // keeps the UI honest rather than being the protection itself.)
+        foreach ($existingItems as $index => $existingItem) {
+            $originalKey = $existingItem['unit_key'];
+            $existingItems[$index]['received_quantity'] = 0;
+            foreach ($existingDbItems as $dbItem) {
+                if ($dbItem['product_id'] . ':' . (int) ($dbItem['variation_id'] ?? 0) === $originalKey) {
+                    $existingItems[$index]['received_quantity'] = supplier_order_item_received_quantity($pdo, (int) $dbItem['id']);
+                    break;
+                }
+            }
+        }
 
         if ($error === '' && ($form['supplier_id'] === '' || (int) $form['supplier_id'] < 1)) {
             $error = 'Select a supplier.';
@@ -269,7 +294,7 @@ require_once __DIR__ . '/../../includes/header.php';
             <div class="row g-3 mb-4">
                 <div class="col-md-6">
                     <label class="form-label">Supplier</label>
-                    <select class="form-select" name="supplier_id" required>
+                    <select class="form-select" <?php echo $lockSourcingFields ? 'disabled' : 'name="supplier_id" required'; ?>>
                         <option value="">Select a supplier&hellip;</option>
                         <?php foreach ($suppliers as $supplier): ?>
                             <option value="<?php echo (int) $supplier['id']; ?>" <?php echo $form['supplier_id'] === (string) $supplier['id'] ? 'selected' : ''; ?>>
@@ -277,6 +302,11 @@ require_once __DIR__ . '/../../includes/header.php';
                             </option>
                         <?php endforeach; ?>
                     </select>
+                    <?php if ($lockSourcingFields): ?>
+                        <?php /* disabled inputs do not submit - carry the unchanged value explicitly */ ?>
+                        <input type="hidden" name="supplier_id" value="<?php echo app_escape($form['supplier_id']); ?>">
+                        <div class="form-text">Locked &mdash; stock has already been received against this order.</div>
+                    <?php endif; ?>
                 </div>
 
                 <div class="col-md-6">
@@ -286,18 +316,30 @@ require_once __DIR__ . '/../../includes/header.php';
 
                 <div class="col-md-3">
                     <label class="form-label">Supplier Currency</label>
-                    <select class="form-select" name="currency" id="supplier-order-currency">
+                    <select class="form-select" id="supplier-order-currency" <?php echo $lockSourcingFields ? 'disabled' : 'name="currency"'; ?>>
                         <?php foreach (SUPPLIER_ORDER_CURRENCY_OPTIONS as $currencyOption): ?>
                             <option value="<?php echo app_escape($currencyOption); ?>" <?php echo $form['currency'] === $currencyOption ? 'selected' : ''; ?>><?php echo app_escape($currencyOption); ?></option>
                         <?php endforeach; ?>
                         <option value="OTHER" <?php echo !in_array($form['currency'], SUPPLIER_ORDER_CURRENCY_OPTIONS, true) ? 'selected' : ''; ?>>Other</option>
                     </select>
-                    <input type="text" class="form-control mt-2<?php echo in_array($form['currency'], SUPPLIER_ORDER_CURRENCY_OPTIONS, true) ? ' d-none' : ''; ?>" id="supplier-order-currency-other" name="currency_other" maxlength="10" placeholder="e.g. KRW" value="<?php echo app_escape($form['currency_other']); ?>">
+                    <?php if ($lockSourcingFields): ?>
+                        <?php /* disabled inputs do not submit - carry the unchanged values explicitly */ ?>
+                        <input type="hidden" name="currency" value="<?php echo app_escape($form['currency']); ?>">
+                        <input type="hidden" name="currency_other" value="<?php echo app_escape($form['currency_other']); ?>">
+                        <div class="form-text">Locked &mdash; changing it would rewrite the recorded cost of stock already received.</div>
+                    <?php else: ?>
+                        <input type="text" class="form-control mt-2<?php echo in_array($form['currency'], SUPPLIER_ORDER_CURRENCY_OPTIONS, true) ? ' d-none' : ''; ?>" id="supplier-order-currency-other" name="currency_other" maxlength="10" placeholder="e.g. KRW" value="<?php echo app_escape($form['currency_other']); ?>">
+                    <?php endif; ?>
                 </div>
                 <div class="col-md-3<?php echo $form['currency'] === SYSTEM_SELLING_CURRENCY ? ' d-none' : ''; ?>" id="supplier-order-exchange-rate-wrapper">
                     <label class="form-label" id="supplier-order-exchange-rate-label">Exchange Rate</label>
-                    <input type="number" step="0.000001" min="0" class="form-control" id="supplier-order-exchange-rate" name="exchange_rate" value="<?php echo app_escape($form['exchange_rate']); ?>">
-                    <div class="form-text">e.g. 1 JPY = 0.03 <?php echo app_escape(SYSTEM_SELLING_CURRENCY); ?></div>
+                    <input type="number" step="0.000001" min="0" class="form-control" id="supplier-order-exchange-rate" value="<?php echo app_escape($form['exchange_rate']); ?>" <?php echo $lockSourcingFields ? 'disabled' : 'name="exchange_rate"'; ?>>
+                    <?php if ($lockSourcingFields): ?>
+                        <input type="hidden" name="exchange_rate" value="<?php echo app_escape($form['exchange_rate']); ?>">
+                        <div class="form-text">Locked &mdash; stock has already been received at this rate.</div>
+                    <?php else: ?>
+                        <div class="form-text">e.g. 1 JPY = 0.03 <?php echo app_escape(SYSTEM_SELLING_CURRENCY); ?></div>
+                    <?php endif; ?>
                 </div>
 
                 <div class="col-md-6">

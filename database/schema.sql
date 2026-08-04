@@ -1067,7 +1067,12 @@ CREATE TABLE IF NOT EXISTS supplier_orders (
   CONSTRAINT fk_supplier_orders_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE,
   INDEX idx_supplier_orders_status (status),
   INDEX idx_supplier_orders_payment_status (payment_status),
-  INDEX idx_supplier_orders_expected_delivery_date (expected_delivery_date)
+  INDEX idx_supplier_orders_expected_delivery_date (expected_delivery_date),
+  -- SO-D - order_date is sorted on by every batch landed-cost calculation
+  -- (includes/product_cost.php's reference-line and purchase-cost lookups, which run on the
+  -- Margin Report, Inventory Report, Purchasing, and cost-increase alerts) and by the supplier
+  -- purchase-history views. It was the only one of those sort keys without an index.
+  INDEX idx_supplier_orders_order_date (order_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS supplier_order_events (

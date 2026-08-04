@@ -233,6 +233,61 @@ function supplier_order_item_received_quantity(PDO $pdo, int $itemId): int
 }
 
 /**
+ * SO-D - ordered/received/outstanding unit totals for many supplier orders in ONE query.
+ *
+ * Per-order backorder visibility already exists on modules/supplier-orders/view.php (each line
+ * shows received and remaining); what was missing is the cross-order answer - "what am I still
+ * waiting on, across every supplier" - which previously meant opening each PO one at a time.
+ *
+ * Received is derived from the inventory_transactions ledger, exactly like
+ * supplier_order_item_received_quantity() does for a single line - the same authoritative source,
+ * just aggregated set-based instead of one query per line. Nothing is cached or stored, so this
+ * can never drift from actual receiving history.
+ *
+ * Read-only. Does not change receiving, status transitions, or any total.
+ *
+ * @return array<int, array{ordered:int, received:int, outstanding:int}> keyed by supplier_order_id
+ */
+function supplier_orders_outstanding_batch(PDO $pdo, array $supplierOrderIds): array
+{
+    $supplierOrderIds = array_values(array_unique(array_map('intval', $supplierOrderIds)));
+    if ($supplierOrderIds === []) {
+        return [];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($supplierOrderIds), '?'));
+    $stmt = $pdo->prepare("
+        SELECT soi.supplier_order_id,
+               COALESCE(SUM(soi.total_quantity), 0) AS ordered_qty,
+               COALESCE(SUM(COALESCE(received.received_qty, 0)), 0) AS received_qty
+        FROM supplier_order_items soi
+        LEFT JOIN (
+            SELECT reference_id, SUM(quantity) AS received_qty
+            FROM inventory_transactions
+            WHERE reference_type = 'supplier_order_item' AND transaction_type = 'supplier_receive'
+            GROUP BY reference_id
+        ) received ON received.reference_id = soi.id
+        WHERE soi.supplier_order_id IN ({$placeholders})
+        GROUP BY soi.supplier_order_id
+    ");
+    $stmt->execute($supplierOrderIds);
+
+    $byOrder = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $ordered = (int) $row['ordered_qty'];
+        $received = (int) $row['received_qty'];
+        $byOrder[(int) $row['supplier_order_id']] = [
+            'ordered' => $ordered,
+            'received' => $received,
+            // Clamped: an over-receive would otherwise show as negative outstanding.
+            'outstanding' => max($ordered - $received, 0),
+        ];
+    }
+
+    return $byOrder;
+}
+
+/**
  * Mark stock as incoming for a freshly created supplier order line item. $variationId is
  * null for a simple product's line item, or the specific variation SKU being ordered.
  */
@@ -713,7 +768,9 @@ function supplier_order_validate_form(PDO $pdo, array $form, array $postedUnitKe
  */
 function supplier_order_apply_edit(PDO $pdo, int $orderId, int $supplierId, string $notes, array $newLines, float $shippingFee = 0.00, ?string $paymentStatus = null, ?string $currency = null, ?float $exchangeRate = null): void
 {
-    $oldRowStmt = $pdo->prepare('SELECT shipping_fee, payment_status, purchase_number, is_historical, currency, exchange_rate FROM supplier_orders WHERE id = ?');
+    // supplier_id is selected for the P7a guard below - the previous value is needed to detect a
+    // reassignment attempt on an order that already has received stock.
+    $oldRowStmt = $pdo->prepare('SELECT supplier_id, shipping_fee, payment_status, purchase_number, is_historical, currency, exchange_rate FROM supplier_orders WHERE id = ?');
     $oldRowStmt->execute([$orderId]);
     $oldRow = $oldRowStmt->fetch(PDO::FETCH_ASSOC);
     // A historical (imported) supplier order must never go through
@@ -740,6 +797,41 @@ function supplier_order_apply_edit(PDO $pdo, int $orderId, int $supplierId, stri
         $exchangeRate = null;
     } elseif ($exchangeRate === null) {
         $exchangeRate = $oldExchangeRate;
+    }
+
+    // P7a - once ANY stock has been received against this order, three header fields become
+    // read-only. This is a data-integrity guard, not a workflow restriction:
+    //
+    //   currency / exchange_rate - this function recomputes supplier_price and unit_cost_myr for
+    //     EVERY line, including already-received ones. Since SO-A1, unit_cost_myr is the
+    //     authoritative landed-cost input, so changing the rate here would silently rewrite the
+    //     cost of stock already on the shelf, and the product_cost_history snapshot frozen at
+    //     receiving would no longer reconcile with the live figure.
+    //
+    //   supplier_id - product_cost_history.supplier_id was captured from this order at receiving
+    //     time and is never updated, so reassigning the supplier would leave the order claiming a
+    //     different supplier than its own cost history. It would also misattribute delivery
+    //     performance in supplier_lead_time_stats_batch().
+    //
+    // Everything else stays editable exactly as before: notes, payment status, shipping fee,
+    // adding lines, increasing quantities, and editing/removing lines with nothing received.
+    $hasReceiving = supplier_order_has_receiving_history($pdo, $orderId);
+
+    if ($hasReceiving) {
+        $oldSupplierId = (int) $oldRow['supplier_id'];
+        if ($supplierId !== $oldSupplierId) {
+            throw new RuntimeException('This order already has received stock, so its supplier can no longer be changed. Cancel the remaining quantity and raise a new order instead.');
+        }
+
+        if ($currency !== $oldCurrency) {
+            throw new RuntimeException('This order already has received stock, so its currency can no longer be changed - doing so would rewrite the recorded cost of stock already received.');
+        }
+
+        $rateChanged = ($exchangeRate === null) !== ($oldExchangeRate === null)
+            || ($exchangeRate !== null && $oldExchangeRate !== null && abs($exchangeRate - $oldExchangeRate) > 0.000001);
+        if ($rateChanged) {
+            throw new RuntimeException('This order already has received stock, so its exchange rate can no longer be changed - doing so would rewrite the recorded cost of stock already received.');
+        }
     }
 
     $existingStmt = $pdo->prepare('SELECT id, product_id, variation_id, total_quantity, supplier_price FROM supplier_order_items WHERE supplier_order_id = ?');
@@ -826,6 +918,15 @@ function supplier_order_apply_edit(PDO $pdo, int $orderId, int $supplierId, stri
         }
 
         if (abs($oldPrice - $price) > 0.001) {
+            // P7a - a line that has already received stock has its cost locked. supplier_price /
+            // unit_cost_myr on this row is the authoritative landed-cost input since SO-A1, and
+            // product_cost_history froze a snapshot from it at receiving time; changing it now
+            // would retroactively restate what that received stock cost. Lines with nothing
+            // received yet remain fully editable.
+            if ($received > 0) {
+                throw new RuntimeException($label . ' has already received ' . $received . ' unit(s), so its unit cost can no longer be changed.');
+            }
+
             supplier_order_log_event($pdo, $orderId, 'Changed ' . $label . ' unit cost RM' . number_format($oldPrice, 2) . ' -> RM' . number_format($price, 2));
         }
 

@@ -93,6 +93,13 @@ $blockedOrderIds = array_values(array_map(static fn (array $order): int => (int)
 )));
 $blockedOrdersBySupplierOrder = supplier_order_blocked_customer_orders_batch($pdo, $blockedOrderIds);
 
+// SO-D - ordered/received/outstanding units for the whole page in one query, same batching
+// discipline as blocked_order_count above. Read-only; derived from the inventory ledger.
+$outstandingBySupplierOrder = supplier_orders_outstanding_batch(
+    $pdo,
+    array_map(static fn (array $order): int => (int) $order['id'], $supplierOrders)
+);
+
 foreach ($supplierOrders as &$supplierOrder) {
     $supplierOrder['is_overdue'] = $supplierOrder['expected_delivery_date'] !== null
         && strtotime($supplierOrder['expected_delivery_date']) < strtotime('today')
@@ -102,6 +109,15 @@ foreach ($supplierOrders as &$supplierOrder) {
         : 0;
 
     $supplierOrder['blocked_order_count'] = count($blockedOrdersBySupplierOrder[(int) $supplierOrder['id']] ?? []);
+
+    $units = $outstandingBySupplierOrder[(int) $supplierOrder['id']] ?? ['ordered' => 0, 'received' => 0, 'outstanding' => 0];
+    $supplierOrder['units_ordered'] = $units['ordered'];
+    $supplierOrder['units_received'] = $units['received'];
+    // Only meaningful while an order can still receive stock - a cancelled or completed order
+    // has nothing outstanding to chase, regardless of what the arithmetic says.
+    $supplierOrder['units_outstanding'] = in_array($supplierOrder['status'], ['cancelled', 'completed'], true)
+        ? 0
+        : $units['outstanding'];
 }
 unset($supplierOrder);
 
@@ -182,6 +198,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 <th>Supplier</th>
                 <th>Status</th>
                 <th>Payment</th>
+                <th class="text-end">Units</th>
                 <th class="text-end">Total Purchase Amount</th>
                 <th>Order Date</th>
                 <th></th>
@@ -212,6 +229,12 @@ require_once __DIR__ . '/../../includes/header.php';
                         <?php endif; ?>
                     </td>
                     <td data-label="Payment"><?php echo supplier_order_payment_status_badge((string) $order['payment_status']); ?></td>
+                    <td data-label="Units" class="text-end">
+                        <?php echo (int) $order['units_received']; ?> / <?php echo (int) $order['units_ordered']; ?>
+                        <?php if ($order['units_outstanding'] > 0): ?>
+                            <div><span class="badge bg-warning text-dark" title="Units ordered but not yet received"><?php echo (int) $order['units_outstanding']; ?> outstanding</span></div>
+                        <?php endif; ?>
+                    </td>
                     <td data-label="Total Purchase Amount" class="text-end">RM <?php echo app_escape(number_format((float) $order['estimated_cost'] + (float) $order['shipping_fee'], 2)); ?></td>
                     <td data-label="Order Date"><?php echo app_escape($order['order_date'] ?? '-'); ?></td>
                     <td data-label="" class="text-end">
@@ -233,7 +256,7 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php endforeach; ?>
             <?php if ($supplierOrders === []): ?>
                 <tr>
-                    <td colspan="7">
+                    <td colspan="8">
                         <div class="empty-state">
                             <div class="empty-state-title">No Supplier Orders Match</div>
                             <p class="empty-state-text"><?php echo ($searchTerm !== '' || $filterStatus !== null || $filterOverdue) ? 'Try adjusting or clearing your filters.' : 'Supplier orders will appear here once created.'; ?></p>

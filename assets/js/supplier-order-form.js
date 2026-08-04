@@ -241,7 +241,12 @@
             '<input type="number" class="form-control form-control-sm item-quantity" name="quantity[]" min="' + qtyMin + '" style="width:90px;" value="' + escapeHtml(defaultQuantity) + '">' +
             '<div class="text-warning small item-moq-warning d-none"></div>' +
             '</td>' +
-            '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm item-cost" name="supplier_price[]" style="width:110px;" value="' + escapeHtml(cost || '0.00') + '"></td>' +
+            // P7a - a line that already has received stock has its unit cost locked: that value is
+            // the authoritative landed-cost input (SO-A1) and product_cost_history froze a
+            // snapshot from it at receiving, so changing it would retroactively restate what the
+            // received stock cost. readonly (not disabled) so the field still submits its
+            // unchanged value; supplier_order_apply_edit() enforces the same rule server-side.
+            '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm item-cost" name="supplier_price[]" style="width:110px;" value="' + escapeHtml(cost || '0.00') + '"' + (received > 0 ? ' readonly title="Locked - stock already received against this line"' : '') + '></td>' +
             '<td class="item-subtotal">0.00</td>' +
             '<td class="text-end">' + actionCell + '</td>';
 
