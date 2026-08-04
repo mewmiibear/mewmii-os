@@ -161,6 +161,12 @@ $storedStmt->execute([$customerId]);
 $storedItems = $storedStmt->fetchAll(PDO::FETCH_ASSOC);
 foreach ($storedItems as &$storedItem) {
     $storedItem['variation_label'] = $storedItem['variation_id'] !== null ? variation_build_label($pdo, (int) $storedItem['variation_id']) : '';
+    // How much of this lot may actually be removed right now - the SAME function the remove
+    // handler above already validates against, so the form can never offer a quantity the
+    // server would refuse. The lot's raw quantity is not that number: an open (not yet
+    // shipped) ship request may already hold a claim on part of it. This query only lists
+    // status = 'stored' lots, which is exactly the case the handler's guard applies to.
+    $storedItem['available'] = ship_request_storage_lot_available($pdo, (int) $storedItem['id']);
 }
 unset($storedItem);
 
@@ -241,6 +247,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 </thead>
                 <tbody>
                     <?php foreach ($storedItems as $item): ?>
+                        <?php $availableToRemove = (int) $item['available']; ?>
                         <tr>
                             <td><?php echo app_escape($item['sku']); ?></td>
                             <td>
@@ -249,7 +256,16 @@ require_once __DIR__ . '/../../includes/header.php';
                                     <div class="text-muted small"><?php echo app_escape($item['variation_label']); ?></div>
                                 <?php endif; ?>
                             </td>
-                            <td><?php echo app_escape((string) $item['quantity']); ?></td>
+                            <td>
+                                <?php echo app_escape((string) $item['quantity']); ?>
+                                <?php if ($availableToRemove < (int) $item['quantity']): ?>
+                                    <?php /* Same wording as modules/ship-my-box/create.php's own note for
+                                             the identical situation - the units are spoken for, not missing. */ ?>
+                                    <div class="text-muted small">
+                                        <?php echo (int) $item['quantity'] - $availableToRemove; ?> committed to a pending ship request
+                                    </div>
+                                <?php endif; ?>
+                            </td>
                             <td><?php echo app_escape($item['arrival_date'] ?? '-'); ?></td>
                             <td>
                                 <?php if ($canManage): ?>
@@ -266,12 +282,25 @@ require_once __DIR__ . '/../../includes/header.php';
                             </td>
                             <?php if ($canManage): ?>
                                 <td class="text-end">
+                                    <?php /* Removing a whole lot is the normal case, so the quantity defaults
+                                             to what may actually be removed instead of being blank - same form
+                                             default already used by modules/ship-my-box/create.php. Only the
+                                             DEFAULT and its ceiling change here; the handler above still
+                                             re-checks every removal against ship_request_storage_lot_available()
+                                             inside its transaction. A lot with nothing free stays listed (it is
+                                             real stock) with the control disabled and the reason shown in the
+                                             Qty column - the Location form beside it stays usable, since
+                                             relabelling a shelf is still valid for a committed lot. */ ?>
                                     <form method="post" class="d-flex gap-1 justify-content-end">
                                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                                         <input type="hidden" name="action" value="remove">
                                         <input type="hidden" name="storage_id" value="<?php echo (int) $item['id']; ?>">
-                                        <input type="number" class="form-control form-control-sm" style="width: 80px;" name="quantity" min="1" max="<?php echo (int) $item['quantity']; ?>" placeholder="Qty" required>
-                                        <button class="btn btn-sm btn-outline-danger" type="submit">Remove</button>
+                                        <input type="number" class="form-control form-control-sm" style="width: 80px;"
+                                               name="quantity" min="1" max="<?php echo $availableToRemove; ?>"
+                                               value="<?php echo $availableToRemove > 0 ? $availableToRemove : ''; ?>"
+                                               placeholder="Qty" required
+                                               <?php echo $availableToRemove < 1 ? 'disabled' : ''; ?>>
+                                        <button class="btn btn-sm btn-outline-danger" type="submit" <?php echo $availableToRemove < 1 ? 'disabled' : ''; ?>>Remove</button>
                                     </form>
                                 </td>
                             <?php endif; ?>
