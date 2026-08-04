@@ -6,6 +6,62 @@ app_require_permission('shipments.view');
 
 $appTitle = 'Shipments';
 $pdo = app_db();
+$bulkMessage = '';
+$bulkError = '';
+
+// Workflow: Mark Packed directly from this list, one row or many at once.
+//
+// Packing is the highest-frequency repetitive action in fulfilment, and it previously cost a
+// page load, a click and a back-navigation per parcel because the only row action here was
+// "View". shipment_mark_packed() needs nothing but an id - no carrier, no tracking - so it is
+// safe to trigger from a list. Mark Shipped deliberately stays on the detail page, since
+// shipping without carrier/tracking is almost always a mistake.
+//
+// Reuses shipment_mark_packed() unchanged; this adds no fulfilment logic of its own. Each
+// shipment gets its own transaction so one ineligible row (already packed, cancelled, or
+// concurrently changed) cannot roll back the ones that succeeded - the function's own
+// "only a Pending shipment can be marked Packed" guard still decides eligibility.
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    app_require_permission('shipments.manage');
+
+    try {
+        app_require_csrf();
+
+        if ((string) ($_POST['bulk_action'] ?? '') === 'mark_packed') {
+            $ids = array_values(array_unique(array_filter(
+                array_map('intval', (array) ($_POST['shipment_ids'] ?? [])),
+                static fn (int $id): bool => $id > 0
+            )));
+
+            $packed = 0;
+            $failures = [];
+
+            foreach ($ids as $shipmentId) {
+                $pdo->beginTransaction();
+                try {
+                    shipment_mark_packed($pdo, $shipmentId);
+                    $pdo->commit();
+                    $packed++;
+                } catch (Exception $exception) {
+                    $pdo->rollBack();
+                    $failures[] = '#' . $shipmentId . ': ' . $exception->getMessage();
+                }
+            }
+
+            if ($packed > 0) {
+                $bulkMessage = $packed . ' shipment' . ($packed === 1 ? '' : 's') . ' marked Packed.';
+            }
+            if ($failures !== []) {
+                $bulkError = count($failures) . ' could not be packed - ' . implode(' ', array_slice($failures, 0, 3));
+            }
+            if ($packed === 0 && $failures === []) {
+                $bulkError = 'Select at least one pending shipment.';
+            }
+        }
+    } catch (RuntimeException $exception) {
+        $bulkError = $exception->getMessage();
+    }
+}
 
 // UI/UX Phase 5C: search + status filter - same additive, SELECT-only pattern already used by
 // modules/orders/index.php and modules/supplier-orders/index.php. shipment_list_all() itself
@@ -123,11 +179,31 @@ require_once __DIR__ . '/../../includes/header.php';
     </form>
 </div>
 
+<?php if ($bulkMessage !== ''): ?>
+    <div class="alert alert-success"><?php echo app_escape($bulkMessage); ?></div>
+<?php endif; ?>
+<?php if ($bulkError !== ''): ?>
+    <div class="alert alert-warning"><?php echo app_escape($bulkError); ?></div>
+<?php endif; ?>
+
 <div class="card p-4">
+    <?php $pendingCount = count(array_filter($shipments, static fn (array $s): bool => $s['shipping_status'] === 'pending')); ?>
+    <form method="post" id="shipment-bulk-form">
+    <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
+    <input type="hidden" name="bulk_action" value="mark_packed">
+    <?php if ($canManage && $pendingCount > 0): ?>
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <span class="text-muted small"><?php echo (int) $pendingCount; ?> pending shipment<?php echo $pendingCount === 1 ? '' : 's'; ?> on this page</span>
+            <button type="submit" class="btn btn-sm btn-primary" id="shipment-bulk-pack-btn" disabled>Mark Packed</button>
+        </div>
+    <?php endif; ?>
     <div class="table-responsive">
     <table class="table table-hover align-middle responsive-stack-table">
         <thead>
             <tr>
+                <?php if ($canManage && $pendingCount > 0): ?>
+                    <th style="width:32px;"><input type="checkbox" class="form-check-input" id="shipment-select-all" title="Select all pending"></th>
+                <?php endif; ?>
                 <th>Shipment</th>
                 <th>Customer</th>
                 <th>Source</th>
@@ -143,6 +219,13 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php foreach ($shipments as $shipment): ?>
                 <?php $totals = $itemTotals[(int) $shipment['id']] ?? ['order_count' => 0, 'item_qty' => 0]; ?>
                 <tr>
+                    <?php if ($canManage && $pendingCount > 0): ?>
+                        <td data-label="">
+                            <?php if ($shipment['shipping_status'] === 'pending'): ?>
+                                <input type="checkbox" class="form-check-input shipment-select" name="shipment_ids[]" value="<?php echo (int) $shipment['id']; ?>">
+                            <?php endif; ?>
+                        </td>
+                    <?php endif; ?>
                     <td data-label="Shipment"><?php echo app_escape($shipment['shipment_number']); ?></td>
                     <td data-label="Customer"><?php echo app_escape($shipment['customer_name']); ?></td>
                     <td data-label="Source"><?php echo app_escape(ucfirst(str_replace('_', ' ', $shipment['source_type']))); ?></td>
@@ -159,6 +242,9 @@ require_once __DIR__ . '/../../includes/header.php';
                     <td data-label="Items" class="text-end"><?php echo (int) $totals['item_qty']; ?></td>
                     <td data-label="Created"><?php echo app_escape($shipment['created_at']); ?></td>
                     <td data-label="" class="text-end">
+                        <?php if ($canManage && $shipment['shipping_status'] === 'pending'): ?>
+                            <button type="submit" class="btn btn-sm btn-primary" name="shipment_ids[]" value="<?php echo (int) $shipment['id']; ?>">Mark Packed</button>
+                        <?php endif; ?>
                         <a class="btn btn-sm btn-outline-primary" href="/modules/shipments/view.php?id=<?php echo (int) $shipment['id']; ?>">View</a>
                     </td>
                 </tr>
@@ -180,6 +266,7 @@ require_once __DIR__ . '/../../includes/header.php';
         </tbody>
     </table>
     </div>
+    </form>
 
     <?php
     $pageUrl = static function (int $targetPage): string {
@@ -205,4 +292,34 @@ require_once __DIR__ . '/../../includes/header.php';
         <?php endif; ?>
     </div>
 </div>
+<script>
+// Select-all + enable/disable for the Mark Packed bulk button. Progressive enhancement only:
+// with JS off, the per-row "Mark Packed" submit buttons still work, since each carries its own
+// name="shipment_ids[]" value.
+(function () {
+    var form = document.getElementById('shipment-bulk-form');
+    if (!form) { return; }
+    var selectAll = document.getElementById('shipment-select-all');
+    var bulkBtn = document.getElementById('shipment-bulk-pack-btn');
+    var boxes = form.querySelectorAll('.shipment-select');
+
+    function sync() {
+        if (!bulkBtn) { return; }
+        var checked = form.querySelectorAll('.shipment-select:checked').length;
+        bulkBtn.disabled = checked === 0;
+        bulkBtn.textContent = checked > 0 ? ('Mark Packed (' + checked + ')') : 'Mark Packed';
+    }
+
+    if (selectAll) {
+        selectAll.addEventListener('change', function () {
+            for (var i = 0; i < boxes.length; i++) { boxes[i].checked = selectAll.checked; }
+            sync();
+        });
+    }
+    for (var i = 0; i < boxes.length; i++) {
+        boxes[i].addEventListener('change', sync);
+    }
+    sync();
+})();
+</script>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

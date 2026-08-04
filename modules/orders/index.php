@@ -127,6 +127,9 @@ $canManage = app_has_permission('orders.manage');
 // Customer name below links to modules/customers/view.php, which requires customers.view -
 // the destination controls permission, not this page's own orders.view gate.
 $canViewCustomers = app_has_permission('customers.view');
+// Same permission modules/shipments/create.php itself requires - the row shortcut is never
+// offered to someone who would only be bounced by that page's own check.
+$canCreateShipments = app_has_permission('shipments.manage');
 
 // UI/UX Phase 5E.1: one-time bulk-approve-payment result, set by modules/orders/bulk_action.php
 // and read/cleared here on the very next request - keeps a potentially long per-order
@@ -319,6 +322,13 @@ foreach ($orders as $order) {
                             </td>
                             <td data-label="Tracking"><?php echo $order['tracking_number'] !== null ? app_escape($order['tracking_number']) : '&mdash;'; ?></td>
                             <td data-label="" class="text-end">
+                                <?php if ($canCreateShipments && in_array($order['order_status'], ['ready_to_ship', 'partially_fulfilled'], true) && empty($order['is_historical'])): ?>
+                                    <?php /* Workflow: the ready-to-ship queue is reachable via ?status=ready_to_ship, but
+                                             acting on it previously meant opening each order to find the Create Shipment
+                                             link on the detail page. Same destination and same permission as that link
+                                             (modules/orders/view.php) - this only removes a page load per order. */ ?>
+                                    <a class="btn btn-sm btn-primary" href="/modules/shipments/create.php?order_id=<?php echo (int) $order['id']; ?>">Ship</a>
+                                <?php endif; ?>
                                 <a class="btn btn-sm btn-outline-primary" href="/modules/orders/view.php?id=<?php echo (int) $order['id']; ?>">View</a>
                                 <?php if ($canManage): ?>
                                     <a class="btn btn-sm btn-outline-secondary" href="/modules/orders/edit.php?id=<?php echo (int) $order['id']; ?>">Edit</a>
