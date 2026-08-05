@@ -1,27 +1,168 @@
 /* ==============================================================================
    Mewmii OS - Design Tokens
-   V3 Phase 1: extracted verbatim from includes/header.php's inline <style> block.
+   V3 Phase 1. The single source of truth for the visual language. Nothing in
+   base.css / components.css / layout.css may hardcode a colour, radius, shadow,
+   or spacing value - it references a token here.
+
    Load order matters: tokens.css -> base.css -> components.css -> layout.css.
+
+   Every value below is the EXISTING pre-V3 value, renamed to a canonical name.
+   Phase 1 changes no pixel. The scales with no pre-V3 equivalent (typography,
+   spacing) are defined here and consumed from Phase 2 onward.
    ============================================================================== */
 
-/* --- Mewmii OS design tokens ------------------------------------------------------
-   Single source of truth for the brand/neutral palette. Everything below references
-   these instead of hardcoded hex values, so a future palette change only touches this
-   block. UI/UX Phase 5A: shifted toward a flatter, neutral "admin SaaS" surface -
-   brand pink is now reserved for primary actions/active states rather than used as an
-   ambient tint on every card/shadow/background. Class names are all unchanged from
-   before this phase, so every other page's markup keeps working without edits. */
 :root {
-    --mewmii-pink: #FF94C4;
-    --mewmii-pink-hover: #F97DB7;
-    --mewmii-pink-tint: #FFF1F7;
-    --mewmii-blue: #3472EF;
-    --mewmii-blue-hover: #2A5FCB;
-    --sky-blue: #85D2FF;
-    --berry-rose: #B2668C;
-    --base-white: #FFFFFF;
-    --text-main: #202223;
-    --text-secondary: #6B6F76;
-    --neutral-bg: #F6F6F7;
-    --neutral-border: #E3E3E3;
+
+    /* --- Brand -------------------------------------------------------------
+       Actions and active states ONLY. Never a status colour - a status must be
+       readable without knowing the brand palette. See docs/V3_DESIGN_SYSTEM.md
+       section 2.8 for why `primary` was removed from the badge scale. */
+    --brand: #FF94C4;
+    --brand-hover: #F97DB7;
+    --brand-tint: #FFF1F7;
+
+    /* --- Secondary ---------------------------------------------------------
+       Links, secondary emphasis, focus ring. */
+    --secondary: #3472EF;
+    --secondary-hover: #2A5FCB;
+
+    /* --- Semantic status ---------------------------------------------------
+       One meaning each, application-wide. These foreground/tint pairs are the
+       values .alert-* has used since UI/UX Phase 5A - already proven legible,
+       now promoted to the shared scale badges and buttons adopt in Phase 2.
+
+         neutral  not started / inactive      "nothing to do yet"
+         info     in progress, no action now  "moving, leave it"
+         warning  blocked, action required    "I need to do something"
+         success  complete / healthy          "done"
+         danger   failed / cancelled / error  "something went wrong"
+
+       The `-tint` suffix (matching --brand-tint) is deliberate: --*-bg would
+       collide with --bg, the app background. */
+    --success: #1F7A43;
+    --success-tint: #E6F6EC;
+    --warning: #8A6116;
+    --warning-tint: #FFF6E5;
+    --danger: #A32458;
+    --danger-tint: #FDEAF1;
+    --info: #1D57B0;
+    --info-tint: #EAF2FF;
+    --neutral: #6B6F76;
+    --neutral-tint: #F1F1F2;
+
+    /* Saturated danger accent - the stat-card alert figure and .attention-item's
+       danger border, both needing more weight than the tinted --danger above. */
+    --danger-accent: #D9486E;
+
+    /* --- Surfaces ----------------------------------------------------------- */
+    --bg: #F6F6F7;
+    /* app background */
+    --surface: #FFFFFF;
+    /* cards, tables, modals, sidebar */
+    --surface-sunken: #FBFAFC;
+    /* filter cards - quieter than content */
+    --surface-subtle: #FAFAFB;
+    /* attention rows */
+
+    /* --- Borders ------------------------------------------------------------ */
+    --border: #E3E3E3;
+    /* default */
+    --border-subtle: #F1E7ED;
+    /* table rows, filter card */
+    --border-strong: #E8DCE3;
+    /* inputs */
+    --border-focus: #3472EF;
+    /* focus ring colour */
+
+    /* --- Text hierarchy ----------------------------------------------------- */
+    --text: #202223;
+    /* primary */
+    --text-muted: #6B6F76;
+    /* secondary, labels, help */
+    --text-subtle: #8C9196;
+    /* tertiary, timestamps, placeholders */
+    --text-on-brand: #FFFFFF;
+
+    /* --- Typography ---------------------------------------------------------
+       Defined in Phase 1, applied in Phase 2 when heading levels are corrected
+       (page titles h2 -> h1, card sections h5 -> h2). System stack only - a web
+       font would cost a network request, against DASHBOARD_PHILOSOPHY.md 2.7. */
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+    --font-size-page-title: 1.5rem;
+    /* 24px / 700 */
+    --font-size-section: 1rem;
+    /* 16px / 600 */
+    --font-size-card-title: 0.9375rem;
+    /* 15px / 600 */
+    --font-size-body: 0.875rem;
+    /* 14px / 400 */
+    --font-size-secondary: 0.8125rem;
+    /* 13px / 400 */
+    --font-size-caption: 0.75rem;
+    /* 12px / 400 */
+    --font-size-label: 0.75rem;
+    /* 12px / 600 uppercase */
+
+    --line-height-tight: 1.25;
+    --line-height-heading: 1.4;
+    --line-height-body: 1.5;
+
+    --font-weight-normal: 400;
+    --font-weight-medium: 600;
+    --font-weight-bold: 700;
+
+    --letter-spacing-label: 0.02em;
+
+    /* --- Spacing -------------------------------------------------------------
+       4px base scale. Defined in Phase 1, applied in Phase 2/3 as component
+       markup is standardised. No arbitrary values anywhere else. */
+    --space-1: 0.25rem;
+    /* 4px  icon-text gap, badge padding */
+    --space-2: 0.5rem;
+    /* 8px  tight stacks, button gaps */
+    --space-3: 0.75rem;
+    /* 12px cell vertical, input padding */
+    --space-4: 1rem;
+    /* 16px cell horizontal, form field gap */
+    --space-5: 1.5rem;
+    /* 24px card padding, card gap */
+    --space-6: 2rem;
+    /* 32px section spacing, page padding */
+    --space-7: 3rem;
+    /* 48px major separation, empty state */
+
+    /* --- Border radius -------------------------------------------------------
+       Carried over from existing values rather than the 6px/10px first drafted
+       in the spec: the existing 8px/12px pairing is already consistent across
+       buttons, inputs, and cards, so changing it would be churn with no gain.
+       Two outliers remain for Phase 2 to normalise - .alert (14px) and
+       .attention-item (10px). --radius-full is new, for Phase 2 badges. */
+    --radius-sm: 8px;
+    /* buttons, inputs, selects */
+    --radius-md: 12px;
+    /* cards */
+    --radius-full: 999px;
+    /* badges, pills */
+
+    /* --- Shadows -------------------------------------------------------------
+       Only two depths. Depth communicates layer, not decoration. Filter cards
+       and table containers deliberately have none. */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+    /* resting cards */
+    --shadow-md: 0 4px 10px rgba(0, 0, 0, 0.08);
+    /* hover lift, overlays */
+    --shadow-drawer: 2px 0 16px rgba(0, 0, 0, 0.15);
+    /* off-canvas sidebar */
+
+    --focus-ring: 0 0 0 0.2rem rgba(52, 114, 239, 0.15);
+    --backdrop: rgba(17, 17, 20, 0.45);
+
+    /* --- Deprecated ----------------------------------------------------------
+       Scheduled for removal in Phase 2. --legacy-berry-rose has one surviving
+       reference: .attention-item.tone-warning's left border, which moves to
+       --warning once the semantic scale reaches that component.
+       --sky-blue and --mewmii-blue-hover were dropped outright - both had zero
+       references anywhere in the codebase. */
+    --legacy-berry-rose: #B2668C;
 }

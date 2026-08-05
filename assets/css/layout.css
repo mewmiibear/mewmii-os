@@ -4,8 +4,8 @@
    ============================================================================== */
 
 .sidebar {
-    background: var(--base-white);
-    border-right: 1px solid var(--neutral-border);
+    background: var(--surface);
+    border-right: 1px solid var(--border);
     min-height: 100vh;
 }
 
@@ -16,7 +16,7 @@
 .sidebar .nav-section-label {
     font-size: 0.72rem;
     font-weight: 700;
-    color: var(--text-secondary);
+    color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.04em;
     margin: 1.1rem 0 0.35rem 0.75rem;
@@ -31,22 +31,22 @@
     align-items: center;
     gap: 0.6rem;
     padding: 0.5rem 0.75rem;
-    border-radius: 8px;
-    color: var(--text-main);
+    border-radius: var(--radius-sm);
+    color: var(--text);
     font-size: 0.92rem;
     border-left: 3px solid transparent;
 }
 
 .sidebar .nav-link:hover {
-    background: var(--neutral-bg);
-    color: var(--text-main);
+    background: var(--bg);
+    color: var(--text);
 }
 
 .sidebar .nav-link.active {
-    background: var(--mewmii-pink-tint);
-    color: var(--mewmii-pink-hover);
+    background: var(--brand-tint);
+    color: var(--brand-hover);
     font-weight: 600;
-    border-left-color: var(--mewmii-pink);
+    border-left-color: var(--brand);
 }
 
 .sidebar .nav-link i {
@@ -59,7 +59,7 @@
 .sidebar .nav-link.nav-link-sub {
     padding-left: 2.1rem;
     font-size: 0.85rem;
-    color: var(--text-secondary);
+    color: var(--text-muted);
 }
 
 /* --- Mobile sidebar drawer (Responsive Improvement pass) --------------------------
@@ -80,7 +80,7 @@
         z-index: 1045;
         transform: translateX(-100%);
         transition: transform 0.25s ease;
-        box-shadow: 2px 0 16px rgba(0, 0, 0, 0.15);
+        box-shadow: var(--shadow-drawer);
         overflow-y: auto;
     }
 
@@ -93,7 +93,7 @@
     display: none;
     position: fixed;
     inset: 0;
-    background: rgba(17, 17, 20, 0.45);
+    background: var(--backdrop);
     z-index: 1040;
 }
 

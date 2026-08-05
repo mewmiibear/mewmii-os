@@ -7,49 +7,49 @@
 
 /* --- Cards: flat, bordered "admin SaaS" surface (was a heavy pink drop-shadow) ---- */
 .card {
-    border: 1px solid var(--neutral-border);
-    border-radius: 12px;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
 }
 
 /* --- Buttons: Pink = primary action, Blue = secondary action, per design tokens --- */
 .btn {
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
 }
 
 .btn-primary {
-    background: var(--mewmii-pink);
-    border-color: var(--mewmii-pink);
-    color: var(--base-white);
+    background: var(--brand);
+    border-color: var(--brand);
+    color: var(--surface);
 }
 
 .btn-primary:hover,
 .btn-primary:focus {
-    background: var(--mewmii-pink-hover);
-    border-color: var(--mewmii-pink-hover);
-    color: var(--base-white);
+    background: var(--brand-hover);
+    border-color: var(--brand-hover);
+    color: var(--surface);
 }
 
 .btn-outline-primary {
-    color: var(--mewmii-blue);
-    border-color: var(--mewmii-blue);
+    color: var(--secondary);
+    border-color: var(--secondary);
 }
 
 .btn-outline-primary:hover,
 .btn-outline-primary:focus {
-    background: var(--mewmii-blue);
-    border-color: var(--mewmii-blue);
-    color: var(--base-white);
+    background: var(--secondary);
+    border-color: var(--secondary);
+    color: var(--surface);
 }
 
 /* --- Tables: calmer borders, more breathing room, muted header text --------------- */
 .table> :not(caption)>*>* {
     padding: 0.85rem 1rem;
-    border-bottom-color: #F1E7ED;
+    border-bottom-color: var(--border-subtle);
 }
 
 .table thead th {
-    color: var(--text-secondary);
+    color: var(--text-muted);
     font-size: 0.82rem;
     font-weight: 600;
     text-transform: uppercase;
@@ -64,23 +64,23 @@
 }
 
 .alert-success {
-    background: #E6F6EC;
-    color: #1F7A43;
+    background: var(--success-tint);
+    color: var(--success);
 }
 
 .alert-danger {
-    background: #FDEAF1;
-    color: #A32458;
+    background: var(--danger-tint);
+    color: var(--danger);
 }
 
 .alert-warning {
-    background: #FFF6E5;
-    color: #8A6116;
+    background: var(--warning-tint);
+    color: var(--warning);
 }
 
 .alert-info {
-    background: #EAF2FF;
-    color: #1D57B0;
+    background: var(--info-tint);
+    color: var(--info);
 }
 
 /* --- Page header (Title / Description / Primary actions) - the top of every module
@@ -99,7 +99,7 @@
 }
 
 .page-description {
-    color: var(--text-secondary);
+    color: var(--text-muted);
     margin-bottom: 0;
 }
 
@@ -116,15 +116,15 @@
    so filters read as a secondary, supporting control rather than competing with the
    page's actual content below it. Behaviour of the form inside is unchanged. */
 .filter-card {
-    background: #FBFAFC;
-    border: 1px solid #F1E7ED;
+    background: var(--surface-sunken);
+    border: 1px solid var(--border-subtle);
     box-shadow: none;
 }
 
 .filter-card .form-label {
     font-size: 0.78rem;
     font-weight: 600;
-    color: var(--text-secondary);
+    color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.02em;
     margin-bottom: 0.3rem;
@@ -135,7 +135,7 @@
 .stat-card .stat-label {
     font-size: 0.8rem;
     font-weight: 600;
-    color: var(--text-secondary);
+    color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.02em;
     margin-bottom: 0.4rem;
@@ -144,17 +144,17 @@
 .stat-card .stat-value {
     font-size: 1.9rem;
     font-weight: 700;
-    color: var(--text-main);
+    color: var(--text);
     line-height: 1.15;
 }
 
 .stat-card .stat-value.stat-value-alert {
-    color: #D9486E;
+    color: var(--danger-accent);
 }
 
 .stat-card .stat-helper {
     font-size: 0.82rem;
-    color: var(--text-secondary);
+    color: var(--text-muted);
     margin-top: 0.3rem;
 }
 
@@ -170,7 +170,7 @@ a.stat-card-link {
 }
 
 a.stat-card-link:hover {
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+    box-shadow: var(--shadow-md);
     transform: translateY(-1px);
 }
 
@@ -188,7 +188,7 @@ a.stat-card-link:hover {
     object-fit: contain;
     background: var(--bs-tertiary-bg, #f5f5f5);
     border: 1px solid var(--border-color, #dee2e6);
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     cursor: zoom-in;
 }
 
@@ -202,13 +202,13 @@ a.stat-card-link:hover {
 
 .empty-state .empty-state-title {
     font-weight: 700;
-    color: var(--text-main);
+    color: var(--text);
     font-size: 1.05rem;
     margin-bottom: 0.35rem;
 }
 
 .empty-state .empty-state-text {
-    color: var(--text-secondary);
+    color: var(--text-muted);
     margin-bottom: 1rem;
 }
 
@@ -239,47 +239,47 @@ a.stat-card-link:hover {
    or validation behaviour changes anywhere this applies. */
 .card .form-label {
     font-weight: 600;
-    color: var(--text-secondary);
+    color: var(--text-muted);
     font-size: 0.85rem;
     margin-bottom: 0.35rem;
 }
 
 .card h5 {
-    color: var(--text-main);
+    color: var(--text);
     font-weight: 700;
 }
 
 .form-control,
 .form-select {
-    border-radius: 8px;
-    border-color: #E8DCE3;
+    border-radius: var(--radius-sm);
+    border-color: var(--border-strong);
 }
 
 .form-control:focus,
 .form-select:focus {
-    border-color: var(--mewmii-blue);
-    box-shadow: 0 0 0 0.2rem rgba(52, 114, 239, 0.15);
+    border-color: var(--secondary);
+    box-shadow: var(--focus-ring);
 }
 
 .form-text {
-    color: var(--text-secondary);
+    color: var(--text-muted);
     font-size: 0.8rem;
 }
 
 /* --- Needs Attention list rows (dashboard) - a coloured left border communicates
    urgency without a wall of bright badge colours. */
 .attention-item {
-    border-left: 4px solid var(--mewmii-blue);
+    border-left: 4px solid var(--secondary);
     border-radius: 10px;
-    background: #FAFAFB;
+    background: var(--surface-subtle);
 }
 
 .attention-item.tone-danger {
-    border-left-color: #D9486E;
+    border-left-color: var(--danger-accent);
 }
 
 .attention-item.tone-warning {
-    border-left-color: var(--berry-rose);
+    border-left-color: var(--legacy-berry-rose);
 }
 
 /* Reusable "stacked card" responsive table: below 768px, each row becomes its own
@@ -309,7 +309,7 @@ a.stat-card-link:hover {
         content: attr(data-label);
         font-weight: 600;
         text-align: left;
-        color: var(--text-main);
+        color: var(--text);
     }
 
     .responsive-stack-table td:not([data-label]),

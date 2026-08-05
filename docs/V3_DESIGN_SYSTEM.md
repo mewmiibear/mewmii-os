@@ -116,12 +116,16 @@ Brand identity is retained. The semantic scale is new and uses values already pr
 --secondary:          #3472EF;
 --secondary-hover:    #2A5FCB;
 
-/* ---- Semantic status. One meaning each, application-wide. ---- */
---success:            #1F7A43;   --success-bg:  #E6F6EC;
---warning:            #8A6116;   --warning-bg:  #FFF6E5;
---danger:             #A32458;   --danger-bg:   #FDEAF1;
---info:               #1D57B0;   --info-bg:     #EAF2FF;
---neutral:            #6B6F76;   --neutral-bg:  #F1F1F2;
+/* ---- Semantic status. One meaning each, application-wide. ----
+   The `-tint` suffix (matching the existing --brand-tint) is deliberate:
+   `--neutral-bg` would collide with `--bg`, the app background, which the
+   pre-V3 token block already used that exact name for. */
+--success:            #1F7A43;   --success-tint:  #E6F6EC;
+--warning:            #8A6116;   --warning-tint:  #FFF6E5;
+--danger:             #A32458;   --danger-tint:   #FDEAF1;
+--info:               #1D57B0;   --info-tint:     #EAF2FF;
+--neutral:            #6B6F76;   --neutral-tint:  #F1F1F2;
+--danger-accent:      #D9486E;   /* stat alert figure, attention row border */
 
 /* ---- Surfaces ---- */
 --bg:                 #F6F6F7;   /* app background */
@@ -181,11 +185,11 @@ Applied: page padding `32px` desktop / `16px` below 576px · card padding `24px`
 
 | Token | Value | Applies to |
 |---|---:|---|
-| `--radius-sm` | 6px | inputs, selects, buttons, small controls |
-| `--radius-md` | 10px | cards, modals, alerts, drawer |
+| `--radius-sm` | 8px | inputs, selects, buttons, small controls |
+| `--radius-md` | 12px | cards, modals, drawer |
 | `--radius-full` | 999px | badges, pills, avatars |
 
-Current state is inconsistent — 8px buttons, 12px cards, 14px alerts, 8px inputs. Consolidating to two values plus pill.
+**Revised during Phase 1 implementation.** This originally drafted 6px/10px. On inspection the existing 8px/12px pairing is already applied consistently across buttons, inputs, and cards, so changing it would be churn with no legibility gain. The tokens adopt the existing values. Two genuine outliers remain and are normalized in Phase 2: `.alert` (14px) and `.attention-item` (10px).
 
 ### 2.5 Shadows
 
@@ -193,8 +197,11 @@ Only two. Depth communicates layer, not decoration.
 
 | Token | Value | Use |
 |---|---|---|
-| `--shadow-sm` | `0 1px 2px rgba(0,0,0,.05)` | resting cards, sticky headers |
-| `--shadow-md` | `0 4px 12px rgba(0,0,0,.08)` | modals, drawer, dropdowns, hover lift |
+| `--shadow-sm` | `0 1px 2px rgba(0,0,0,.04)` | resting cards, sticky headers |
+| `--shadow-md` | `0 4px 10px rgba(0,0,0,.08)` | modals, drawer, dropdowns, hover lift |
+| `--shadow-drawer` | `2px 0 16px rgba(0,0,0,.15)` | off-canvas sidebar |
+
+**Revised during Phase 1 implementation** to the existing proven values (drafted as `.05` / `4px 12px`). The deltas were sub-perceptual, so adopting the existing values kept Phase 1 at a provable zero visual change rather than spending a visual-change commit on an invisible difference.
 
 Filter cards and table containers get **no shadow** — border only, so they read as supporting rather than competing surfaces.
 

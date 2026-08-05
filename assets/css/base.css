@@ -4,11 +4,11 @@
    ============================================================================== */
 
 body {
-    background: var(--neutral-bg);
-    color: var(--text-main);
+    background: var(--bg);
+    color: var(--text);
 }
 
 .navbar-brand {
-    color: var(--mewmii-pink) !important;
+    color: var(--brand) !important;
     font-weight: 700;
 }
