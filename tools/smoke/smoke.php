@@ -584,6 +584,17 @@ function commandCapture(array $options): int
     ];
 
     $out = $options['out'] ?? (__DIR__ . '/snapshots/snapshot-' . date('Ymd-His') . '.json');
+
+    // A snapshot is the only record of what the app looked like at a given commit, and
+    // once overwritten there is nothing left to diff a later phase against. Refuse rather
+    // than clobber - this exact loss already cost us the Phase 1 baseline.
+    if (is_file($out) && !isset($options['force'])) {
+        fwrite(STDERR, "\n\nRefusing to overwrite an existing snapshot:\n  {$out}\n\n"
+            . "Keep one per sub-phase (after-2.1.json, after-2.2.json, ...) so each phase has\n"
+            . "something to compare against. Pass --force only if you are certain.\n");
+        return 2;
+    }
+
     if (!is_dir(dirname($out))) {
         mkdir(dirname($out), 0775, true);
     }

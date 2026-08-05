@@ -1,3 +1,12 @@
-# Generated snapshots are local artefacts, not source.
-*.json
-!.gitignore
+# Snapshots ARE committed on purpose.
+#
+# They were originally ignored as "local artefacts". That was wrong, and it cost us:
+# the Phase 1 baseline was lost before Phase 2.2 could be compared against it, because
+# nothing outside a working directory ever held a copy.
+#
+# A snapshot is the recorded expected structure of the application at a known commit.
+# That is source-of-truth material, not a build artefact - it is the only thing a later
+# phase can be diffed against, and it has to survive a clean checkout.
+#
+# Keep one snapshot per sub-phase, never overwriting: after-2.1.json, after-2.2.json, ...
+# `capture` refuses to overwrite an existing file unless you pass --force.
