@@ -90,6 +90,8 @@ switch ($command) {
         exit(commandRoutes());
     case 'capture':
         exit(commandCapture(parseOptions($argvLocal)));
+    case 'verify':
+        exit(commandVerify(parseOptions($argvLocal)));
     case 'compare':
         exit(commandCompare($argvLocal[1] ?? '', $argvLocal[2] ?? ''));
     default:
@@ -109,6 +111,11 @@ Mewmii OS Smoke Verification Tool
   php smoke.php capture --base-url=URL --email=EMAIL --password=PASS [--out=FILE] [--limit=N]
       Log in, crawl every crawlable route, write a JSON snapshot.
       --out defaults to snapshots/snapshot-<timestamp>.json
+
+  php smoke.php verify --against=BEFORE.json --out=AFTER.json [same credentials]
+      Capture AND immediately compare, in one run. Prefer this over capture+compare:
+      the regression result is produced while both files still exist, so a snapshot
+      that later gets lost or wiped by a deploy cannot take the answer with it.
 
   php smoke.php compare BEFORE.json AFTER.json
       Diff two snapshots. Exits 1 if a structural regression is found.
@@ -583,7 +590,7 @@ function commandCapture(array $options): int
         'pages' => $pages,
     ];
 
-    $out = $options['out'] ?? (__DIR__ . '/snapshots/snapshot-' . date('Ymd-His') . '.json');
+    $out = resolveOutPath($options);
 
     // A snapshot is the only record of what the app looked like at a given commit, and
     // once overwritten there is nothing left to diff a later phase against. Refuse rather
@@ -603,7 +610,61 @@ function commandCapture(array $options): int
     echo "\n\nSnapshot written to {$out}\n";
     summarise($pages);
 
+    // Regression history has repeatedly been lost by capturing on a server whose working
+    // directory is then wiped by a deploy. Say so at the point it can still be fixed.
+    $siblings = glob(dirname($out) . '/*.json') ?: [];
+    if (count($siblings) <= 1) {
+        echo "\nNOTE: this is the only snapshot in " . dirname($out) . ".\n"
+            . "      Commit it, or copy it somewhere durable, or the next phase will have\n"
+            . "      nothing to diff against. Better still, use `verify` next time so the\n"
+            . "      comparison runs before the file can go missing.\n";
+    }
+
     return 0;
+}
+
+/** Where a capture should be written. Shared so `verify` knows the path `capture` used. */
+function resolveOutPath(array $options): string
+{
+    return $options['out'] ?? (__DIR__ . '/snapshots/snapshot-' . date('Ymd-His') . '.json');
+}
+
+/**
+ * Capture and compare in a single run.
+ *
+ * This exists because the answer, not the artefact, is what matters. Snapshots kept being
+ * lost between capture and compare - captured on the production server, then gone before
+ * anything could be diffed against them - which silently cost two phases their verification.
+ * Running both halves in one process means the regression result is produced while both
+ * files are guaranteed to exist.
+ */
+function commandVerify(array $options): int
+{
+    $against = (string) ($options['against'] ?? '');
+
+    if ($against === '') {
+        fwrite(STDERR, "Missing --against=BEFORE.json\n" . usage());
+        return 2;
+    }
+    if (!is_file($against)) {
+        fwrite(STDERR, "Baseline not found: {$against}\n"
+            . "Nothing to compare against - run `capture` first to establish one.\n");
+        return 2;
+    }
+
+    $out = resolveOutPath($options);
+    $options['out'] = $out;
+
+    $captureResult = commandCapture($options);
+    if ($captureResult !== 0) {
+        return $captureResult;
+    }
+
+    echo "\n" . str_repeat('=', 70) . "\n";
+    echo "COMPARING against " . basename($against) . "\n";
+    echo str_repeat('=', 70) . "\n";
+
+    return commandCompare($against, $out);
 }
 
 /**

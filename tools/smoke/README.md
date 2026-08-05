@@ -48,6 +48,29 @@ php tools/smoke/smoke.php routes
 No HTTP, no login. Prints every discovered route, which ones need an `?id=`, and every excluded
 endpoint **with the reason it was excluded**. Read this first.
 
+### Preferred: `verify` — capture and compare in one run
+
+```
+php tools/smoke/smoke.php verify \
+  --against=tools/smoke/snapshots/baseline-before-2.4.json \
+  --out=tools/smoke/snapshots/after-2.4.json
+```
+
+Use this rather than `capture` followed by `compare`. **The answer matters more than the
+artefact.** Snapshots have repeatedly been lost between the two steps — captured on the
+production server, then gone before anything could be diffed against them, which silently cost
+two phases their verification. `verify` produces the regression result while both files are
+still guaranteed to exist, so a snapshot that later disappears cannot take the answer with it.
+
+Exit code is the comparison's: `0` clean, `1` regressions found.
+
+### Keeping snapshots
+
+Snapshots are committed (see `snapshots/.gitignore`). If you capture on a server whose working
+directory is wiped by deploys, git alone will not save you — **commit or copy the file back**,
+or rely on `verify` so the comparison has already happened. `capture` warns when it has written
+the only snapshot in its directory.
+
 ### 2. Capture a baseline (before making changes)
 
 ```
