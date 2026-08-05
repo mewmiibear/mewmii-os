@@ -9,10 +9,6 @@ $supplierId = (int) ($_GET['id'] ?? 0);
 
 if ($supplierId < 1) {
     http_response_code(404);
-    // UX U1 - this page's own location, handed to context-aware destinations so their
-// Back returns here instead of their hardcoded default. See app_build_return_url().
-$returnContext = app_build_return_url();
-
 require_once __DIR__ . '/../../includes/header.php';
     echo '<div class="alert alert-danger">Supplier not found.</div>';
     require_once __DIR__ . '/../../includes/footer.php';
@@ -102,6 +98,10 @@ if ($canViewProducts) {
 $productTypeLabels = ['ready_stock' => 'Ready Stock', 'preorder' => 'Preorder', 'early_bird' => 'Early Bird'];
 
 $canManage = app_has_permission('suppliers.manage');
+
+// UX U1 - this page's own location, handed to context-aware destinations so their
+// Back returns here instead of their hardcoded default. See app_build_return_url().
+$returnContext = app_build_return_url();
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
