@@ -135,9 +135,14 @@ every mutation behind `if ($_SERVER['REQUEST_METHOD'] === 'POST')`. A GET render
 ## Pages needing an `?id=`
 
 19 routes read `$_GET['id']` and cannot be crawled bare. The tool handles these in a second pass:
-while crawling list pages it harvests real `?id=N` values out of the HTML, then samples one per
-module. A route is recorded as `skipped` — with the reason — when no id could be discovered
-(typically an empty module in a fresh database).
+while crawling list pages it harvests real `?id=N` values out of the HTML, then samples the
+**lowest** id per module. A route is recorded as `skipped` — with the reason — when no id could
+be discovered (typically an empty module in a fresh database).
+
+Sampling is deliberately lowest-id rather than first-seen. If a before-run and an after-run
+sampled *different* records, two legitimately different states (a draft order vs a shipped one)
+would diff as a false BREAKING form change. Lowest-id is stable across runs, provided the record
+still exists — so **do not delete the sampled records between a before and after capture.**
 
 This means **coverage depends on your data.** A database with at least one order, product,
 customer, supplier, supplier order, and shipment gives materially better coverage than an empty

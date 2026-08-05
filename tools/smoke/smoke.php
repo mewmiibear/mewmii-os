@@ -500,7 +500,14 @@ function commandCapture(array $options): int
     echo "\n";
     foreach ($parameterised as $index => $entry) {
         $module = dirname($entry['route']);
-        $id = $discoveredIds[$module][0] ?? null;
+
+        // Deterministic sampling: always the lowest id, never list-page order.
+        // If the before/after runs sampled different records, two legitimately
+        // different states (a draft vs a shipped order) would diff as a false
+        // BREAKING form change. Lowest-id is stable across runs.
+        $candidates = $discoveredIds[$module] ?? [];
+        sort($candidates);
+        $id = $candidates[0] ?? null;
 
         if ($id === null) {
             $pages[$entry['route']] = [
