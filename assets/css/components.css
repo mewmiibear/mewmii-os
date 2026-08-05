@@ -42,6 +42,135 @@
     color: var(--surface);
 }
 
+/* --- Remaining button variants (V3 Phase 2.3) --------------------------------------
+   Only .btn-primary and .btn-outline-primary above were ever tokenised. Everything else
+   was rendering stock Bootstrap - including .btn-outline-secondary, which at 269 uses is
+   by far the most common button in the application and therefore what "a button" looks
+   like here. Saturated Bootstrap grey/green/red/amber sat directly beside the soft brand
+   palette on the same toolbars.
+
+   Secondary is the neutral default: white fill with a real border, rather than Bootstrap's
+   grey-outline-that-fills-grey-on-hover. Same shape as primary so a toolbar reads as one
+   row of controls with exactly one emphasised. */
+.btn-secondary,
+.btn-outline-secondary {
+    background: var(--surface);
+    border-color: var(--border-strong);
+    color: var(--text);
+}
+
+.btn-secondary:hover,
+.btn-secondary:focus,
+.btn-outline-secondary:hover,
+.btn-outline-secondary:focus {
+    background: var(--bg);
+    border-color: var(--border-strong);
+    color: var(--text);
+}
+
+/* Ghost - tertiary weight, for in-table row actions and inline controls that should not
+   draw the eye at rest. No fill, no border; the surrounding row supplies the affordance. */
+.btn-ghost {
+    background: transparent;
+    border-color: transparent;
+    color: var(--text-muted);
+}
+
+.btn-ghost:hover,
+.btn-ghost:focus {
+    background: var(--bg);
+    border-color: transparent;
+    color: var(--text);
+}
+
+/* Destructive. Outline at rest so it can sit in a toolbar without competing with the
+   primary action; the solid treatment is reserved for the confirm step, where it is the
+   only action being offered. */
+.btn-outline-danger {
+    background: transparent;
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+.btn-outline-danger:hover,
+.btn-outline-danger:focus,
+.btn-danger {
+    background: var(--danger);
+    border-color: var(--danger);
+    color: var(--text-on-brand);
+}
+
+.btn-danger:hover,
+.btn-danger:focus {
+    background: #8C1E4B;
+    border-color: #8C1E4B;
+    color: var(--text-on-brand);
+}
+
+/* Semantic variants. Rare (6 success, 3 warning across the app) and never a page's primary
+   action - a button says what it DOES, and colour alone should not be carrying that. Kept
+   tokenised rather than removed so existing markup stays valid. */
+.btn-success {
+    background: var(--success);
+    border-color: var(--success);
+    color: var(--text-on-brand);
+}
+
+.btn-outline-success {
+    background: transparent;
+    border-color: var(--success);
+    color: var(--success);
+}
+
+.btn-outline-success:hover,
+.btn-outline-success:focus,
+.btn-success:hover,
+.btn-success:focus {
+    background: #186034;
+    border-color: #186034;
+    color: var(--text-on-brand);
+}
+
+.btn-warning {
+    background: var(--warning);
+    border-color: var(--warning);
+    color: var(--text-on-brand);
+}
+
+.btn-outline-warning {
+    background: transparent;
+    border-color: var(--warning);
+    color: var(--warning);
+}
+
+.btn-outline-warning:hover,
+.btn-outline-warning:focus,
+.btn-warning:hover,
+.btn-warning:focus {
+    background: #6E4D12;
+    border-color: #6E4D12;
+    color: var(--text-on-brand);
+}
+
+.btn-link {
+    color: var(--secondary);
+    text-decoration: none;
+}
+
+.btn-link:hover,
+.btn-link:focus {
+    color: var(--secondary-hover);
+    text-decoration: underline;
+}
+
+/* Disabled: dimmed but never removed from the layout - a control that vanishes is harder
+   to understand than one that is visibly unavailable. */
+.btn:disabled,
+.btn.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
 /* --- Tables: calmer borders, more breathing room, muted header text --------------- */
 .table> :not(caption)>*>* {
     padding: 0.85rem 1rem;
