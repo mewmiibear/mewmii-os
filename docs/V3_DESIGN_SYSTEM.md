@@ -124,7 +124,7 @@ Brand identity is retained. The semantic scale is new and uses values already pr
 --warning:            #8A6116;   --warning-tint:  #FFF6E5;
 --danger:             #A32458;   --danger-tint:   #FDEAF1;
 --info:               #1D57B0;   --info-tint:     #EAF2FF;
---neutral:            #6B6F76;   --neutral-tint:  #F1F1F2;
+--neutral:            #666A71;   --neutral-tint:  #F1F1F2;
 --danger-accent:      #D9486E;   /* stat alert figure, attention row border */
 
 /* ---- Surfaces ---- */
@@ -281,6 +281,19 @@ Notable reassignments: `received` warning → **success** · `waiting_stock` uni
 **`catalog_lifecycle_badge()` is rebuilt.** It is the only badge using hardcoded hex, emoji, and inline `style`, and it uses brand pink as a status color. Product lifecycle is a *category*, not a *state*, so it becomes a neutral outline badge with a text label and no emoji: `Early Bird` · `Preorder` · `Ready Stock`. `Waiting Release` → `warning`, `Closed` → `danger`.
 
 Badge style: 12px / 600 / `--radius-full` / `4px 10px` padding / tinted background + dark foreground. Text is always the human label, never a raw enum.
+
+**Contrast, verified at badge size (Phase 2.1).** These pairs were proven as alert text, but badges render at 12px, where WCAG AA requires 4.5:1 rather than the 3:1 large-text allowance. Measured:
+
+| Token | Ratio | |
+|---|---:|---|
+| `info` | 6.13:1 | pass |
+| `danger` | 6.17:1 | pass |
+| `warning` | 5.15:1 | pass |
+| `outline` | 5.05:1 | pass |
+| `success` | 4.78:1 | pass |
+| `neutral` | **4.47:1** | **failed** → `--neutral` darkened from `#6B6F76` to `#666A71`, now **4.81:1** |
+
+`--neutral` was referenced by nothing that rendered at the time, so the correction cost nothing visually.
 
 ### 2.9 Cards
 

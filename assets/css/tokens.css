@@ -47,7 +47,11 @@
     --danger-tint: #FDEAF1;
     --info: #1D57B0;
     --info-tint: #EAF2FF;
-    --neutral: #6B6F76;
+    /* Slightly darker than --text-muted (#6B6F76) on purpose: that grey on --neutral-tint
+       measures 4.47:1, just under the 4.5:1 WCAG AA floor for normal text, and status badges
+       render at 12px. #666A71 measures 4.81:1. The other four pairs already pass at badge size
+       (info 6.13, warning 5.15, success 4.78, danger 6.17). */
+    --neutral: #666A71;
     --neutral-tint: #F1F1F2;
 
     /* Saturated danger accent - the stat-card alert figure and .attention-item's

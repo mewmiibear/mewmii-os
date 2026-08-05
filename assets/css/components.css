@@ -83,6 +83,82 @@
     color: var(--info);
 }
 
+/* --- Status badges (V3 Phase 2.1) -------------------------------------------------
+   The one status vocabulary for the whole application. Ten separate badge helpers in
+   includes/ each picked their own Bootstrap colour, so the same business status could
+   render four different ways depending on which page you were on: `shipped` was dark
+   on the Orders list, success on the order-item list, and primary on both the Shipments
+   and Ship My Box lists. `waiting_stock` - a blocked state - was warning in one place
+   and danger in another, while `received` - a success step - shared warning with it.
+
+   Five tokens, one meaning each. See docs/V3_DESIGN_SYSTEM.md section 2.8 for the full
+   status-to-token mapping:
+
+     neutral  not started / inactive      "nothing to do yet"
+     info     in progress, no action now  "moving, leave it"
+     warning  blocked, action required    "I need to do something"
+     success  complete / healthy          "done"
+     danger   failed / cancelled / error  "something went wrong"
+
+   Brand pink is deliberately absent - it is reserved for actions and active states, so a
+   status stays readable without knowing the brand palette.
+
+   Usage (applied in Phase 2.2, nothing emits these yet):
+     <span class="badge badge-status badge-status--success">Completed</span>
+
+   `badge` is kept alongside so Bootstrap's own layout and the existing
+   `.table .badge + .badge` spacing rule below keep applying; `.badge-status` then
+   overrides Bootstrap's weight, radius, and padding. Equal specificity, so this wins on
+   source order - these stylesheets load after the Bootstrap CDN link in header.php. */
+.badge-status {
+    display: inline-block;
+    padding: 0.25rem 0.625rem;
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+    line-height: 1.4;
+    letter-spacing: 0;
+    text-transform: none;
+    white-space: nowrap;
+    vertical-align: baseline;
+    border: 1px solid transparent;
+    border-radius: var(--radius-full);
+}
+
+.badge-status--neutral {
+    background: var(--neutral-tint);
+    color: var(--neutral);
+}
+
+.badge-status--info {
+    background: var(--info-tint);
+    color: var(--info);
+}
+
+.badge-status--warning {
+    background: var(--warning-tint);
+    color: var(--warning);
+}
+
+.badge-status--success {
+    background: var(--success-tint);
+    color: var(--success);
+}
+
+.badge-status--danger {
+    background: var(--danger-tint);
+    color: var(--danger);
+}
+
+/* Outline variant - for a CATEGORY rather than a state. Product lifecycle (Early Bird /
+   Preorder / Ready Stock) describes what a product *is*, not where it is in a workflow,
+   so it must not compete with the tinted status badges above. Replaces
+   catalog_lifecycle_badge()'s hardcoded hex + emoji in Phase 2.2. */
+.badge-status--outline {
+    background: transparent;
+    color: var(--text-muted);
+    border-color: var(--border-strong);
+}
+
 /* --- Page header (Title / Description / Primary actions) - the top of every module
    list page. Markup stays the existing `d-flex justify-content-between` row already
    used everywhere; these classes just standardise the spacing/typography instead of
