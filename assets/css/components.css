@@ -17,17 +17,21 @@
     border-radius: var(--radius-sm);
 }
 
+/* Brand pink is a LIGHT fill, so it takes a dark label. White-on-pink measured 2.04:1 -
+   far below the 4.5:1 floor - which made the most-clicked control in the app effectively
+   unreadable. Dark-on-pink is 7.82:1 (6.58:1 on hover) and leaves the brand colour itself
+   completely untouched: the fix is in the label, not the palette. */
 .btn-primary {
     background: var(--brand);
     border-color: var(--brand);
-    color: var(--surface);
+    color: var(--text);
 }
 
 .btn-primary:hover,
 .btn-primary:focus {
     background: var(--brand-hover);
     border-color: var(--brand-hover);
-    color: var(--surface);
+    color: var(--text);
 }
 
 .btn-outline-primary {
@@ -169,6 +173,40 @@
 .btn.disabled {
     opacity: 0.5;
     cursor: not-allowed;
+}
+
+/* --- Filter pills / segmented control (V3 Phase 2.3) -------------------------------
+   Quick-filter rows on the list pages previously marked their selected pill with
+   .btn-primary, so brand pink was signalling two unrelated things at once: "this is the
+   page's main action" and "this filter is currently on". Six of inventory's nine pink
+   buttons were filter pills rather than actions, which is most of why that toolbar reads
+   as noisy.
+
+   Selection is a STATE, so it is drawn as one: a neutral fill with a stronger border and
+   heavier label. Brand pink is now reserved for actions alone. 14.15:1 selected,
+   5.43:1 at rest. Behaviour is untouched - these are still the same links with the same
+   hrefs and the same query parameters. */
+.btn-filter {
+    background: var(--surface);
+    border-color: var(--border-strong);
+    color: var(--text-muted);
+    font-weight: var(--font-weight-normal);
+}
+
+.btn-filter:hover,
+.btn-filter:focus {
+    background: var(--bg);
+    border-color: var(--text-subtle);
+    color: var(--text);
+}
+
+.btn-filter.is-active,
+.btn-filter.is-active:hover,
+.btn-filter.is-active:focus {
+    background: var(--neutral-tint);
+    border-color: var(--text-muted);
+    color: var(--text);
+    font-weight: var(--font-weight-medium);
 }
 
 /* --- Tables: calmer borders, more breathing room, muted header text --------------- */

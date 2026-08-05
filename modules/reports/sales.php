@@ -173,7 +173,7 @@ require_once __DIR__ . '/../../includes/header.php';
 
 <div class="d-flex flex-wrap gap-2 mb-4">
     <?php foreach (REPORT_PERIOD_LABELS as $value => $label): ?>
-        <a class="btn btn-sm <?php echo $period === $value ? 'btn-primary' : 'btn-outline-secondary'; ?>"
+        <a class="btn btn-sm btn-filter<?php echo $period === $value ? ' is-active' : ''; ?>"
            href="/modules/reports/sales.php?period=<?php echo app_escape($value); ?>">
             <?php echo app_escape($label); ?>
         </a>

@@ -86,10 +86,10 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php endif; ?>
 
 <div class="d-flex flex-wrap gap-2 mb-3">
-    <a class="btn btn-sm <?php echo $filterStatus === 'pending' ? 'btn-primary' : 'btn-outline-secondary'; ?>" href="/modules/ship-my-box/index.php?status=pending">New</a>
-    <a class="btn btn-sm <?php echo $filterStatus === 'processing' ? 'btn-primary' : 'btn-outline-secondary'; ?>" href="/modules/ship-my-box/index.php?status=processing">Preparing</a>
-    <a class="btn btn-sm <?php echo $filterNeedsAction ? 'btn-primary' : 'btn-outline-secondary'; ?>" href="/modules/ship-my-box/index.php?filter=needs_action">Needs Action</a>
-    <a class="btn btn-sm <?php echo $filterStatus === 'completed' ? 'btn-primary' : 'btn-outline-secondary'; ?>" href="/modules/ship-my-box/index.php?status=completed">Completed</a>
+    <a class="btn btn-sm btn-filter<?php echo $filterStatus === 'pending' ? ' is-active' : ''; ?>" href="/modules/ship-my-box/index.php?status=pending">New</a>
+    <a class="btn btn-sm btn-filter<?php echo $filterStatus === 'processing' ? ' is-active' : ''; ?>" href="/modules/ship-my-box/index.php?status=processing">Preparing</a>
+    <a class="btn btn-sm btn-filter<?php echo $filterNeedsAction ? ' is-active' : ''; ?>" href="/modules/ship-my-box/index.php?filter=needs_action">Needs Action</a>
+    <a class="btn btn-sm btn-filter<?php echo $filterStatus === 'completed' ? ' is-active' : ''; ?>" href="/modules/ship-my-box/index.php?status=completed">Completed</a>
     <?php if ($filterStatus !== null || $filterNeedsAction): ?>
         <a class="btn btn-sm btn-outline-secondary" href="/modules/ship-my-box/index.php">Clear quick filters</a>
     <?php endif; ?>

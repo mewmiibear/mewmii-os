@@ -55,7 +55,7 @@ require_once __DIR__ . '/../../includes/header.php';
 
 <div class="d-flex flex-wrap gap-2 mb-4">
     <?php foreach ($forecastPeriodOptions as $periodValue => $days): ?>
-        <a class="btn btn-sm <?php echo $period === $periodValue ? 'btn-primary' : 'btn-outline-secondary'; ?>"
+        <a class="btn btn-sm btn-filter<?php echo $period === $periodValue ? ' is-active' : ''; ?>"
            href="?<?php echo app_escape(http_build_query(array_merge($_GET, ['period' => $periodValue]))); ?>">
             Last <?php echo (int) $days; ?> Days
         </a>

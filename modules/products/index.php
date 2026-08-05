@@ -352,7 +352,7 @@ require_once __DIR__ . '/../../includes/header.php';
             ? array_filter(array_intersect_key($_GET, array_flip($filterKeys))) === []
             : $chipActive($chip['params']);
         ?>
-        <a class="btn btn-sm <?php echo $isActive ? 'btn-primary' : 'btn-outline-secondary'; ?>"
+        <a class="btn btn-sm btn-filter<?php echo $isActive ? ' is-active' : ''; ?>"
            href="/modules/products/index.php<?php echo $chip['params'] !== [] ? ('?' . http_build_query($chip['params'])) : ''; ?>">
             <?php echo app_escape($chip['label']); ?>
         </a>

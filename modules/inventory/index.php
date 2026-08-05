@@ -614,12 +614,12 @@ require_once __DIR__ . '/../../includes/header.php';
 <?php endif; ?>
 
 <div class="d-flex flex-wrap gap-2 mb-3">
-    <a class="btn btn-sm <?php echo $filterNeedsOrdering ? 'btn-primary' : 'btn-outline-secondary'; ?>" href="/modules/inventory/index.php?needs_ordering=1">Need Ordering</a>
-    <a class="btn btn-sm <?php echo $filterStage === 'incoming' ? 'btn-primary' : 'btn-outline-secondary'; ?>" href="/modules/inventory/index.php?stage=incoming">Waiting Supplier</a>
-    <a class="btn btn-sm <?php echo $filterStockStatus === 'low_stock' ? 'btn-primary' : 'btn-outline-secondary'; ?>" href="/modules/inventory/index.php?stock_status=low_stock">Low Stock</a>
-    <a class="btn btn-sm <?php echo $filterStockStatus === 'out_of_stock' ? 'btn-primary' : 'btn-outline-secondary'; ?>" href="/modules/inventory/index.php?stock_status=out_of_stock">Out of Stock</a>
-    <a class="btn btn-sm <?php echo $filterStage === 'arrived' ? 'btn-primary' : 'btn-outline-secondary'; ?>" href="/modules/inventory/index.php?stage=arrived">Arrived (Ready to Allocate)</a>
-    <a class="btn btn-sm <?php echo $filterProductType === 'preorder' ? 'btn-primary' : 'btn-outline-secondary'; ?>" href="/modules/inventory/index.php?product_type=preorder">Preorder</a>
+    <a class="btn btn-sm btn-filter<?php echo $filterNeedsOrdering ? ' is-active' : ''; ?>" href="/modules/inventory/index.php?needs_ordering=1">Need Ordering</a>
+    <a class="btn btn-sm btn-filter<?php echo $filterStage === 'incoming' ? ' is-active' : ''; ?>" href="/modules/inventory/index.php?stage=incoming">Waiting Supplier</a>
+    <a class="btn btn-sm btn-filter<?php echo $filterStockStatus === 'low_stock' ? ' is-active' : ''; ?>" href="/modules/inventory/index.php?stock_status=low_stock">Low Stock</a>
+    <a class="btn btn-sm btn-filter<?php echo $filterStockStatus === 'out_of_stock' ? ' is-active' : ''; ?>" href="/modules/inventory/index.php?stock_status=out_of_stock">Out of Stock</a>
+    <a class="btn btn-sm btn-filter<?php echo $filterStage === 'arrived' ? ' is-active' : ''; ?>" href="/modules/inventory/index.php?stage=arrived">Arrived (Ready to Allocate)</a>
+    <a class="btn btn-sm btn-filter<?php echo $filterProductType === 'preorder' ? ' is-active' : ''; ?>" href="/modules/inventory/index.php?product_type=preorder">Preorder</a>
     <?php if ($filterNeedsOrdering || $filterStage !== null || $filterStockStatus !== null || $filterProductType !== null): ?>
         <a class="btn btn-sm btn-outline-secondary" href="/modules/inventory/index.php">Clear quick filters</a>
     <?php endif; ?>

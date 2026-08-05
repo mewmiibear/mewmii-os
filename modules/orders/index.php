@@ -190,7 +190,7 @@ $viewLabels = ['active' => 'Active', 'completed' => 'Completed', 'cancelled' => 
     <?php foreach ($viewLabels as $viewValue => $viewLabel): ?>
         <?php $tabParams = array_merge($_GET, ['view' => $viewValue]);
         unset($tabParams['page']); ?>
-        <a class="btn btn-sm <?php echo $view === $viewValue ? 'btn-primary' : 'btn-outline-secondary'; ?>" href="/modules/orders/index.php?<?php echo http_build_query($tabParams); ?>">
+        <a class="btn btn-sm btn-filter<?php echo $view === $viewValue ? ' is-active' : ''; ?>" href="/modules/orders/index.php?<?php echo http_build_query($tabParams); ?>">
             <?php echo app_escape($viewLabel); ?>
         </a>
     <?php endforeach; ?>
@@ -203,7 +203,7 @@ $viewLabels = ['active' => 'Active', 'completed' => 'Completed', 'cancelled' => 
     unset($readyParams['page']);
     $readyActive = $filterStatus === 'ready_to_ship';
     ?>
-    <a class="btn btn-sm <?php echo $readyActive ? 'btn-primary' : 'btn-outline-primary'; ?>" href="/modules/orders/index.php?<?php echo http_build_query($readyParams); ?>">
+    <a class="btn btn-sm btn-filter<?php echo $readyActive ? ' is-active' : ''; ?>" href="/modules/orders/index.php?<?php echo http_build_query($readyParams); ?>">
         Ready to Ship
     </a>
 </div>
