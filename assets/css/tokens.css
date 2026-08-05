@@ -41,10 +41,13 @@
        collide with --bg, the app background. */
     --success: #1F7A43;
     --success-tint: #E6F6EC;
+    --success-hover: #186034;
     --warning: #8A6116;
     --warning-tint: #FFF6E5;
+    --warning-hover: #6E4D12;
     --danger: #A32458;
     --danger-tint: #FDEAF1;
+    --danger-hover: #8C1E4B;
     --info: #1D57B0;
     --info-tint: #EAF2FF;
     /* Slightly darker than --text-muted (#6B6F76) on purpose: that grey on --neutral-tint
@@ -54,27 +57,34 @@
     --neutral: #666A71;
     --neutral-tint: #F1F1F2;
 
-    /* Saturated danger accent - the stat-card alert figure and .attention-item's
-       danger border, both needing more weight than the tinted --danger above. */
-    --danger-accent: #D9486E;
-
-    /* --- Surfaces ----------------------------------------------------------- */
+    /* --- Surfaces -----------------------------------------------------------
+       V3 Phase 2.5: --surface-sunken was #FBFAFC and --surface-subtle #FAFAFB -
+       two near-identical off-whites, one use each, both carrying a faint pink
+       cast from the pre-V3 palette. Merged into one neutral value. */
     --bg: #F6F6F7;
     /* app background */
     --surface: #FFFFFF;
     /* cards, tables, modals, sidebar */
-    --surface-sunken: #FBFAFC;
-    /* filter cards - quieter than content */
-    --surface-subtle: #FAFAFB;
-    /* attention rows */
+    --surface-sunken: #FAFAFA;
+    /* filter cards, attention rows - quieter than content */
 
-    /* --- Borders ------------------------------------------------------------ */
+    /* --- Borders ------------------------------------------------------------
+       V3 Phase 2.5: these were pink-tinted greys left over from the pre-V3
+       design - #F1E7ED (R241 G231 B237) and #E8DCE3 (R232 G220 B227) both read
+       visibly warm against the neutral surfaces around them, and --border-strong
+       was actually LIGHTER than --border despite the name. Now a real neutral
+       ramp: subtle < default < strong.
+
+       Known gap: none of these reaches the 3:1 WCAG 1.4.11 asks for a UI
+       component boundary, so form inputs are still identified by a border too
+       faint to qualify. Raising it changes the look of every input in the app,
+       so it is raised as its own decision rather than folded in here. */
+    --border-subtle: #EDEDEE;
+    /* table row dividers, filter card */
     --border: #E3E3E3;
     /* default */
-    --border-subtle: #F1E7ED;
-    /* table rows, filter card */
-    --border-strong: #E8DCE3;
-    /* inputs */
+    --border-strong: #DCDCDE;
+    /* inputs, buttons - needs a visible edge */
     --border-focus: #3472EF;
     /* focus ring colour */
 
@@ -143,8 +153,9 @@
        Carried over from existing values rather than the 6px/10px first drafted
        in the spec: the existing 8px/12px pairing is already consistent across
        buttons, inputs, and cards, so changing it would be churn with no gain.
-       Two outliers remain for Phase 2 to normalise - .alert (14px) and
-       .attention-item (10px). --radius-full is new, for Phase 2 badges. */
+       The two outliers - .alert (14px) and .attention-item (10px) - were folded
+       into --radius-md in Phase 2.5, so no radius literal survives outside this
+       block. */
     --radius-sm: 8px;
     /* buttons, inputs, selects */
     --radius-md: 12px;
@@ -164,12 +175,19 @@
 
     --focus-ring: 0 0 0 0.2rem rgba(52, 114, 239, 0.15);
     --backdrop: rgba(17, 17, 20, 0.45);
-
-    /* --- Deprecated ----------------------------------------------------------
-       Scheduled for removal in Phase 2. --legacy-berry-rose has one surviving
-       reference: .attention-item.tone-warning's left border, which moves to
-       --warning once the semantic scale reaches that component.
-       --sky-blue and --mewmii-blue-hover were dropped outright - both had zero
-       references anywhere in the codebase. */
-    --legacy-berry-rose: #B2668C;
 }
+
+/* --- Retired tokens (kept as a record, not as CSS) ---------------------------------
+   --mewmii-pink*, --mewmii-blue*   renamed to --brand* / --secondary* in Phase 1.
+   --sky-blue, --mewmii-blue-hover  dropped in Phase 1; zero references anywhere.
+   --legacy-berry-rose  #B2668C     dropped in Phase 2.5. Its one use was
+                                    .attention-item.tone-warning's left border, which
+                                    now takes --warning - so an attention row marked
+                                    "warning" is finally the same colour as every other
+                                    warning in the app.
+   --danger-accent      #D9486E     dropped in Phase 2.5. Used for the stat-card alert
+                                    figure and .attention-item.tone-danger's border.
+                                    As text on white it measured 4.12:1 and failed AA;
+                                    --danger is 7.12:1 and already carries the meaning,
+                                    so a second, weaker red earned nothing.
+   --surface-subtle     #FAFAFB     merged into --surface-sunken in Phase 2.5. */

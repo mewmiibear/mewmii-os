@@ -106,8 +106,8 @@
 
 .btn-danger:hover,
 .btn-danger:focus {
-    background: #8C1E4B;
-    border-color: #8C1E4B;
+    background: var(--danger-hover);
+    border-color: var(--danger-hover);
     color: var(--text-on-brand);
 }
 
@@ -130,8 +130,8 @@
 .btn-outline-success:focus,
 .btn-success:hover,
 .btn-success:focus {
-    background: #186034;
-    border-color: #186034;
+    background: var(--success-hover);
+    border-color: var(--success-hover);
     color: var(--text-on-brand);
 }
 
@@ -151,8 +151,8 @@
 .btn-outline-warning:focus,
 .btn-warning:hover,
 .btn-warning:focus {
-    background: #6E4D12;
-    border-color: #6E4D12;
+    background: var(--warning-hover);
+    border-color: var(--warning-hover);
     color: var(--text-on-brand);
 }
 
@@ -227,7 +227,7 @@
 /* --- Alerts: soft pastel tints instead of default saturated Bootstrap colours ----- */
 .alert {
     border: 0;
-    border-radius: 14px;
+    border-radius: var(--radius-md);
 }
 
 .alert-success {
@@ -468,7 +468,7 @@
 }
 
 .stat-card .stat-value.stat-value-alert {
-    color: var(--danger-accent);
+    color: var(--danger);
 }
 
 .stat-card .stat-helper {
@@ -589,16 +589,16 @@ a.stat-card-link:hover {
    urgency without a wall of bright badge colours. */
 .attention-item {
     border-left: 4px solid var(--secondary);
-    border-radius: 10px;
-    background: var(--surface-subtle);
+    border-radius: var(--radius-md);
+    background: var(--surface-sunken);
 }
 
 .attention-item.tone-danger {
-    border-left-color: var(--danger-accent);
+    border-left-color: var(--danger);
 }
 
 .attention-item.tone-warning {
-    border-left-color: var(--legacy-berry-rose);
+    border-left-color: var(--warning);
 }
 
 /* Reusable "stacked card" responsive table: below 768px, each row becomes its own
