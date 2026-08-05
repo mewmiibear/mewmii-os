@@ -76,17 +76,32 @@
        ramp: subtle < default < strong.
 
        Known gap: none of these reaches the 3:1 WCAG 1.4.11 asks for a UI
-       component boundary, so form inputs are still identified by a border too
-       faint to qualify. Raising it changes the look of every input in the app,
-       so it is raised as its own decision rather than folded in here. */
+       component boundary. RESOLVED FOR FORM CONTROLS in Phase 3.1 via the
+       separate --border-input below; still open for buttons, see there. */
     --border-subtle: #EDEDEE;
     /* table row dividers, filter card */
     --border: #E3E3E3;
-    /* default */
+    /* default; also the disabled-control edge (1.4.11 exempts inactive components) */
     --border-strong: #DCDCDE;
-    /* inputs, buttons - needs a visible edge */
+    /* buttons and the outline badge - NOT form controls, see --border-input */
     --border-focus: #3472EF;
     /* focus ring colour */
+
+    /* V3 Phase 3.1 - the form-control boundary, deliberately its own token.
+       A text input is empty by definition, so its border is the only thing
+       identifying it as a control: WCAG 1.4.11's 3:1 applies with no room to
+       argue. #848890 rather than the #8C9196 named in the original Option A,
+       because #8C9196 passes on white (3.18:1) but fails on the --bg fill a
+       readonly control uses (2.94:1) - it would have been compliant on some
+       form controls and not others. #848890 clears 3:1 on both surfaces:
+       3.56:1 on --surface, 3.29:1 on --bg.
+
+       Kept separate from --border-strong so raising the form system does not
+       silently restyle .btn-secondary / .btn-outline-secondary / .btn-filter,
+       which share that token and have the same 3:1 argument against them.
+       Whether buttons follow is a distinct decision (V3_DESIGN_SYSTEM §2.11.2)
+       and needs a rendered comparison first. */
+    --border-input: #848890;
 
     /* --- Text hierarchy ----------------------------------------------------- */
     --text: #202223;

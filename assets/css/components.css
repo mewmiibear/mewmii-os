@@ -568,16 +568,100 @@ a.stat-card-link:hover {
     font-weight: var(--font-weight-medium);
 }
 
+/* --- Form control states (V3 Phase 3.1) ---------------------------------------------
+   All seven states are specified together because they are one interlocking unit: a
+   control that is compliant at rest but indistinguishable on hover, or focusable with no
+   visible focus, is not actually usable. See V3_DESIGN_SYSTEM.md §2.11.1 for the measured
+   values. Presentation only - no field name, no `action`, no validation behaviour changes.
+
+   Measured boundary contrast:
+     resting   --border-input  #848890 on --surface  3.56:1  pass
+     hover     --text-muted    #6B6F76 on --surface  5.05:1  pass
+     focus     --border-focus  #3472EF on --surface  4.38:1  pass
+     invalid   --danger        #A32458 on --surface  7.12:1  pass
+     readonly  --border-input  #848890 on --bg       3.29:1  pass
+     disabled  --border        #E3E3E3 on --bg       1.28:1  EXEMPT (1.4.11 excludes
+                                                     inactive components, and a disabled
+                                                     control should recede)
+   Readonly is NOT exempt: it stays focusable and its text selectable, so it carries the
+   full 3:1 boundary. */
+
 .form-control,
 .form-select {
     border-radius: var(--radius-sm);
-    border-color: var(--border-strong);
+    border-color: var(--border-input);
+    background-color: var(--surface);
 }
 
+/* Checkboxes and radios keep Bootstrap's own shape - overriding radius here would square
+   off every radio button. Only the boundary colour is raised. */
+.form-check-input {
+    border-color: var(--border-input);
+}
+
+/* Hover - excluded on disabled and readonly, which must not appear interactive. */
+.form-control:hover:not(:disabled):not([readonly]),
+.form-select:hover:not(:disabled),
+.form-check-input:hover:not(:disabled) {
+    border-color: var(--text-muted);
+}
+
+/* Focus. The BORDER COLOUR CHANGE is the focus indicator, not the ring: --focus-ring is
+   rgba(52,114,239,0.15), which composites to #E0E9FC over white - 1.22:1, effectively
+   invisible, and raising the alpha does not rescue it (0.45 still only reaches 1.85:1).
+   The ring stays as a supporting halo and is never the sole signal. Satisfies WCAG 2.4.11
+   through the border. --border-focus resolves to the same #3472EF the previous rule got
+   from --secondary, so focus renders identically to before. */
 .form-control:focus,
-.form-select:focus {
-    border-color: var(--secondary);
+.form-select:focus,
+.form-check-input:focus {
+    border-color: var(--border-focus);
     box-shadow: var(--focus-ring);
+}
+
+/* Invalid. Deliberately .is-invalid (set by entry-form-validation.js via checkValidity())
+   and :user-invalid - never bare :invalid, which matches every empty required field on
+   page load and would render a pristine form entirely red. */
+.form-control.is-invalid,
+.form-select.is-invalid,
+.form-check-input.is-invalid,
+.form-control:user-invalid,
+.form-select:user-invalid {
+    border-color: var(--danger);
+}
+
+.form-control.is-invalid:focus,
+.form-select.is-invalid:focus,
+.form-control:user-invalid:focus,
+.form-select:user-invalid:focus {
+    border-color: var(--danger);
+    box-shadow: var(--focus-ring);
+}
+
+/* Readonly - a real value the operator may read, select and copy, so it keeps a compliant
+   boundary and primary text colour. Only the fill recedes. Never pointer-events: none. */
+.form-control[readonly],
+.form-select[readonly] {
+    background-color: var(--bg);
+    border-color: var(--border-input);
+    color: var(--text);
+}
+
+/* Disabled - the one state allowed to recede below 3:1. */
+.form-control:disabled,
+.form-select:disabled,
+.form-check-input:disabled {
+    background-color: var(--bg);
+    border-color: var(--border);
+    color: var(--text-muted);
+}
+
+/* Placeholder is text, so it needs 4.5:1, not 3:1. --text-subtle #8C9196 measures 3.18:1
+   and fails; --text-muted #6B6F76 is 5.05:1. opacity: 1 is required - Firefox applies a
+   default placeholder opacity below 1, which would silently drop the ratio back under. */
+.form-control::placeholder {
+    color: var(--text-muted);
+    opacity: 1;
 }
 
 .form-text {
