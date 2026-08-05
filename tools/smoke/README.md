@@ -25,8 +25,15 @@ This tool turns that class of regression into a mechanical diff.
 - PHP 7.4+ CLI with `ext-curl` and `ext-dom` (both are standard in XAMPP/Laragon).
 - A running Mewmii OS instance you can log into.
 
-Run it against **a development or staging database, never production.** It only issues `GET`
-requests (plus one login `POST`), but it is a crawler and should be treated as one.
+> ### Run this against staging, not production
+>
+> It issues `GET` only (plus one login `POST`), but it is still a crawler pointed at an
+> authenticated admin panel, and the application is **not** hardened against being crawled.
+> The first production run hit `modules/products/sync.php`, which triggers a full WooCommerce
+> product push; only its CSRF check stopped it. See "Baseline audit" below.
+>
+> Credentials passed as `--password=` land in your shell history and process list. Prefer the
+> `SMOKE_*` environment variables, and use an account you are willing to rotate.
 
 ---
 
@@ -132,16 +139,56 @@ every mutation behind `if ($_SERVER['REQUEST_METHOD'] === 'POST')`. A GET render
 
 ---
 
-## Pages needing an `?id=`
+## Baseline audit — first production run
 
-19 routes read `$_GET['id']` and cannot be crawled bare. The tool handles these in a second pass:
-while crawling list pages it harvests real `?id=N` values out of the HTML, then samples the
-**lowest** id per module. A route is recorded as `skipped` — with the reason — when no id could
-be discovered (typically an empty module in a fresh database).
+The first baseline run (against the live admin domain, commit `62eec69`) reported 6 HTTP failures
+and 2 PHP fatal errors. **All eight were classification gaps in this tool. Zero were application
+bugs.** Every one is now fixed. Recorded here so the same findings aren't re-investigated.
 
-Sampling is deliberately lowest-id rather than first-seen. If a before-run and an after-run
+| Reported | Verdict | Resolution |
+|---|---|---|
+| `403 config.php` | Tool gap. The 403 is *correct* — the server is properly refusing to serve the file holding DB credentials. | Excluded: config file, not a page |
+| `404 modules/customer-storage/view.php` | Tool gap. Needs `?customer_id=`, not `?id=` | Now crawled with the right parameter |
+| `404 modules/inventory/allocate.php` | Tool gap. Needs `?product_id=` + `?variation_id=` | Now crawled with the right parameters |
+| `404 modules/inventory/reserve.php` | Tool gap. Same as above | Now crawled with the right parameters |
+| `404 resolution_receipt.php` | Tool gap. Needs `?receipt_id=` **and** a valid `?token=`; returns a file | Excluded: token-authenticated download |
+| `400 + fatal modules/products/sync.php` | Tool gap, and a **near miss** — see below | Excluded: action endpoint |
+| `fatal modules/inventory/views/drawer.php` | Tool gap. A view partial, documented "never invoked directly"; fatals standalone because `bootstrap.php` was never loaded | Excluded: `views/` partials |
+| *(not reported, found during the audit)* `modules/dashboard/index.php` | Dead 0-byte file — the real dashboard is the root `index.php`. Returns a blank 200. | Excluded by the generic partial rule |
+
+### The `products/sync.php` near miss
+
+`modules/products/sync.php` triggers a **full WooCommerce product push for every product**. The
+crawler issued a GET against it on a live system.
+
+Nothing ran. `app_require_csrf()` is on line 5 and reads `$_POST['csrf_token']`, which is empty on
+a GET, so it set HTTP 400 and threw before reaching `wc_client_sync_all_products()` on line 15.
+The "fatal error" in the baseline is that uncaught exception. **No sync executed and no data
+changed** — but the only thing standing between a smoke crawl and a full production sync was that
+CSRF check.
+
+The original exclusion list caught `sync_one.php` and missed `sync.php`. It is now excluded
+explicitly, and an audit was run for every other crawlable route that calls `app_require_csrf()`
+without an earlier request-method guard. The only other two matches were false positives — the
+string appeared in a doc comment, not in code.
+
+**If you add a route rule, re-run that audit.** The application is not hardened against being
+crawled; this tool's deny-list is what keeps it safe.
+
+## Pages needing an identifier parameter
+
+Some routes read an identifier from the query string and cannot be crawled bare. The tool detects
+**any** `$_GET['id']` or `$_GET['*_id']` a page reads — not just `id` — which is what the first
+baseline run got wrong.
+
+In pass 2 it samples them using query strings harvested from **the application's own links**
+during pass 1. Using real links means the parameter names are always correct: `?customer_id=` for
+customer storage, `?product_id=&variation_id=` for inventory allocate/reserve. A route is recorded
+as `skipped`, with the reason, when no link to it was found — typically an empty module.
+
+Sampling picks the **lowest** identifier, not the first seen. If a before-run and an after-run
 sampled *different* records, two legitimately different states (a draft order vs a shipped one)
-would diff as a false BREAKING form change. Lowest-id is stable across runs, provided the record
+would diff as a false BREAKING form change. Lowest-id is stable across runs provided the record
 still exists — so **do not delete the sampled records between a before and after capture.**
 
 This means **coverage depends on your data.** A database with at least one order, product,

@@ -44,11 +44,17 @@ const APP_ROOT = __DIR__ . '/../..';
  */
 const EXCLUSIONS = [
     ['#(^|/)_[^/]+\.php$#',                 'partial - included by another page, not routable on its own'],
+    ['#(^|/)views/#',                       'view partial - rendered by a controller, fatals if hit directly (see modules/inventory/views/drawer.php)'],
+    ['#(^|/)tabs/#',                        'tab partial - included by its module index; standalone it only defines functions and renders a blank page'],
     ['#(^|/)ajax/#',                        'AJAX fragment endpoint - returns JSON/HTML fragments, not a page; some perform writes without a POST guard'],
     ['#(^|/)ajax_[^/]*\.php$#',             'AJAX fragment endpoint'],
     ['#(^|/)delete\.php$#',                 'destructive action endpoint (POST-guarded, but never worth a GET)'],
     ['#(^|/)bulk_action\.php$#',            'bulk mutation endpoint (POST-only)'],
+    ['#(^|/)sync\.php$#',                   'ACTION ENDPOINT - triggers a full WooCommerce product push. Only its CSRF check stops a GET. Never crawled.'],
     ['#(^|/)sync_one\.php$#',               'action endpoint - POST-only, redirects on GET'],
+    ['#(^|/)webhooks/woocommerce\.php$#',   'server-to-server webhook receiver - HMAC-authenticated, not a browser page'],
+    ['#(^|/)config\.php$#',                 'configuration file holding database credentials - not a page (the server correctly returns 403)'],
+    ['#(^|/)resolution_receipt\.php$#',     'token-authenticated receipt download - requires ?receipt_id= and ?token=, returns a file not a page'],
     ['#(^|/)reopen_preorder\.php$#',        'action endpoint - POST-only, redirects on GET'],
     ['#(^|/)create_order\.php$#',           'action endpoint - POST-only, redirects on GET'],
     ['#(^|/)retry_pending\.php$#',          'action endpoint - triggers webhook retries'],
@@ -178,12 +184,35 @@ function discoverRoutes(): array
             continue;
         }
 
-        // A page reading $_GET['id'] cannot be crawled bare - it needs a real
-        // record. Detected by reading the source, never by executing it.
         $source = (string) file_get_contents($file);
-        $needsId = preg_match("/\\\$_GET\['id'\]/", $source) === 1;
 
-        $crawlable[] = ['route' => $route, 'needs_id' => $needsId];
+        // A file that never loads bootstrap.php is an include-only partial: run
+        // standalone it either fatals on an undefined app_* function or renders
+        // a blank page. Catches view/tab partials and dead empty files without
+        // needing a path rule for each. Read, never executed.
+        if (strpos($source, 'bootstrap.php') === false) {
+            $excluded[] = [
+                'route' => $route,
+                'reason' => trim($source) === ''
+                    ? 'empty file - renders a blank page'
+                    : 'include-only partial - never loads bootstrap.php, so it cannot run standalone',
+            ];
+            continue;
+        }
+
+        // A page reading an identifier from the query string cannot be crawled
+        // bare. Collect every $_GET['*_id'] / $_GET['id'] it reads so pass 2 can
+        // supply a real one harvested from the app's own links.
+        $idParams = [];
+        if (preg_match_all("/\\\$_GET\['([a-z_]+)'\]/", $source, $matches) > 0) {
+            foreach (array_unique($matches[1]) as $param) {
+                if ($param === 'id' || substr($param, -3) === '_id') {
+                    $idParams[] = $param;
+                }
+            }
+        }
+
+        $crawlable[] = ['route' => $route, 'id_params' => $idParams, 'needs_id' => $idParams !== []];
     }
 
     return ['crawlable' => $crawlable, 'excluded' => $excluded];
@@ -482,9 +511,10 @@ function commandCapture(array $options): int
     $limit = isset($options['limit']) ? (int) $options['limit'] : 0;
 
     $pages = [];
-    $discoveredIds = [];
+    $observedQueries = [];
 
-    // Pass 1 - parameterless routes. Harvest ?id= values from their markup as we go.
+    // Pass 1 - parameterless routes. Harvest the app's own links as we go, so
+    // pass 2 can sample detail routes with real, correctly-named parameters.
     $plain = array_values(array_filter($discovered['crawlable'], static fn (array $r): bool => !$r['needs_id']));
     $parameterised = array_values(array_filter($discovered['crawlable'], static fn (array $r): bool => $r['needs_id']));
 
@@ -492,32 +522,25 @@ function commandCapture(array $options): int
         if ($limit > 0 && $index >= $limit) {
             break;
         }
-        $pages[$entry['route']] = crawl($http, $entry['route'], $discoveredIds);
+        $pages[$entry['route']] = crawl($http, $entry['route'], $observedQueries);
         progress($index + 1, count($plain), $entry['route']);
     }
 
     // Pass 2 - routes needing ?id=, using an id harvested from a list page.
     echo "\n";
     foreach ($parameterised as $index => $entry) {
-        $module = dirname($entry['route']);
+        $query = pickQuery($observedQueries[$entry['route']] ?? [], $entry['id_params']);
 
-        // Deterministic sampling: always the lowest id, never list-page order.
-        // If the before/after runs sampled different records, two legitimately
-        // different states (a draft vs a shipped order) would diff as a false
-        // BREAKING form change. Lowest-id is stable across runs.
-        $candidates = $discoveredIds[$module] ?? [];
-        sort($candidates);
-        $id = $candidates[0] ?? null;
-
-        if ($id === null) {
+        if ($query === null) {
             $pages[$entry['route']] = [
-                'skipped' => 'no id could be discovered from any list page in this module',
+                'skipped' => 'no link to this route carrying ' . implode('/', $entry['id_params'])
+                    . ' was found on any crawled page - the module is probably empty',
             ];
             continue;
         }
 
-        $route = $entry['route'] . '?id=' . $id;
-        $pages[$entry['route']] = crawl($http, $route, $discoveredIds) + ['sampled_id' => $id];
+        $route = $entry['route'] . '?' . $query;
+        $pages[$entry['route']] = crawl($http, $route, $observedQueries) + ['sampled_query' => $query];
         progress($index + 1, count($parameterised), $route);
     }
 
@@ -545,8 +568,43 @@ function commandCapture(array $options): int
     return 0;
 }
 
-/** @param array<string, array<int, int>> $discoveredIds */
-function crawl(Http $http, string $route, array &$discoveredIds): array
+/**
+ * Choose one query string to sample a detail route with.
+ *
+ * Deterministic by construction: of the observed queries that actually carry one
+ * of the route's identifier parameters with a numeric value, take the one with
+ * the lowest identifier. A before-run and an after-run must sample the SAME
+ * record - otherwise two legitimately different states (a draft order vs a
+ * shipped one) diff as a false BREAKING form change.
+ *
+ * @param array<int, string> $queries
+ * @param array<int, string> $idParams
+ */
+function pickQuery(array $queries, array $idParams): ?string
+{
+    $candidates = [];
+
+    foreach ($queries as $query) {
+        parse_str($query, $parsed);
+        foreach ($idParams as $param) {
+            if (isset($parsed[$param]) && is_string($parsed[$param]) && ctype_digit($parsed[$param])) {
+                $candidates[] = ['sort' => [(int) $parsed[$param], strlen($query), $query], 'query' => $query];
+                break;
+            }
+        }
+    }
+
+    if ($candidates === []) {
+        return null;
+    }
+
+    usort($candidates, static fn (array $a, array $b): int => $a['sort'] <=> $b['sort']);
+
+    return $candidates[0]['query'];
+}
+
+/** @param array<string, array<int, string>> $observedQueries */
+function crawl(Http $http, string $route, array &$observedQueries): array
 {
     $response = $http->get('/' . $route);
 
@@ -554,16 +612,19 @@ function crawl(Http $http, string $route, array &$discoveredIds): array
         return ['status' => 0, 'transport_error' => $response['error']];
     }
 
-    // Harvest ?id= values so detail pages can be sampled in pass 2.
-    if (preg_match_all('#href="/?(modules/[a-z0-9\-/]+)/[a-z_]+\.php\?id=(\d+)#i', $response['body'], $matches, PREG_SET_ORDER) > 0) {
+    // Harvest whole query strings out of the app's OWN links, keyed by target
+    // route. Using the app's links means the parameter names are always right -
+    // ?customer_id= for customer-storage, ?product_id=&variation_id= for
+    // inventory allocate/reserve - instead of assuming every detail page uses ?id=.
+    if (preg_match_all('#href="/?((?:modules/)?[A-Za-z0-9_/\-]+\.php)\?([^"]+)"#', $response['body'], $matches, PREG_SET_ORDER) > 0) {
         foreach ($matches as $match) {
-            $module = $match[1];
-            $id = (int) $match[2];
-            if (!isset($discoveredIds[$module])) {
-                $discoveredIds[$module] = [];
+            $target = ltrim($match[1], '/');
+            $query = html_entity_decode($match[2], ENT_QUOTES | ENT_HTML5);
+            if (!isset($observedQueries[$target])) {
+                $observedQueries[$target] = [];
             }
-            if (!in_array($id, $discoveredIds[$module], true)) {
-                $discoveredIds[$module][] = $id;
+            if (!in_array($query, $observedQueries[$target], true)) {
+                $observedQueries[$target][] = $query;
             }
         }
     }
