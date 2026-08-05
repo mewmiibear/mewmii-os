@@ -577,13 +577,13 @@ require_once __DIR__ . '/../../includes/header.php';
         <p class="page-description">Current stock at a glance - adjustments and history stay one click away.</p>
     </div>
     <div class="action-bar">
-        <a class="btn btn-outline-primary" href="/modules/inventory/allocation-center.php">Allocate Preorders</a>
-        <a class="btn btn-outline-primary" href="/modules/inventory/reservation-center.php">Reservation Center</a>
+        <?php if ($canManage): ?>
+            <button type="button" class="btn btn-primary" onclick="InventoryUI.openAdjustModal('')">Adjust Stock</button>
+        <?php endif; ?>
         <?php if ($canManageSupplierOrders): ?>
-            <a class="btn btn-primary" href="/modules/purchase-planning/generate.php">Generate Supplier Order</a>
+            <a class="btn btn-outline-primary" href="/modules/purchase-planning/generate.php">View Purchase Planning</a>
         <?php endif; ?>
         <?php if ($canManage): ?>
-            <button type="button" class="btn btn-outline-primary" onclick="InventoryUI.openAdjustModal('')">Adjust Stock</button>
             <a class="btn btn-outline-secondary" href="/modules/inventory/import_opening_stock.php">Import Opening Stock</a>
         <?php endif; ?>
     </div>

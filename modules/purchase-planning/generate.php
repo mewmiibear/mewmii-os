@@ -3,7 +3,7 @@ require_once __DIR__ . '/../../includes/bootstrap.php';
 require_once __DIR__ . '/../../includes/purchase_planning.php';
 app_require_permission('supplier-orders.manage');
 
-$appTitle = 'Generate Supplier Order';
+$appTitle = 'Purchase Planning';
 $error = '';
 $pdo = app_db();
 
@@ -163,7 +163,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="page-header d-flex justify-content-between align-items-center">
     <div>
-        <h2 class="mb-1">Generate Supplier Order</h2>
+        <h2 class="mb-1">Purchase Planning</h2>
         <p class="page-description">Products where Need &gt; 0, grouped by supplier. Order Qty is pre-filled MOQ-rounded - review and adjust before generating.</p>
     </div>
     <div class="action-bar">

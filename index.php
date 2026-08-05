@@ -36,7 +36,6 @@ $canManageOrders = app_has_permission('orders.manage');
 $canViewSupplierOrders = app_has_permission('supplier-orders.view');
 $canManageSupplierOrders = app_has_permission('supplier-orders.manage');
 $canViewInventory = app_has_permission('inventory.view');
-$canManageInventory = app_has_permission('inventory.manage');
 $canManageShipments = app_has_permission('shipments.manage');
 $canViewProducts = app_has_permission('products.view');
 $canManageProducts = app_has_permission('products.manage');
@@ -214,6 +213,10 @@ if ($canViewOrders && $pendingReceiptCount > 0) {
 
 if ($canViewInventory && $allocationCount > 0) {
     $myDayTasks[] = ['label' => 'Allocate ' . $allocationCount . ' arrived preorder unit' . ($allocationCount === 1 ? '' : 's'), 'url' => '/modules/inventory/allocation-center.php', 'rank' => 1];
+}
+
+if ($canViewInventory && $reservationCount > 0) {
+    $myDayTasks[] = ['label' => 'Reserve ' . $reservationCount . ' waiting order unit' . ($reservationCount === 1 ? '' : 's'), 'url' => '/modules/inventory/reservation-center.php', 'rank' => 1];
 }
 
 if ($canViewInventory && $lowStockCount > 0) {
@@ -408,7 +411,7 @@ $healthCopy = [
         <?php if ($canManageSupplierOrders): ?>
             <div class="col-md-4 col-lg-2">
                 <a class="btn btn-primary w-100 h-100 py-3" href="/modules/purchase-planning/generate.php">
-                    Generate Purchase Planning
+                    View Purchase Planning
                     <?php if ($purchasePlanningCount > 0): ?><span class="badge bg-light text-dark ms-1"><?php echo (int) $purchasePlanningCount; ?></span><?php endif; ?>
                 </a>
             </div>
@@ -417,20 +420,6 @@ $healthCopy = [
                     Receive Supplier Order
                     <?php $receivable = $supplierOrderStatusCounts['ordered'] + $supplierOrderStatusCounts['partially_received']; ?>
                     <?php if ($receivable > 0): ?><span class="badge bg-light text-dark ms-1"><?php echo (int) $receivable; ?></span><?php endif; ?>
-                </a>
-            </div>
-        <?php endif; ?>
-        <?php if ($canManageInventory): ?>
-            <div class="col-md-4 col-lg-2">
-                <a class="btn btn-primary w-100 h-100 py-3" href="/modules/inventory/reservation-center.php">
-                    Reserve Waiting Orders
-                    <?php if ($reservationCount > 0): ?><span class="badge bg-light text-dark ms-1"><?php echo (int) $reservationCount; ?></span><?php endif; ?>
-                </a>
-            </div>
-            <div class="col-md-4 col-lg-2">
-                <a class="btn btn-primary w-100 h-100 py-3" href="/modules/inventory/allocation-center.php">
-                    Allocate Preorders
-                    <?php if ($allocationCount > 0): ?><span class="badge bg-light text-dark ms-1"><?php echo (int) $allocationCount; ?></span><?php endif; ?>
                 </a>
             </div>
         <?php endif; ?>

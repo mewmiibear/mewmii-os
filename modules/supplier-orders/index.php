@@ -139,8 +139,15 @@ require_once __DIR__ . '/../../includes/header.php';
     <?php if ($canManage): ?>
         <div class="action-bar">
             <a class="btn btn-primary" href="/modules/supplier-orders/create.php">New Supplier Order</a>
-            <a class="btn btn-outline-primary" href="/modules/purchase-planning/generate.php">Purchase Planning / Products Need Ordering</a>
-            <a class="btn btn-outline-secondary" href="/modules/supplier-orders/import.php">Import Historical Order</a>
+            <a class="btn btn-outline-primary" href="/modules/purchase-planning/generate.php">View Purchase Planning</a>
+            <div class="dropdown">
+                <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="More actions">
+                    <i class="bi bi-three-dots"></i>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="/modules/supplier-orders/import.php">Import Historical Order</a></li>
+                </ul>
+            </div>
         </div>
     <?php endif; ?>
 </div>

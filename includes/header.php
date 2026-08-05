@@ -629,6 +629,8 @@ $appTitle = 'Mewmii OS';
                             <?php endif; ?>
                             <?php if (app_has_permission('inventory.view')): ?>
                                 <a class="nav-link<?php echo $navActive('/modules/inventory/index.php'); ?>" href="/modules/inventory/index.php"><i class="bi bi-boxes"></i> Inventory</a>
+                                <a class="nav-link nav-link-sub<?php echo $navActive('/modules/inventory/reservation-center.php'); ?>" href="/modules/inventory/reservation-center.php">Reservation Center</a>
+                                <a class="nav-link nav-link-sub<?php echo $navActive('/modules/inventory/allocation-center.php'); ?>" href="/modules/inventory/allocation-center.php">Allocation Center</a>
                                 <a class="nav-link<?php echo $navActive('/modules/purchasing/index.php'); ?>" href="/modules/purchasing/index.php"><i class="bi bi-cart-check"></i> Purchasing</a>
                                 <a class="nav-link nav-link-sub<?php echo $navActive('/modules/purchasing/control-center.php'); ?>" href="/modules/purchasing/control-center.php">Control Center</a>
                             <?php endif; ?>
