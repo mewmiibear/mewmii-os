@@ -1,5 +1,6 @@
 <?php
 
+require_once __DIR__ . '/status_badge.php';
 require_once __DIR__ . '/inventory.php';
 require_once __DIR__ . '/customer_storage.php';
 require_once __DIR__ . '/product_variations.php';
@@ -40,19 +41,23 @@ function supplier_order_status_label(string $status): string
 
 function supplier_order_status_badge(string $status): string
 {
-    $colors = [
-        'draft' => 'secondary',
-        'ordered' => 'info text-dark',
-        'partially_received' => 'primary',
-        'received' => 'warning text-dark',
+    // V3 Phase 2.2: the most consequential remap in this phase. `received` was amber - the same
+    // colour as waiting_stock, a blocked state - despite being a successful step forward, so
+    // amber meant both "act now" and "went fine". It becomes success. `waiting_payment` moves
+    // the other way: it was grey, indistinguishable from an untouched draft, but it is genuinely
+    // blocked on someone, so it becomes warning. partially_received comes off `primary`.
+    $tokens = [
+        'draft' => 'neutral',
+        'ordered' => 'info',
+        'partially_received' => 'info',
+        'received' => 'success',
         'completed' => 'success',
         'cancelled' => 'danger',
-        'waiting_payment' => 'secondary',
-        'shipping' => 'info text-dark',
+        'waiting_payment' => 'warning',
+        'shipping' => 'info',
     ];
-    $color = $colors[$status] ?? 'secondary';
 
-    return '<span class="badge bg-' . $color . '">' . htmlspecialchars(supplier_order_status_label($status), ENT_QUOTES, 'UTF-8') . '</span>';
+    return status_badge(supplier_order_status_label($status), $tokens[$status] ?? 'neutral');
 }
 
 /**
@@ -112,14 +117,13 @@ function supplier_order_payment_status_label(string $status): string
 
 function supplier_order_payment_status_badge(string $status): string
 {
-    $colors = [
+    $tokens = [
         'unpaid' => 'danger',
-        'partial' => 'warning text-dark',
+        'partial' => 'warning',
         'paid' => 'success',
     ];
-    $color = $colors[$status] ?? 'secondary';
 
-    return '<span class="badge bg-' . $color . '">' . htmlspecialchars(supplier_order_payment_status_label($status), ENT_QUOTES, 'UTF-8') . '</span>';
+    return status_badge(supplier_order_payment_status_label($status), $tokens[$status] ?? 'neutral');
 }
 
 /**

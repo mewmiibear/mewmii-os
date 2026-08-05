@@ -1,5 +1,6 @@
 <?php
 
+require_once __DIR__ . '/status_badge.php';
 require_once __DIR__ . '/activity_log.php';
 require_once __DIR__ . '/image_upload.php';
 
@@ -91,30 +92,38 @@ function catalog_product_lifecycle_stage(array $product): string
 }
 
 /**
- * Colored lifecycle badge (HTML) for the stage computed by catalog_product_lifecycle_stage().
- * Inline styles rather than Bootstrap badge color classes since orange/purple aren't part
- * of the default Bootstrap 5.3 palette used elsewhere in this app.
+ * Lifecycle badge (HTML) for the stage computed by catalog_product_lifecycle_stage().
+ * Renders through the shared status scale (includes/status_badge.php) like every other badge
+ * in the app - see the mapping note inside for why the three product *types* use the outline
+ * variant while the two genuine *states* keep a semantic colour.
  */
 function catalog_lifecycle_badge(array $product): string
 {
-    // Colours match the Mewmii OS design tokens (Status Colours table) exactly - Early Bird,
-    // Preorder, Ready Stock, and Waiting Release each map to a specific brand/accent colour;
-    // Closed uses the secondary text tone rather than a saturated colour. Order/supplier-order/
-    // shipment/payment status badges intentionally keep their existing Bootstrap semantic
-    // colours and are out of scope here.
-    $styles = [
-        'early_bird' => ['emoji' => '🟧', 'label' => 'Early Bird', 'bg' => '#FF94C4'],
-        'preorder' => ['emoji' => '🟪', 'label' => 'Preorder', 'bg' => '#3472EF'],
-        'ready_stock' => ['emoji' => '🟩', 'label' => 'Ready Stock', 'bg' => '#85D2FF'],
-        'waiting_release' => ['emoji' => '⚪', 'label' => 'Waiting Release', 'bg' => '#B2668C'],
-        'closed' => ['emoji' => '🔴', 'label' => 'Closed', 'bg' => '#66524E'],
+    // V3 Phase 2.2: rebuilt onto the shared scale (includes/status_badge.php). This was the
+    // only badge in the app using hardcoded hex, an emoji, and an inline style attribute, and
+    // it painted brand pink (#FF94C4) onto a status - directly against the token rule that pink
+    // means "action", not "state". It also used #66524E, a colour defined in no token anywhere.
+    //
+    // Early Bird / Preorder / Ready Stock describe what a product IS, not where it sits in a
+    // workflow, so they take the outline variant and stop competing with the tinted status
+    // badges alongside them. The two that are genuine states keep a semantic colour: Waiting
+    // Release is blocked on a date, Closed is terminal. The text label carries the distinction
+    // that the emoji and five separate colours used to.
+    //
+    // catalog_product_lifecycle_stage() is untouched - this changes presentation only, so the
+    // ?debug_lifecycle=1 instrumentation still traces exactly the same computed stage.
+    $stages = [
+        'early_bird' => ['Early Bird', 'outline'],
+        'preorder' => ['Preorder', 'outline'],
+        'ready_stock' => ['Ready Stock', 'outline'],
+        'waiting_release' => ['Waiting Release', 'warning'],
+        'closed' => ['Closed', 'danger'],
     ];
 
     $stage = catalog_product_lifecycle_stage($product);
-    $style = $styles[$stage] ?? $styles['closed'];
+    [$label, $token] = $stages[$stage] ?? $stages['closed'];
 
-    return '<span class="badge" style="background-color:' . $style['bg'] . ';color:#fff;">'
-        . $style['emoji'] . ' ' . $style['label'] . '</span>';
+    return status_badge($label, $token);
 }
 
 function catalog_slugify(string $value): string

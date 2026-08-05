@@ -1,5 +1,6 @@
 <?php
 
+require_once __DIR__ . '/status_badge.php';
 require_once __DIR__ . '/wc_client.php';
 require_once __DIR__ . '/sync_log.php';
 require_once __DIR__ . '/supplier_orders.php';
@@ -35,20 +36,23 @@ function order_status_label(string $status): string
 
 function order_status_badge(string $status): string
 {
-    $colors = [
-        'pending' => 'secondary',
-        'processing' => 'info text-dark',
-        'waiting_stock' => 'warning text-dark',
-        'waiting_ship_my_box' => 'warning text-dark',
-        'ready_to_ship' => 'primary',
-        'partially_fulfilled' => 'primary',
-        'shipped' => 'dark',
+    // V3 Phase 2.2: shared status scale (includes/status_badge.php). Reassignments from the
+    // previous ad-hoc colours: ready_to_ship/partially_fulfilled off `primary` (brand pink is
+    // for actions, never status) and shipped off `dark`, which was unique to this one helper
+    // while three others rendered the same status differently.
+    $tokens = [
+        'pending' => 'neutral',
+        'processing' => 'info',
+        'waiting_stock' => 'warning',
+        'waiting_ship_my_box' => 'warning',
+        'ready_to_ship' => 'success',
+        'partially_fulfilled' => 'info',
+        'shipped' => 'success',
         'completed' => 'success',
         'cancelled' => 'danger',
     ];
-    $color = $colors[$status] ?? 'secondary';
 
-    return '<span class="badge bg-' . $color . '">' . htmlspecialchars(order_status_label($status), ENT_QUOTES, 'UTF-8') . '</span>';
+    return status_badge(order_status_label($status), $tokens[$status] ?? 'neutral');
 }
 
 /**
@@ -59,15 +63,14 @@ function order_status_badge(string $status): string
  */
 function payment_status_badge(string $status): string
 {
-    $colors = [
-        'pending' => 'secondary',
+    $tokens = [
+        'pending' => 'neutral',
         'paid' => 'success',
-        'refunded' => 'info text-dark',
+        'refunded' => 'info',
         'failed' => 'danger',
     ];
-    $color = $colors[$status] ?? 'secondary';
 
-    return '<span class="badge bg-' . $color . '">' . htmlspecialchars(ucfirst($status), ENT_QUOTES, 'UTF-8') . '</span>';
+    return status_badge(ucfirst($status), $tokens[$status] ?? 'neutral');
 }
 
 /**
@@ -176,18 +179,21 @@ function order_bulk_approve_payment(PDO $pdo, array $orderIds): array
  */
 function order_item_fulfillment_badge(string $state): string
 {
-    $colors = [
-        'cancelled' => 'secondary',
-        'historical' => 'secondary',
-        'waiting_stock' => 'danger',
-        'packing' => 'info text-dark',
-        'ready_to_ship' => 'primary',
-        'stored' => 'primary',
+    // V3 Phase 2.2: two corrections here. `cancelled` was `secondary`, the same grey as the
+    // benign `historical`, while order_status_badge() rendered the same cancellation as danger.
+    // `waiting_stock` was `danger` here but `warning` on the Orders list - one blocked state,
+    // two colours depending on which list you were reading.
+    $tokens = [
+        'cancelled' => 'danger',
+        'historical' => 'neutral',
+        'waiting_stock' => 'warning',
+        'packing' => 'info',
+        'ready_to_ship' => 'success',
+        'stored' => 'success',
         'shipped' => 'success',
     ];
-    $color = $colors[$state] ?? 'secondary';
 
-    return '<span class="badge bg-' . $color . '">' . htmlspecialchars(order_item_fulfillment_label($state), ENT_QUOTES, 'UTF-8') . '</span>';
+    return status_badge(order_item_fulfillment_label($state), $tokens[$state] ?? 'neutral');
 }
 
 /**
@@ -236,11 +242,14 @@ function order_event_type_label(string $eventType): string
  */
 function order_source_badge(array $order): string
 {
+    // Where an order came from is a category, not a workflow state, so it takes the outline
+    // variant and never competes with the tinted status badges beside it. This also retires
+    // the hardcoded #8B5CF6 - a colour that existed in no token and nowhere else in the app.
     if (!empty($order['woocommerce_order_id'])) {
-        return '<span class="badge" style="background-color:#8B5CF6;color:#fff;">W</span>';
+        return status_badge('W', 'outline');
     }
     if (!empty($order['is_historical'])) {
-        return '<span class="badge bg-secondary">Historical</span>';
+        return status_badge('Historical', 'outline');
     }
 
     return '';
@@ -324,14 +333,14 @@ function order_receipt_status_badge(array $order): string
         return '';
     }
 
-    $colors = [
+    $tokens = [
         'Approved' => 'success',
         'Rejected' => 'danger',
-        'Receipt Submitted' => 'info text-dark',
-        'Awaiting Receipt Upload' => 'secondary',
+        'Receipt Submitted' => 'info',
+        'Awaiting Receipt Upload' => 'neutral',
     ];
 
-    return '<span class="badge bg-' . $colors[$label] . '">' . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . '</span>';
+    return status_badge($label, $tokens[$label] ?? 'neutral');
 }
 
 /**

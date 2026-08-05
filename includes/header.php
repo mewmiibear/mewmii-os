@@ -104,7 +104,7 @@ $appTitle = 'Mewmii OS';
                             <a class="nav-link nav-link-sub<?php echo $navActive('/modules/notifications/index.php'); ?>" href="/modules/notifications/index.php">
                                 Notifications
                                 <?php if ($headerUnreadNotifications > 0): ?>
-                                    <span class="badge bg-danger rounded-pill ms-1"><?php echo $headerUnreadNotifications; ?></span>
+                                    <span class="badge badge-count ms-1"><?php echo $headerUnreadNotifications; ?></span>
                                 <?php endif; ?>
                             </a>
                         <?php endif; ?>

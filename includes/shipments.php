@@ -1,5 +1,6 @@
 <?php
 
+require_once __DIR__ . '/status_badge.php';
 require_once __DIR__ . '/inventory.php';
 require_once __DIR__ . '/order_fulfillment.php';
 require_once __DIR__ . '/product_variations.php';
@@ -41,16 +42,18 @@ function shipment_status_label(string $status): string
 
 function shipment_status_badge(string $status): string
 {
-    $colors = [
-        'pending' => 'secondary',
-        'packed' => 'info text-dark',
-        'shipped' => 'primary',
+    // V3 Phase 2.2: `shipped` off `primary` (brand pink is for actions, never status). It is
+    // a completed step for a shipment, so it takes success like every other terminal-positive
+    // state across the app.
+    $tokens = [
+        'pending' => 'neutral',
+        'packed' => 'info',
+        'shipped' => 'success',
         'delivered' => 'success',
         'cancelled' => 'danger',
     ];
-    $color = $colors[$status] ?? 'secondary';
 
-    return '<span class="badge bg-' . $color . '">' . htmlspecialchars(shipment_status_label($status), ENT_QUOTES, 'UTF-8') . '</span>';
+    return status_badge(shipment_status_label($status), $tokens[$status] ?? 'neutral');
 }
 
 function shipment_log_event(PDO $pdo, int $shipmentId, string $eventType, ?string $notes = null): void

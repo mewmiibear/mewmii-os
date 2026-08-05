@@ -1,5 +1,6 @@
 <?php
 
+require_once __DIR__ . '/status_badge.php';
 require_once __DIR__ . '/inventory.php';
 require_once __DIR__ . '/product_variations.php';
 require_once __DIR__ . '/shipments.php';
@@ -142,15 +143,19 @@ function ship_request_status_emoji(string $status): string
  */
 function ship_request_status_badge(string $status): string
 {
-    $colors = [
-        'pending' => 'warning text-dark',
-        'processing' => 'info text-dark',
-        'shipped' => 'primary',
+    // V3 Phase 2.2: `pending` deliberately stays warning, unlike mewmii_orders' `pending`,
+    // which is neutral. They are different business states that share a word: an order that is
+    // pending needs nothing yet, whereas a pending ship request is waiting on staff -
+    // ship_request_next_action() returns 'Review Request' for exactly this status. Rendering it
+    // neutral would delete the queue's only "act on me" signal. See includes/status_badge.php.
+    $tokens = [
+        'pending' => 'warning',
+        'processing' => 'info',
+        'shipped' => 'success',
         'completed' => 'success',
     ];
-    $color = $colors[$status] ?? 'secondary';
 
-    return '<span class="badge bg-' . $color . '">' . htmlspecialchars(ship_request_status_label($status), ENT_QUOTES, 'UTF-8') . '</span>';
+    return status_badge(ship_request_status_label($status), $tokens[$status] ?? 'neutral');
 }
 
 /**

@@ -159,6 +159,82 @@
     border-color: var(--border-strong);
 }
 
+/* --- Inline Bootstrap-classed badges (V3 Phase 2.2) --------------------------------
+   106 badges across 33 view files are written inline as `badge bg-success` and friends
+   rather than going through one of the status helpers. Migrating only the helpers would
+   have left those on saturated stock Bootstrap colours sitting directly beside the tinted
+   scale above - leaving the app looking MORE mixed than before this phase, not less.
+
+   So the Bootstrap semantic classes are remapped onto the same five tokens. `!important`
+   is required because Bootstrap's own .bg-* utilities carry it; the colour needs no
+   `!important` because `.badge.bg-x` (0,2,0) already outranks Bootstrap's `.badge` (0,1,0).
+   An inline `text-dark` still wins over the colour here - that is fine and legible, since
+   every background below is a pale tint.
+
+   `.bg-primary` maps to info rather than a pink: brand pink is for actions, never status.
+   Scoped to `.badge` throughout, so `bg-white` on the navbar and `bg-light` elsewhere are
+   untouched. */
+.badge {
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+    letter-spacing: 0;
+    padding: 0.25rem 0.625rem;
+    border-radius: var(--radius-full);
+}
+
+.badge.bg-secondary {
+    background-color: var(--neutral-tint) !important;
+    color: var(--neutral);
+}
+
+.badge.bg-info {
+    background-color: var(--info-tint) !important;
+    color: var(--info);
+}
+
+.badge.bg-primary {
+    background-color: var(--info-tint) !important;
+    color: var(--info);
+}
+
+.badge.bg-warning {
+    background-color: var(--warning-tint) !important;
+    color: var(--warning);
+}
+
+.badge.bg-success {
+    background-color: var(--success-tint) !important;
+    color: var(--success);
+}
+
+.badge.bg-danger {
+    background-color: var(--danger-tint) !important;
+    color: var(--danger);
+}
+
+.badge.bg-dark {
+    background-color: var(--neutral-tint) !important;
+    color: var(--text);
+}
+
+.badge.bg-light {
+    background-color: var(--neutral-tint) !important;
+    color: var(--neutral);
+}
+
+/* Count badge - an attention signal, not a status. The tinted scale above is right for
+   "what state is this record in" but wrong for "N things are waiting for you": the sidebar's
+   unread-notification counter needs to stay salient at a glance, and demoting it to a pale
+   tint alongside every other badge would quietly cost it that. Solid --danger on white
+   measures 7.12:1. (--danger-accent, the brighter pink-red, only reaches 4.12:1 with white
+   and is deliberately not used here.) tabular-nums stops the pill resizing as the count
+   crosses 9 -> 10. */
+.badge.badge-count {
+    background-color: var(--danger) !important;
+    color: var(--text-on-brand);
+    font-variant-numeric: tabular-nums;
+}
+
 /* --- Page header (Title / Description / Primary actions) - the top of every module
    list page. Markup stays the existing `d-flex justify-content-between` row already
    used everywhere; these classes just standardise the spacing/typography instead of
