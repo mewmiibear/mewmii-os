@@ -205,7 +205,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1"><?php echo app_escape($customer['name']); ?></h2>
+        <h1 class="mb-1"><?php echo app_escape($customer['name']); ?></h1>
         <p class="text-muted mb-0"><?php echo app_escape($customer['email'] ?? '-'); ?> &middot; <?php echo app_escape($customer['phone'] ?? '-'); ?></p>
     </div>
     <div class="d-flex gap-2">

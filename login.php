@@ -126,7 +126,7 @@ require_once __DIR__ . '/includes/header.php';
 
         <div class="card p-4">
 
-            <h2 class="mb-3">Welcome back</h2>
+            <h1 class="mb-3">Welcome back</h1>
 
             <p class="text-muted">
                 Sign in to Mewmii OS Admin.

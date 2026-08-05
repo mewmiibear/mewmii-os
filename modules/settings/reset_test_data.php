@@ -245,7 +245,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1">Reset Test Data</h2>
+        <h1 class="mb-1">Reset Test Data</h1>
         <p class="text-muted mb-0">Development-mode tool: permanently wipes Mewmii's operational data so the system can go live with a clean slate.</p>
     </div>
 </div>

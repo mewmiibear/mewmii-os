@@ -111,7 +111,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1">Shipping Rates</h2>
+        <h1 class="mb-1">Shipping Rates</h1>
         <p class="text-muted mb-0">Configurable RM/gram international shipping rate per origin country, used by the Pricing Intelligence estimate on products.</p>
     </div>
     <div class="d-flex gap-2">

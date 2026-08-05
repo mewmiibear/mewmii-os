@@ -153,10 +153,10 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="page-header d-flex justify-content-between align-items-center">
     <div>
-        <h2 class="mb-1">
+        <h1 class="mb-1">
             Ship Request <?php echo app_escape($shipRequest['request_number'] ?? ('#' . $shipRequest['id'])); ?>
             <?php echo ship_request_status_badge($shipRequest['status']); ?>
-        </h2>
+        </h1>
         <p class="page-description"><?php echo app_escape($shipRequest['customer_name']); ?> &middot; <?php echo app_escape($shipRequest['customer_email'] ?? '-'); ?></p>
     </div>
     <a class="btn btn-outline-secondary btn-sm" href="/modules/ship-my-box/index.php">Back to Ship My Box</a>

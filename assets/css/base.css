@@ -1,14 +1,82 @@
 /* ==============================================================================
    Mewmii OS - Base element defaults
-   V3 Phase 1: extracted verbatim from includes/header.php.
+   V3 Phase 2.4 applies the type scale defined in tokens.css.
    ============================================================================== */
 
 body {
     background: var(--bg);
     color: var(--text);
+    font-family: var(--font-sans);
+    font-size: var(--font-size-body);
+    line-height: var(--line-height-body);
 }
 
 .navbar-brand {
     color: var(--brand) !important;
-    font-weight: 700;
+    font-weight: var(--font-weight-bold);
+}
+
+/* --- Heading scale (V3 Phase 2.4) --------------------------------------------------
+   The application had NO <h1> anywhere: every page title was an <h2>, and headings then
+   jumped straight to <h5>, skipping two levels. Phase 2.4 promotes page titles to <h1>
+   and gives every level an explicit size, so weight comes from the scale rather than
+   from whichever Bootstrap default a tag happened to inherit.
+
+   h5/h6 are still styled as section headings because ~185 card sections use <h5> today.
+   Moving those to <h2> is a markup change belonging with Phase 4's card restructuring,
+   not here - so for now the heading LEVEL is imperfect (h1 -> h5) while the visual
+   hierarchy is correct. Sizing them here means that later promotion is invisible. */
+h1,
+.h1 {
+    font-size: var(--font-size-page-title);
+    line-height: var(--line-height-tight);
+    font-weight: var(--font-weight-bold);
+    color: var(--text);
+}
+
+h2,
+.h2 {
+    font-size: var(--font-size-section);
+    line-height: var(--line-height-heading);
+    font-weight: var(--font-weight-medium);
+    color: var(--text);
+}
+
+h3,
+.h3,
+h4,
+.h4 {
+    font-size: var(--font-size-card-title);
+    line-height: var(--line-height-heading);
+    font-weight: var(--font-weight-medium);
+    color: var(--text);
+}
+
+h5,
+.h5,
+h6,
+.h6 {
+    font-size: var(--font-size-section);
+    line-height: var(--line-height-heading);
+    font-weight: var(--font-weight-medium);
+    color: var(--text);
+}
+
+/* Bootstrap's .small is 0.875em, which compounds against an already-14px body. Pin it to
+   the scale so "secondary text" is one size everywhere rather than depending on nesting. */
+.small,
+small {
+    font-size: var(--font-size-secondary);
+}
+
+.text-muted {
+    color: var(--text-muted) !important;
+}
+
+/* Money and quantities only line up column-wise with tabular figures - without this,
+   digits are proportionally spaced and a column of totals reads visibly ragged. */
+.table td,
+.table th,
+.stat-value {
+    font-variant-numeric: tabular-nums;
 }

@@ -531,7 +531,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="page-header d-flex justify-content-between align-items-center">
     <div>
-        <h2 class="mb-1">
+        <h1 class="mb-1">
             Supplier Order <?php echo app_escape($order['purchase_number']); ?>
             <?php echo supplier_order_status_badge($order['status']); ?>
             <?php if (!empty($order['is_historical'])): ?>
@@ -540,7 +540,7 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php if ($isOverdue): ?>
                 <span class="badge bg-danger">Overdue by <?php echo (int) $daysOverdue; ?> day<?php echo $daysOverdue === 1 ? '' : 's'; ?></span>
             <?php endif; ?>
-        </h2>
+        </h1>
         <p class="page-description">
             <?php if ($canViewSuppliers): ?>
                 <a href="/modules/suppliers/view.php?id=<?php echo (int) $order['supplier_id']; ?>"><?php echo app_escape($order['supplier_name']); ?></a>

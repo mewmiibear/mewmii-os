@@ -142,7 +142,7 @@ unset($_SESSION['orders_bulk_result']);
 ?>
 <div class="page-header d-flex justify-content-between align-items-center">
     <div>
-        <h2 class="mb-1">Orders</h2>
+        <h1 class="mb-1">Orders</h1>
         <p class="page-description">
             WooCommerce and internal order tracking foundation.
             <?php if ($filterProductId !== null): ?>

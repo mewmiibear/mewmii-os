@@ -267,7 +267,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1">WooCommerce Sync</h2>
+        <h1 class="mb-1">WooCommerce Sync</h1>
         <p class="text-muted mb-0">Import orders and products between mewmiibear.com and Mewmii OS. Manual/scheduled polling below, plus an optional webhook receiver (Webhooks section) for near-real-time updates.</p>
     </div>
     <div class="action-bar">

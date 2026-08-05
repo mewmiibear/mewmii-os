@@ -133,7 +133,7 @@ function product_import_render_error_table(array $errors): void
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1">Import Products</h2>
+        <h1 class="mb-1">Import Products</h1>
         <p class="text-muted mb-0">CSV only. Every row is validated before anything is created - nothing is imported until you confirm the preview.</p>
     </div>
     <a class="btn btn-outline-secondary btn-sm" href="/modules/products/index.php">Back to Products</a>

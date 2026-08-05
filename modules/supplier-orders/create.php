@@ -198,7 +198,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1">New Supplier Order</h2>
+        <h1 class="mb-1">New Supplier Order</h1>
         <p class="text-muted mb-0">Create a purchase order and mark the ordered stock as incoming.</p>
     </div>
     <a class="btn btn-outline-secondary btn-sm" href="/modules/supplier-orders/index.php">Back to Supplier Orders</a>

@@ -48,7 +48,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="page-header d-flex justify-content-between align-items-center">
     <div>
-        <h2 class="mb-1"><i class="bi bi-graph-up"></i> Demand Forecast</h2>
+        <h1 class="mb-1"><i class="bi bi-graph-up"></i> Demand Forecast</h1>
         <p class="page-description">Simple, explainable reorder timing from sales velocity, supplier lead time, and safety stock - not a prediction model.</p>
     </div>
 </div>

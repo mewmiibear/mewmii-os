@@ -298,7 +298,7 @@ require_once __DIR__ . '/includes/header.php';
 ?>
 
 <div class="mb-4">
-    <h3 class="mb-1">Dashboard</h3>
+    <h1 class="mb-1">Dashboard</h1>
     <p class="text-muted small mb-0">What's broken, what to do next, and how business is today.</p>
 </div>
 

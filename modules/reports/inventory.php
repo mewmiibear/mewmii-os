@@ -153,7 +153,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="page-header d-flex justify-content-between align-items-center">
     <div>
-        <h2 class="mb-1"><i class="bi bi-graph-up"></i> Inventory Intelligence</h2>
+        <h1 class="mb-1"><i class="bi bi-graph-up"></i> Inventory Intelligence</h1>
         <p class="page-description">Dead stock, fast movers, and capital tied up in ready-stock inventory - a risk indicator, not a forecast.</p>
     </div>
 </div>

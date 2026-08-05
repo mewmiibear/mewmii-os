@@ -186,7 +186,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="page-header d-flex justify-content-between align-items-center">
     <div>
-        <h2 class="mb-1"><i class="bi bi-graph-up-arrow"></i> Margin Report</h2>
+        <h1 class="mb-1"><i class="bi bi-graph-up-arrow"></i> Margin Report</h1>
         <p class="page-description">Selling price vs. true landed cost, per product - built entirely from the Product Cost Engine, not recalculated here.</p>
     </div>
 </div>

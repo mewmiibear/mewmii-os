@@ -12,7 +12,7 @@ $sections = global_search($pdo, $term, $limitPerType);
 require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="mb-4">
-    <h2 class="mb-1">Search Results</h2>
+    <h1 class="mb-1">Search Results</h1>
     <p class="text-muted mb-0">
         <?php if ($term !== ''): ?>
             Results for "<?php echo app_escape($term); ?>"

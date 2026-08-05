@@ -294,7 +294,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="page-header d-flex justify-content-between align-items-center">
     <div>
-        <h2 class="mb-1">Purchasing</h2>
+        <h1 class="mb-1">Purchasing</h1>
         <p class="page-description">What to reorder, based on current stock, reservations, and incoming supplier orders.</p>
     </div>
 </div>

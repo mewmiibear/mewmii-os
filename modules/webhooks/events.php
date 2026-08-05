@@ -106,7 +106,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1">Webhook Events</h2>
+        <h1 class="mb-1">Webhook Events</h1>
         <p class="text-muted mb-0">Inbound WooCommerce webhook deliveries and their processing status.</p>
     </div>
     <div class="d-flex gap-2">

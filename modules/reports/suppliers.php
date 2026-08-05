@@ -120,7 +120,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="page-header d-flex justify-content-between align-items-center">
     <div>
-        <h2 class="mb-1"><i class="bi bi-truck"></i> Supplier Performance</h2>
+        <h1 class="mb-1"><i class="bi bi-truck"></i> Supplier Performance</h1>
         <p class="page-description">Order volume, spending, and delivery reliability per supplier - built entirely from existing Supplier Order records.</p>
     </div>
 </div>

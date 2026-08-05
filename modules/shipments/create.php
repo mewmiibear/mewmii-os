@@ -185,7 +185,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1">Create Shipment</h2>
+        <h1 class="mb-1">Create Shipment</h1>
         <p class="text-muted mb-0">
             <?php if ($order !== null): ?>
                 From order <?php echo app_escape(order_display_number_compact($order['order_number'])); ?> (<?php echo app_escape($order['customer_name']); ?>) - only reserved/stored, not-yet-shipped items are shown.

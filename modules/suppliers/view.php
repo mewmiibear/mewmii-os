@@ -103,7 +103,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1"><?php echo app_escape($supplier['name']); ?></h2>
+        <h1 class="mb-1"><?php echo app_escape($supplier['name']); ?></h1>
         <p class="text-muted mb-0"><?php echo app_escape($supplier['country'] ?? '-'); ?></p>
     </div>
     <div class="d-flex gap-2">
@@ -137,16 +137,16 @@ require_once __DIR__ . '/../../includes/header.php';
         <div class="col-lg-5">
             <div class="row g-4 h-100">
                 <div class="col-sm-6 col-lg-12">
-                    <div class="card p-4">
-                        <h6 class="text-muted mb-2">Total Supplier Orders</h6>
-                        <h2 class="fw-bold mb-0"><?php echo (int) $summary['total_orders']; ?></h2>
+                    <div class="card stat-card p-4">
+                        <div class="stat-label">Total Supplier Orders</div>
+                        <div class="stat-value"><?php echo (int) $summary['total_orders']; ?></div>
                     </div>
                 </div>
                 <div class="col-sm-6 col-lg-12">
-                    <div class="card p-4">
-                        <h6 class="text-muted mb-2">Total Purchase Value</h6>
-                        <h2 class="fw-bold mb-0">RM <?php echo app_escape(number_format((float) $summary['total_value'], 2)); ?></h2>
-                        <p class="text-muted small mb-0">Excludes cancelled orders</p>
+                    <div class="card stat-card p-4">
+                        <div class="stat-label">Total Purchase Value</div>
+                        <div class="stat-value">RM <?php echo app_escape(number_format((float) $summary['total_value'], 2)); ?></div>
+                        <p class="stat-helper mb-0">Excludes cancelled orders</p>
                     </div>
                 </div>
             </div>

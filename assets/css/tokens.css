@@ -108,6 +108,9 @@
     --font-size-label: 0.75rem;
     /* 12px / 600 uppercase */
 
+    --font-size-stat: 1.9rem;
+    /* 30px / 700 - display figure on stat cards, deliberately above the text scale */
+
     --line-height-tight: 1.25;
     --line-height-heading: 1.4;
     --line-height-body: 1.5;

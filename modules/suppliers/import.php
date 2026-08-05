@@ -100,7 +100,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1">Import Suppliers</h2>
+        <h1 class="mb-1">Import Suppliers</h1>
         <p class="text-muted mb-0">CSV only. Every row is validated first - the whole file is rejected if any row fails.</p>
     </div>
     <a class="btn btn-outline-secondary btn-sm" href="/modules/suppliers/index.php">Back to Suppliers</a>

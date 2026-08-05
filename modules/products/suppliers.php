@@ -106,7 +106,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="page-header d-flex justify-content-between align-items-center">
     <div>
-        <h2 class="mb-1">Suppliers</h2>
+        <h1 class="mb-1">Suppliers</h1>
         <p class="page-description"><?php echo app_escape($product['name']); ?> &middot; <?php echo app_escape($product['sku']); ?></p>
     </div>
     <a class="btn btn-outline-secondary btn-sm" href="/modules/products/view.php?id=<?php echo (int) $productId; ?>">Back to Product</a>

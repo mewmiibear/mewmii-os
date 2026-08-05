@@ -573,7 +573,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="page-header d-flex justify-content-between align-items-center">
     <div>
-        <h2 class="mb-1">Inventory</h2>
+        <h1 class="mb-1">Inventory</h1>
         <p class="page-description">Current stock at a glance - adjustments and history stay one click away.</p>
     </div>
     <div class="action-bar">

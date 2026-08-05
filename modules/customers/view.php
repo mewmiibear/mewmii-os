@@ -115,7 +115,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1"><?php echo app_escape(app_customer_display_name($customer)); ?></h2>
+        <h1 class="mb-1"><?php echo app_escape(app_customer_display_name($customer)); ?></h1>
         <p class="text-muted mb-0">
             <?php echo app_escape($customer['email'] ?? '-'); ?> &middot; <?php echo app_escape($customer['phone'] ?? '-'); ?>
             <?php if (!empty($customer['instagram_username'])): ?> &middot; @<?php echo app_escape($customer['instagram_username']); ?><?php endif; ?>

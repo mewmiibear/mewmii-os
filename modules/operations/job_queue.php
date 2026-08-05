@@ -116,7 +116,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1">Job Queue</h2>
+        <h1 class="mb-1">Job Queue</h1>
         <p class="text-muted mb-0">Background outbound jobs (WooCommerce sync and future integrations) - queued by the app, executed by cli/job_worker.php.</p>
     </div>
     <div class="d-flex gap-2">

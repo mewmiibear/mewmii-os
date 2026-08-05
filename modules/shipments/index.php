@@ -173,7 +173,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="page-header d-flex justify-content-between align-items-center">
     <div>
-        <h2 class="mb-1"><i class="bi bi-send"></i> Shipments</h2>
+        <h1 class="mb-1"><i class="bi bi-send"></i> Shipments</h1>
         <p class="page-description">Every physical package leaving the warehouse - from orders, Ship My Box requests, or manual (replacement/warranty).</p>
     </div>
     <?php if ($canManage): ?>

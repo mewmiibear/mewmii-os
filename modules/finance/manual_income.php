@@ -79,7 +79,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="page-header d-flex justify-content-between align-items-center">
     <div>
-        <h2 class="mb-1">Manual Income</h2>
+        <h1 class="mb-1">Manual Income</h1>
         <p class="page-description">Record non-order income only (asset sale, grant, or other one-off income).</p>
     </div>
     <a class="btn btn-outline-secondary btn-sm" href="/modules/finance/index.php">Back to Expenses</a>

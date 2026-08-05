@@ -31,7 +31,7 @@ $productFormCssVersion = is_file($productFormCssPath) ? filemtime($productFormCs
 <div class="pf-page">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <h2 class="mb-1">
+            <h1 class="mb-1">
                 <?php echo $isEdit ? 'Edit Product' : 'Add Product'; ?>
                 <?php if ($isEdit): ?>
                     <?php if (isset($_GET['debug_lifecycle'])): ?>
@@ -60,7 +60,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                     <?php endif; ?>
                     <?php echo catalog_lifecycle_badge($product); ?>
                 <?php endif; ?>
-            </h2>
+            </h1>
             <p class="text-muted mb-0">
                 <?php echo $isEdit ? app_escape($product['sku']) : 'Create a new product in the catalog.'; ?>
                 <?php if ($isEdit): ?>

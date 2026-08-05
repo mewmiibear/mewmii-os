@@ -59,7 +59,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="page-header d-flex justify-content-between align-items-center">
     <div>
-        <h2 class="mb-1"><?php echo app_escape($expense['description']); ?></h2>
+        <h1 class="mb-1"><?php echo app_escape($expense['description']); ?></h1>
         <p class="page-description">
             <span class="badge <?php echo $statusBadgeClass[$expense['status']]; ?>"><?php echo app_escape($statusLabels[$expense['status']]); ?></span>
         </p>

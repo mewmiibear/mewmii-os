@@ -137,10 +137,10 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="page-header d-flex justify-content-between align-items-center">
     <div>
-        <h2 class="mb-1">
+        <h1 class="mb-1">
             Shipment <?php echo app_escape($shipment['shipment_number']); ?>
             <?php echo shipment_status_badge($shipment['shipping_status']); ?>
-        </h2>
+        </h1>
         <p class="page-description"><?php echo app_escape($shipment['customer_name']); ?> &middot; <?php echo app_escape($shipment['customer_email'] ?? '-'); ?></p>
     </div>
     <a class="btn btn-outline-secondary btn-sm" href="/modules/shipments/index.php">Back to Shipments</a>

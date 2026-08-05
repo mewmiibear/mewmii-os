@@ -14,8 +14,8 @@
    $navActive()'s logic in the PHP below is unchanged - only which CSS class receives
    the resulting " active" string changed (was .btn-light.active, now .nav-link.active). */
 .sidebar .nav-section-label {
-    font-size: 0.72rem;
-    font-weight: 700;
+    font-size: var(--font-size-label);
+    font-weight: var(--font-weight-medium);
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.04em;
@@ -33,7 +33,7 @@
     padding: 0.5rem 0.75rem;
     border-radius: var(--radius-sm);
     color: var(--text);
-    font-size: 0.92rem;
+    font-size: var(--font-size-body);
     border-left: 3px solid transparent;
 }
 
@@ -45,12 +45,12 @@
 .sidebar .nav-link.active {
     background: var(--brand-tint);
     color: var(--brand-hover);
-    font-weight: 600;
+    font-weight: var(--font-weight-medium);
     border-left-color: var(--brand);
 }
 
 .sidebar .nav-link i {
-    font-size: 0.95rem;
+    font-size: var(--font-size-body);
     width: 1.1rem;
     text-align: center;
     flex-shrink: 0;
@@ -58,7 +58,7 @@
 
 .sidebar .nav-link.nav-link-sub {
     padding-left: 2.1rem;
-    font-size: 0.85rem;
+    font-size: var(--font-size-secondary);
     color: var(--text-muted);
 }
 

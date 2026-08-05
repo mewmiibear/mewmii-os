@@ -65,7 +65,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="page-header d-flex justify-content-between align-items-center">
     <div>
-        <h2 class="mb-1">Edit Expense</h2>
+        <h1 class="mb-1">Edit Expense</h1>
     </div>
     <a class="btn btn-outline-secondary btn-sm" href="/modules/finance/view.php?id=<?php echo (int) $expenseId; ?>">Back to Expense</a>
 </div>

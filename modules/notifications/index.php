@@ -100,7 +100,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="page-header d-flex justify-content-between align-items-center">
     <div>
-        <h2 class="mb-1"><i class="bi bi-bell"></i> Notifications</h2>
+        <h1 class="mb-1"><i class="bi bi-bell"></i> Notifications</h1>
         <p class="page-description">Operational alerts generated from Inventory Risk, Cost Increases, Supplier Delays, and Overdue Supplier Orders.</p>
     </div>
     <div class="action-bar">

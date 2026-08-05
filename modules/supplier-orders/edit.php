@@ -245,7 +245,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1">Edit Supplier Order <?php echo app_escape($order['purchase_number']); ?></h2>
+        <h1 class="mb-1">Edit Supplier Order <?php echo app_escape($order['purchase_number']); ?></h1>
         <p class="text-muted mb-0"><?php echo supplier_order_status_badge($order['status']); ?></p>
     </div>
     <a class="btn btn-outline-secondary btn-sm" href="/modules/supplier-orders/view.php?id=<?php echo (int) $orderId; ?>">Back to Order</a>

@@ -106,7 +106,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1">
+        <h1 class="mb-1">
             <?php echo app_escape($product['name']); ?>
             <?php if (isset($_GET['debug_lifecycle'])): ?>
                 <?php
@@ -133,7 +133,7 @@ computed stage: <?php echo var_export($debugViewStage, true); ?>
 </pre>
             <?php endif; ?>
             <?php echo catalog_lifecycle_badge($product); ?>
-        </h2>
+        </h1>
         <p class="text-muted mb-0">
             <?php echo app_escape($product['sku']); ?>
             &middot; <?php echo app_escape(catalog_status_dot($product['status'])); ?>

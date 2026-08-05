@@ -163,7 +163,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="page-header d-flex justify-content-between align-items-center">
     <div>
-        <h2 class="mb-1">Purchase Planning</h2>
+        <h1 class="mb-1">Purchase Planning</h1>
         <p class="page-description">Products where Need &gt; 0, grouped by supplier. Order Qty is pre-filled MOQ-rounded - review and adjust before generating.</p>
     </div>
     <div class="action-bar">

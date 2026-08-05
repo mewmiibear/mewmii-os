@@ -71,7 +71,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1">System Health</h2>
+        <h1 class="mb-1">System Health</h1>
         <p class="text-muted mb-0">Checks whether the database actually has what this codebase currently expects - read-only, changes nothing.</p>
     </div>
 </div>

@@ -166,7 +166,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1">Sales Report</h2>
+        <h1 class="mb-1">Sales Report</h1>
         <p class="text-muted mb-0">Best selling products and sales totals - paid, non-cancelled orders only.</p>
     </div>
 </div>

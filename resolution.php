@@ -36,7 +36,7 @@ if ($resolution === null) {
     <div class="row justify-content-center">
         <div class="col-lg-6">
             <div class="card p-4">
-                <h2 class="mb-3">Link not valid</h2>
+                <h1 class="mb-3">Link not valid</h1>
                 <p class="text-muted">This resolution link is invalid or has expired. Please contact us for a new link.</p>
             </div>
         </div>
@@ -127,7 +127,7 @@ require_once __DIR__ . '/includes/header.php';
 <div class="row justify-content-center">
     <div class="col-lg-8">
         <div class="card p-4 mb-4">
-            <h2 class="mb-1">Order Resolution</h2>
+            <h1 class="mb-1">Order Resolution</h1>
             <p class="text-muted mb-0">Order <?php echo app_escape($order['order_number'] ?? ('#' . (int) $resolution['order_id'])); ?></p>
             <?php if (!empty($resolution['reason'])): ?>
                 <p class="text-muted small mb-0">Reason: <?php echo app_escape($resolution['reason']); ?></p>

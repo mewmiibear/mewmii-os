@@ -194,7 +194,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1">Import Historical Orders</h2>
+        <h1 class="mb-1">Import Historical Orders</h1>
         <p class="text-muted mb-0">CSV only, one row per order item - rows sharing the same order_number become one order. Never reserves/ships/releases inventory.</p>
     </div>
     <a class="btn btn-outline-secondary btn-sm" href="/modules/orders/index.php">Back to Orders</a>

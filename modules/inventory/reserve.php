@@ -236,7 +236,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1">Reserve Available Stock</h2>
+        <h1 class="mb-1">Reserve Available Stock</h1>
         <p class="text-muted mb-0">
             <?php echo app_escape($sku); ?> &mdash; <?php echo app_escape($product['name']); ?>
             <?php if ($variationLabel !== ''): ?>

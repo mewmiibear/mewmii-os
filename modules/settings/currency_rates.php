@@ -222,7 +222,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1">Currency Rates</h2>
+        <h1 class="mb-1">Currency Rates</h1>
         <p class="text-muted mb-0">Manage supplier, original, and market exchange rates for each currency from one place.</p>
     </div>
     <div class="d-flex gap-2">

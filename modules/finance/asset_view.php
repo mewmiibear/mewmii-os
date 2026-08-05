@@ -64,7 +64,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="page-header d-flex justify-content-between align-items-center">
     <div>
-        <h2 class="mb-1"><?php echo app_escape($asset['name']); ?></h2>
+        <h1 class="mb-1"><?php echo app_escape($asset['name']); ?></h1>
         <p class="page-description">
             <?php if (!empty($asset['asset_code'])): ?>
                 <span class="text-muted me-2"><?php echo app_escape($asset['asset_code']); ?></span>

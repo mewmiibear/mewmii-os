@@ -147,7 +147,7 @@ require_once __DIR__ . '/../../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="mb-1">New Ship Request</h2>
+        <h1 class="mb-1">New Ship Request</h1>
         <p class="text-muted mb-0">Select a customer, then choose which stored items to ship.</p>
     </div>
     <a class="btn btn-outline-secondary btn-sm" href="/modules/ship-my-box/index.php">Back to Ship My Box</a>
