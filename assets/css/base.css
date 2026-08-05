@@ -1,0 +1,14 @@
+/* ==============================================================================
+   Mewmii OS - Base element defaults
+   V3 Phase 1: extracted verbatim from includes/header.php.
+   ============================================================================== */
+
+body {
+    background: var(--neutral-bg);
+    color: var(--text-main);
+}
+
+.navbar-brand {
+    color: var(--mewmii-pink) !important;
+    font-weight: 700;
+}

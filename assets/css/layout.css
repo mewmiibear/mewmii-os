@@ -1,0 +1,142 @@
+/* ==============================================================================
+   Mewmii OS - Layout (sidebar, drawer container, global responsive)
+   V3 Phase 1: extracted verbatim from includes/header.php.
+   ============================================================================== */
+
+.sidebar {
+    background: var(--base-white);
+    border-right: 1px solid var(--neutral-border);
+    min-height: 100vh;
+}
+
+/* --- Sidebar nav links (UI/UX Phase 5A) - flat text + icon rows instead of stacked
+   Bootstrap buttons, grouped under small uppercase section labels for scan-ability.
+   $navActive()'s logic in the PHP below is unchanged - only which CSS class receives
+   the resulting " active" string changed (was .btn-light.active, now .nav-link.active). */
+.sidebar .nav-section-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 1.1rem 0 0.35rem 0.75rem;
+}
+
+.sidebar .nav-section-label:first-child {
+    margin-top: 0.25rem;
+}
+
+.sidebar .nav-link {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    color: var(--text-main);
+    font-size: 0.92rem;
+    border-left: 3px solid transparent;
+}
+
+.sidebar .nav-link:hover {
+    background: var(--neutral-bg);
+    color: var(--text-main);
+}
+
+.sidebar .nav-link.active {
+    background: var(--mewmii-pink-tint);
+    color: var(--mewmii-pink-hover);
+    font-weight: 600;
+    border-left-color: var(--mewmii-pink);
+}
+
+.sidebar .nav-link i {
+    font-size: 0.95rem;
+    width: 1.1rem;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.sidebar .nav-link.nav-link-sub {
+    padding-left: 2.1rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+/* --- Mobile sidebar drawer (Responsive Improvement pass) --------------------------
+   Desktop (>=992px) is completely untouched - .sidebar keeps its normal static
+   column behaviour (col-lg-2) exactly as before this block exists. Below 992px, the
+   same <aside class="sidebar"> element is pulled out of the row's flow and turned
+   into a fixed off-canvas drawer instead, toggled by #sidebar-toggle-btn via
+   assets/js/sidebar.js. Nothing about the sidebar's own links/markup/permissions
+   logic changed - only how it's positioned/shown on a narrow viewport. */
+@media (max-width: 991.98px) {
+    .sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 280px;
+        max-width: 82vw;
+        height: 100vh;
+        z-index: 1045;
+        transform: translateX(-100%);
+        transition: transform 0.25s ease;
+        box-shadow: 2px 0 16px rgba(0, 0, 0, 0.15);
+        overflow-y: auto;
+    }
+
+    .sidebar.is-open {
+        transform: translateX(0);
+    }
+}
+
+.sidebar-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(17, 17, 20, 0.45);
+    z-index: 1040;
+}
+
+.sidebar-backdrop.is-open {
+    display: block;
+}
+
+/* --- Drawer (Mewmii OS v2 Phase 2) - fixed width on tablet/desktop, matching the
+   global search dropdown's own max-width (line ~502); full-width below the same
+   575.98px breakpoint every other small-viewport rule below already uses, not a new
+   breakpoint value. */
+.app-drawer {
+    width: 420px;
+}
+
+/* --- Global responsive tweaks (Responsive Improvement pass) - small-viewport-only
+   spacing/width adjustments layered on top of existing desktop rules; nothing here
+   changes anything at >=992px, so desktop UI is unaffected. */
+@media (max-width: 575.98px) {
+    .navbar .container-fluid {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    main.p-4 {
+        padding: 1rem !important;
+    }
+
+    .card.p-4 {
+        padding: 1.1rem !important;
+    }
+
+    .page-header {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        margin-bottom: 1.25rem;
+    }
+
+    .page-header .action-bar {
+        justify-content: flex-start;
+    }
+
+    .app-drawer {
+        width: 100vw;
+    }
+}
