@@ -1,8 +1,8 @@
 # Mewmii OS V3 — Design System Specification & Implementation Plan
 
-**Status:** Phases 1 and 2 implemented and verified. Phase 3 not started — the ranking in §4 was
-re-derived in Phase 2.6 and is awaiting review, and §8.4 records an open decision that blocks the
-Phase 3 form work.
+**Status:** Phases 1 and 2 implemented and verified. Phase 2.6 review complete: the §4 ranking is
+approved, and §8.4 is decided (Option A, delivered inside Phase 3.1). Phase 3 is planned in §5 and
+awaiting go-ahead — no Phase 3 implementation has started.
 **Supersedes:** the roadmap section (§9) *and* the impact ranking (§8) of `V3_UIUX_AUDIT.md`. That
 document remains the evidence base; this document is the authoritative spec, ranking, and plan.
 Where the two disagree, this one is correct — see §6A.3 for why one of its findings was withdrawn.
@@ -340,16 +340,64 @@ Bulk actions follow `COMPONENT_LIBRARY_SPEC.md` §3: each bulk action **must** c
 | Layout | Single column, max-width 720px. Two columns only above 992px, and only for genuinely paired fields |
 | Label | Above input, 12/600 uppercase `--text-muted`, 4px gap |
 | Required | `*` in `--danger` after label text. Optional fields unmarked |
-| Input | 36px, 12px padding, `--radius-sm`, 1px `--border-strong` |
-| Focus | `--border-focus` + `0 0 0 3px rgba(52,114,239,.15)` |
 | Helper | 13px `--text-muted`, below input |
-| Error | 1px `--danger` border + 13px `--danger` message below + summary `.alert-danger` at top |
-| Success | No green fields — a toast or redirect confirms |
 | Sections | `<h2>` 16/600 + `--border` divider + 32px spacing |
 | Section nav | Required above ~20 fields (see §7 for `products/_form.php`) |
 | Actions | Bottom-left: Primary submit, Ghost cancel. Sticky footer if the form exceeds one viewport |
 
 Validation extends `entry-form-validation.js` (already on 10 pages) rather than introducing a new library.
+
+#### 2.11.1 Control states — the complete set
+
+**Decided in Phase 2.6 (§8.4, Option A); implemented as one unit in Phase 3.** Every value below
+is measured, not estimated. A text input is empty by definition, so its **border is the only
+thing identifying it as a control** — which is why WCAG 1.4.11's 3:1 applies here with no room to
+argue, and why these states are specified together rather than one at a time.
+
+| State | Border | Fill | Text | Boundary contrast |
+|---|---|---|---|---|
+| **Resting** | 1px `--border-input` `#848890` | `--surface` | `--text` | **3.56:1** ✅ |
+| **Hover** | 1px `--text-muted` `#6B6F76` | `--surface` | `--text` | 5.05:1 ✅ |
+| **Focus** | 1px `--border-focus` `#3472EF` + 3px ring | `--surface` | `--text` | **4.38:1** ✅ |
+| **Invalid** | 1px `--danger` `#A32458` + message below | `--surface` | `--text` | 7.12:1 ✅ |
+| **Readonly** | 1px `--border-input` `#848890` | `--bg` `#F6F6F7` | `--text` | **3.29:1** ✅ |
+| **Disabled** | 1px `--border` `#E3E3E3` | `--bg` `#F6F6F7` | `--text-muted` | 1.28:1 — **exempt** |
+| **Placeholder** | — | — | `--text-muted` `#6B6F76` | 5.05:1 ✅ |
+
+**Why `#848890` and not the `#8C9196` named in Option A.** `#8C9196` measures 3.18:1 on white but
+only **2.94:1 on the `--bg` fill a readonly control uses** — so the same token would pass on one
+form control and fail on another. `#848890` clears 3:1 on both surfaces (3.56 / 3.29) with
+headroom. One token, correct everywhere.
+
+**Disabled is deliberately exempt.** WCAG 1.4.11 excludes inactive components, so a disabled
+control may — and should — recede. Readonly is *not* exempt: it remains focusable and its text
+selectable, so it carries the full 3:1 boundary.
+
+**Focus cannot rely on the ring.** The existing `--focus-ring` is `rgba(52,114,239,0.15)`, which
+composites to `#E0E9FC` over white — **1.22:1**, effectively invisible. Raising the alpha does not
+rescue it (0.45 still only reaches 1.85:1). So the focus indicator **is the border colour change**
+to `#3472EF` at 4.38:1; the ring is a supporting halo and never the sole signal. This satisfies
+WCAG 2.4.11 through the border, not the glow.
+
+**Placeholder text is text.** `--text-subtle` `#8C9196` measures 3.18:1 and fails the 4.5:1 needed
+for text, so placeholders take `--text-muted` `#6B6F76` (5.05:1). `--text-subtle` remains valid for
+decorative and non-essential content only.
+
+**Success has no green field.** A valid input looks like a resting input. Confirmation belongs to
+a toast or a redirect — colouring every satisfied field green produces a wall of noise and leaves
+nowhere for a genuine error to stand out.
+
+#### 2.11.2 Consequence for buttons — flagged, not yet decided
+
+`--border-strong` is currently shared by form controls **and** by `.btn-secondary`,
+`.btn-outline-secondary`, and `.btn-filter`. Those buttons have a white fill on a white card, so
+by the same argument their border is also the only thing identifying them, and they would also
+need 3:1.
+
+Raising them makes the toolbar visibly heavier — the cost Option A acknowledged. Phase 3 will
+introduce `--border-input` as a **separate token** so the form system can be made compliant
+without silently restyling every button in the app in the same commit. Whether buttons follow is
+a distinct decision, to be raised with a rendered comparison once forms are done.
 
 ### 2.12 Navigation
 
@@ -465,7 +513,7 @@ dozens of pages each and should be scheduled before individual page work.
 | C1 | **Confirmation dialogs** replacing native `confirm()` | 48 sites | High — "Delete supplier order" and "Mark Arrived" are currently indistinguishable | High | Medium |
 | C2 | **Mobile table stacking** | 43 of 61 table pages | High — a 26-column table is sideways-scrolled on a phone | High | Low |
 | C3 | **Pagination** on list pages that `LIMIT` without it | 38 pages | High — rows are silently unreachable | Medium | Medium |
-| C4 | **Form system** incl. the open border-contrast decision (§8.4) | app-wide | Medium | **High** — input borders are 1.37:1 vs the 3:1 required | Medium |
+| C4 | **Form control system** — all seven states as one unit (§2.11.1) | app-wide | Medium | **High** — input borders 1.37:1 vs 3:1 required | Medium |
 | C5 | **`.page-header` rollout** | 41 pages have an `<h1>` but no `.page-header` | Medium | Low | Low |
 | C6 | **Loading / pending states** | 0 exist | Medium — long syncs and imports give no feedback | Low | Low |
 | C7 | **Empty states** | 41 of ~88 list surfaces | Low | Low | Low |
@@ -549,25 +597,49 @@ Consolidated from the ten-phase V3.0–V3.9 draft. Each phase is independently r
 
 ### Phase 3 — Interaction & Density
 
-**Objective.** Fix how the application *behaves*: confirmations, feedback, tables, and the highest-friction pages.
+**Objective.** Fix how the application *behaves*: confirmations, form controls, tables, and
+feedback. **Re-scoped in Phase 2.6** — the ranking in §4 showed cross-cutting work outranks every
+individual page except the two record pages, so Phase 3 is now organised by *system*, not by page.
 
-**Scope.**
-- Confirmation dialog component; convert all 48 `confirm()` calls, destructive first.
-- Loading/pending states, generalized from `drawer.js`'s existing markup.
-- Table standard: header/spacing/hover/selected/alignment, 8-column cap, `.responsive-stack-table` by default, standard pagination on the 38 unpaginated list pages.
-- Extend `.filter-card` with active-filter chips.
-- **Highest-impact list pages (ranks 3, 4, 6, 8, 9):** reduce competing primaries, apply the table standard.
-- Merge the two `_item_picker_modal.php` partials.
+**Scope, in implementation order.** Each sub-phase is one commit followed by a `verify` run.
 
-**Files.** `assets/js/` (new confirm + loading; `product-form.js`'s native `alert`/`confirm` converted) · ~50 pages with tables · `modules/{orders,supplier-orders}/_item_picker_modal.php` · `modules/inventory/index.php`, `orders/index.php`, `products/index.php`, `shipments/index.php`, `ship-my-box/index.php`.
+| # | Sub-phase | Scale | Ref |
+|---|---|---|---|
+| **3.1** | **Form control system.** All seven states in one unit — resting, hover, focus, invalid, readonly, disabled, placeholder. Introduces `--border-input` `#848890`, fixes placeholder contrast, makes focus carry on the border rather than the ring. | app-wide CSS | §2.11.1, §8.4 |
+| **3.2** | **Confirmation dialog.** Replace all 48 native `confirm()`, destructive actions first, one module at a time. | 48 sites | §2.13 |
+| **3.3** | **Table system.** Header/spacing/hover/selected/alignment, 8-column cap, `.responsive-stack-table` as default. | 43 of 61 table pages | §2.10 |
+| **3.4** | **Pagination.** One component, applied to list pages that `LIMIT` without it. | 38 pages | §2.13 |
+| **3.5** | **Loading & pending states.** Generalised from `drawer.js`'s existing markup — button pending, skeletons, progress on long syncs and imports. | app-wide | §2.13 |
+| **3.6** | **`.page-header` rollout + `.filter-card` active-filter chips.** | 41 + 24 pages | §2.12 |
+| **3.7** | **Widest tables** — `reports/sales.php` (26), `customers/view.php` (24), `suppliers/view.php` (22), `purchasing/control-center.php` (21), `purchasing/index.php` (20). Column caps and drill-down; reports stay exempt from the cap but must stay scannable. | 5 pages | §4.3, §7 |
+| **3.8** | **Empty states, item-picker merge, the 99 inline `style=` attributes.** | long tail | §3 |
+
+**Removed from Phase 3 by the §4 re-ranking.** `inventory/index.php`, `orders/index.php`,
+`shipments/index.php`, and `ship-my-box/index.php` were listed here to "reduce competing
+primaries." That was the corrected artifact (§6A.3) — they have 1–3 real CTAs, and Phase 2.3
+already resolved the underlying colour overloading. They now receive ordinary list-page
+standardisation through 3.3, 3.4, and 3.6 like every other list.
+
+**Files.** `assets/css/` (form states, table system) · `assets/js/` (new confirm + loading;
+`product-form.js`'s native `alert`/`confirm` converted) · ~50 pages with tables · 41 pages for
+`.page-header` · `modules/{orders,supplier-orders}/_item_picker_modal.php`.
 
 **Risk: Medium.** Touches destructive action paths and changes how many rows a list shows.
 
-**Visual impact: High**, especially on mobile, where 43 tables stop scrolling sideways.
+**Visual impact: High.** Every form control in the app changes weight (3.1), and on mobile 43
+tables stop scrolling sideways (3.3).
 
-**Regression risk: Medium — the highest of any phase except 4.** Two specific hazards: (a) a converted `confirm()` must still submit the identical form to the identical action — a broken conversion could either block a legitimate action or, worse, allow a destructive one without confirmation; (b) adding pagination to a previously unpaginated list changes what the operator sees by default. Mitigation: convert confirmations one module at a time with the form's `action`/`method`/`name` attributes diffed before and after; verify paginated totals match pre-change row counts.
+**Regression risk: Medium — the highest of any phase except 4.** Three specific hazards:
+(a) a converted `confirm()` must still submit the identical form to the identical action — a
+broken conversion could block a legitimate action or, worse, allow a destructive one without
+confirmation; (b) adding pagination to a previously unpaginated list changes what the operator
+sees by default; (c) 3.1 restyles every input in the application at once, so a mistake there is
+visible everywhere rather than on one page. Mitigations: convert confirmations one module at a
+time with each form's `action`/`method`/`name` diffed before and after; verify paginated totals
+match pre-change row counts; run `verify` after every sub-phase, not only at the end of the phase.
 
-**Order: 3rd.**
+**Order: 3rd.** 3.1 goes first because §2.11.1's states are a single interlocking unit and every
+later sub-phase renders controls on top of them.
 
 ---
 
@@ -602,7 +674,7 @@ Consolidated from the ten-phase V3.0–V3.9 draft. Each phase is independently r
 |---|---|---|---|---|
 | 1 — Foundation | CSS extraction + tokens | Low | Minimal (intentional) | Low |
 | 2 — Visual Language | Badges, buttons, type, headers | Low–Med | High | Low |
-| 3 — Interaction & Density | Confirmations, loading, tables, top lists | Medium | High | **Medium** |
+| 3 — Interaction & Density | Form controls, confirmations, tables, pagination, feedback | Medium | High | **Medium** |
 | 4 — Structure | Record pages, forms, navigation | **High** | Very high | **High** |
 
 ---
@@ -722,9 +794,26 @@ This is a scheduling decision, not a detail — it should be settled before Phas
 6. Each phase ends with the V2 U2 audit format: files changed · actions moved/removed · remaining access paths · permission diff.
 7. Any change that turns out to require logic modification **stops and returns for approval** rather than proceeding.
 
-### 8.4 OPEN DECISION — input border contrast (blocks the Phase 3 form system)
+### 8.4 DECIDED — input border contrast (Option A, delivered in Phase 3)
 
-**Status: unresolved. Needs a decision before Phase 3 touches forms.**
+**Status: resolved in Phase 2.6 review. Option A approved.** The border system is raised to meet
+WCAG 1.4.11, and — per the approval — this is **not** a standalone Phase 2 change. It ships inside
+the Phase 3 form system as one unit together with the resting, hover, focus, validation, disabled,
+and readonly states, so the control never exists in a half-restyled state. The full specification
+with measured values is **§2.11.1**.
+
+Two refinements emerged while specifying it, both recorded there:
+
+- The token is **`#848890`, not the `#8C9196`** named in the option. `#8C9196` passes on white
+  (3.18:1) but fails on the grey fill a readonly control uses (2.94:1) — it would have been
+  compliant on some form controls and not others.
+- Two further failures surfaced in the same measurement pass: **placeholder text** at 3.18:1
+  (text needs 4.5:1) and the **focus ring** at 1.22:1 (so focus must be carried by the border
+  colour change, not the glow). Both are folded into the same phase.
+
+The original analysis follows, retained as the record of why Option A was chosen.
+
+---
 
 WCAG 1.4.11 requires **3:1** contrast for the visual boundary that identifies a UI component. A
 text input's border is exactly that. Measured against the white card surface:
@@ -751,8 +840,11 @@ The options:
 | **C. Keep the light border, add a filled input background** | Compliant via a different signal (fill rather than edge); a larger visual change than A. |
 | **D. Accept the gap and document it** | No visual change; the app knowingly fails 1.4.11 on every form control. |
 
-No option is free, which is why this is being raised rather than decided. It should be settled
-**before** the Phase 3 form work, not retrofitted after.
+No option is free, which is why this was raised rather than decided.
+
+**Outcome:** Option A was chosen at the Phase 2.6 review, with the implementation deferred into
+the Phase 3 form system rather than taken as a standalone Phase 2 change — see the top of this
+section and §2.11.1.
 
 ### 8.5 Sequencing rationale
 
