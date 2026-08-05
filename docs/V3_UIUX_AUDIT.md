@@ -1,6 +1,9 @@
 # Mewmii OS V3 — UI/UX Modernization Audit & Design Specification
 
-**Status:** Audit + design only. No implementation. Awaiting approval.
+**Status:** Evidence base. Phases 1–2 are implemented; this document records the audit as taken,
+with Phase 2.6 corrections marked inline.
+**Corrections applied in Phase 2.6:** §2.3 (the action-hierarchy finding was a measurement
+artifact) and §8 (superseded ranking). `V3_DESIGN_SYSTEM.md` is authoritative where the two differ.
 **Scope:** Presentation layer only. No DB, schema, permissions, business logic, routing, or API changes.
 **Governing documents this extends (does not replace):** `MEWMII_OS_V2_PLAN.md`, `DASHBOARD_PHILOSOPHY.md`, `COMPONENT_LIBRARY_SPEC.md`.
 
@@ -58,21 +61,55 @@ Two concrete semantic collisions:
 
 ### 2.3 Action hierarchy
 
+> **⚠️ CORRECTED IN PHASE 2.6.** The original version of this section claimed
+> `modules/inventory/index.php` had "9 competing primary buttons — the worst action hierarchy
+> in the app," and that claim propagated into the impact ranking in §8. **It was a measurement
+> artifact and it was wrong.** The raw `btn-primary` grep conflated four unrelated roles. The
+> corrected analysis is below; the original counts are kept in the right-hand columns so the
+> error is visible rather than quietly erased.
+
+`btn-primary` was doing four different jobs, and counting the class counted all four:
+
+1. a genuine page-level call to action ("New Order", "Adjust Stock");
+2. the **active state of a filter pill** — `$cond ? 'btn-primary' : 'btn-outline-secondary'`;
+3. a form submit ("Filter", "Save Adjustment", "Add Payment");
+4. a bulk-action submit.
+
+Measured per role, after Phase 2.3 moved filter pills onto `.btn-filter`:
+
+| Page | Real page CTAs | Form submits | Originally reported |
+|---|---:|---:|---:|
+| `modules/inventory/index.php` | **1** | 2 | 9 |
+| `modules/supplier-orders/view.php` | **0** | 6 | 6 |
+| `modules/orders/index.php` | 3 | 2 | 7 |
+| `modules/products/_form.php` | 3 | 5 | 8 |
+| `modules/shipments/index.php` | 2 | 3 | 5 |
+| `modules/ship-my-box/index.php` | 2 | 1 | 7 |
+| `modules/products/index.php` | 1 | 2 | 4 |
+
+**No page ever had nine competing calls to action.** `inventory/index.php` had one, plus six
+filter pills borrowing the CTA colour. `supplier-orders/view.php` has none at all — it is a page
+made of forms, and every "primary" on it is a submit button doing exactly its job.
+
+The real defect was **semantic overloading of brand pink**, not button proliferation — which is
+why Phase 2.3 fixed it by separating roles (`.btn-filter` for selection, dark-label `.btn-primary`
+for actions) rather than by demoting buttons that were never competing.
+
+Of the three remaining pages with 3 CTAs, most are a header button duplicated by an empty-state
+CTA, which is intentional and correct.
+
+What *was* accurate in the original audit:
+
 - 366 × `btn-sm`, 4 × `btn-lg` — no meaningful size scale.
-- 133 × `btn-outline-secondary` is the single most common button, so the default visual weight of an action is "de-emphasized."
-- Pages with 4+ competing `btn-primary`:
+- 269 × `btn-outline-secondary` is the single most common button, so the default visual weight of
+  an action is "de-emphasized." **(Resolved in Phase 2.3** — it is now the tokenised neutral
+  default rather than stock Bootstrap grey.)
+- No overflow-menu convention. The dropdown added in V2 U2 on `supplier-orders/index.php` is
+  still the **only** one in the codebase.
 
-  | Page | `btn-primary` count |
-  |---|---:|
-  | `modules/inventory/index.php` | 9 |
-  | `modules/products/_form.php` | 8 |
-  | `modules/ship-my-box/index.php` | 7 |
-  | `modules/orders/index.php` | 7 |
-  | `modules/supplier-orders/view.php` | 6 |
-  | `modules/shipments/index.php` | 5 |
-  | `modules/products/index.php` | 4 |
-
-- No overflow-menu convention. The dropdown added in V2 U2 on `supplier-orders/index.php` is currently the **only** one in the codebase.
+**Lesson recorded:** a CSS class is not a semantic role. Any count of `btn-*`, `badge bg-*`, or
+`<h2>` is an upper bound, not a finding, until each instance has been checked against what it is
+actually doing on the page. This was the single largest error in the original audit.
 
 ### 2.4 Density and hierarchy on record pages
 
@@ -264,12 +301,20 @@ Grouped by pattern. Every page inherits §3; only page-specific work is listed.
 
 Uniform treatment: standard `.page-header`; action bar reduced to ≤3 with overflow; `.filter-card` with active-filter chips; column cap of 8; `.responsive-stack-table` mandatory; pagination added; `.empty-state` for both empty and filtered-empty.
 
-Page-specific:
-- **`inventory/index.php`** — 9 primary buttons is the app's worst offender. Reduce to one (Adjust Stock); the quick-filter pill row (Need Ordering / Waiting Supplier / Low Stock) becomes a filter-chip group rather than buttons.
-- **`orders/index.php`** — 7 primary buttons → 1 (Create Order); bulk actions move into a selection toolbar that appears only when rows are checked.
+Page-specific *(corrected in Phase 2.6 — the button-count claims here were the artifact
+described in §2.3, and Phase 2.3 already resolved the underlying issue)*:
+
+- **`inventory/index.php`** — ~~9 primary buttons~~ **Resolved in Phase 2.3.** It had one CTA
+  plus six filter pills, which now use `.btn-filter`. Its remaining work is ordinary list-page
+  standardisation, not an action-hierarchy rescue.
+- **`orders/index.php`** — bulk actions move into a selection toolbar that appears only when rows
+  are checked. (The "7 primaries" figure was 3 CTAs + 2 pills + 2 submits.)
 - **`products/index.php`** — 14 columns → 8; 6 forms consolidated.
-- **`ship-my-box/index.php`** / **`shipments/index.php`** — 7 and 5 primary buttons → 1 each.
-- **`purchasing/index.php`** and **`purchasing/control-center.php`** — 20 and 21 columns; these are the two densest operational tables and need the column cap most.
+- **`ship-my-box/index.php`** / **`shipments/index.php`** — standard list treatment; their button
+  counts were also mostly pills and submits.
+- **`purchasing/index.php`** and **`purchasing/control-center.php`** — 20 and 21 columns; these
+  are the two densest operational tables and need the column cap most. **This finding survives
+  re-measurement unchanged and is now ranked higher than the pages above.**
 
 ### 4.2 Record/detail pages — the biggest wins
 
@@ -385,12 +430,17 @@ Priority follows `MEWMII_OS_V2_PLAN.md` §2: does it shorten one of the four cor
 
 Ranked by (clutter × operational frequency):
 
-| # | Screen | Why |
+> **⚠️ SUPERSEDED BY PHASE 2.6.** The authoritative ranking now lives in
+> **`V3_DESIGN_SYSTEM.md` §4**, re-derived from post-Phase-2 measurements against five explicit
+> factors. The table below is retained to show what changed: rank 4 was based on the corrected
+> `btn-primary` artifact and drops out entirely.
+
+| # | Screen | Why (original, uncorrected) |
 |---|---|---|
 | 1 | `orders/view.php` | 16 sections, 12 forms, 4 redundant payment sections. Highest-traffic record page. |
 | 2 | `supplier-orders/view.php` | 10 sections, 11 forms, 6 primaries. Owns receiving + reverse receiving — core workflow #1. |
 | 3 | `products/_form.php` | 71 fields, no navigation. |
-| 4 | `inventory/index.php` | 9 primary buttons — worst action hierarchy in the app. |
+| 4 | ~~`inventory/index.php`~~ | ~~9 primary buttons~~ — **withdrawn**, see §2.3. It has 1 CTA. |
 | 5 | `purchasing/control-center.php` + `purchasing/index.php` | 21 and 20 columns, no mobile stacking. |
 | 6 | `integrations/woocommerce.php` | 7 sections, 20 columns, 6 forms, no progress feedback on long syncs. |
 | 7 | `reports/sales.php` | 26 columns — widest table in the app. |

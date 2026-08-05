@@ -1,7 +1,11 @@
 # Mewmii OS V3 — Design System Specification & Implementation Plan
 
-**Status:** Design only. Awaiting approval. No implementation started.
-**Supersedes:** the roadmap section (§9) of `V3_UIUX_AUDIT.md`. That document remains the evidence base; this document is the authoritative spec and plan.
+**Status:** Phases 1 and 2 implemented and verified. Phase 3 not started — the ranking in §4 was
+re-derived in Phase 2.6 and is awaiting review, and §8.4 records an open decision that blocks the
+Phase 3 form work.
+**Supersedes:** the roadmap section (§9) *and* the impact ranking (§8) of `V3_UIUX_AUDIT.md`. That
+document remains the evidence base; this document is the authoritative spec, ranking, and plan.
+Where the two disagree, this one is correct — see §6A.3 for why one of its findings was withdrawn.
 **Extends (does not replace):** `MEWMII_OS_V2_PLAN.md`, `DASHBOARD_PHILOSOPHY.md`, `COMPONENT_LIBRARY_SPEC.md`.
 
 **V3 is visual-only.** No database, schema, business logic, routing, permission, or workflow changes. Status enum values, form field names, POST targets, and permission gates are untouched throughout.
@@ -237,7 +241,11 @@ Disabled: 50% opacity, `cursor: not-allowed`, never removed from the DOM — a d
 
 **Action-bar rule:** at most **3 visible actions**; everything beyond goes into overflow. Destructive actions live in overflow, never in the header row.
 
-Rationale for `Primary = exactly one`: `inventory/index.php` currently has 9 primary buttons, `orders/index.php` 7, `supplier-orders/view.php` 6. When everything is primary, nothing is.
+Rationale for `Primary = exactly one`: not button *count* — page-level CTA count was never
+actually the problem (see §6A.3). The real defect was that `btn-primary` carried four unrelated
+meanings at once: page CTA, active filter, form submit, and bulk action. A rule of one primary
+per page is what keeps those roles from collapsing back into one colour. Resolved in Phase 2.3 by
+giving selection its own treatment rather than by removing buttons.
 
 ### 2.8 Badges — full standardization
 
@@ -430,29 +438,65 @@ A native `confirm()` cannot show which record is affected, cannot distinguish a 
 
 ## 4. Highest-Impact Page Ranking
 
-> **Assumption stated plainly:** this project has no analytics and I could not query the database, so *frequency of use* is **inferred** from each page's position in the four core workflows in `MEWMII_OS_V2_PLAN.md` §2 — not measured. If you have real usage data, it should override this ranking.
+**Re-derived in Phase 2.6** from measurements taken *after* Phase 2, against the five factors
+below. The previous ranking is superseded; see §4.3 for exactly what moved and why.
 
-Scored on frequency (inferred), clutter (measured), complexity (measured), and friction.
+> **Assumption stated plainly:** this project has no analytics and I could not query the
+> database, so *frequency* is **inferred** from each page's position in the four core workflows
+> in `MEWMII_OS_V2_PLAN.md` §2 — not measured. Real usage data should override it.
 
-| # | Page | Freq | Clutter | Complexity | Evidence |
-|---|---|---|---|---|---|
-| 1 | `orders/view.php` | Very high | Severe | Severe | 16 sections, 12 forms, **4 adjacent payment sections** |
-| 2 | `supplier-orders/view.php` | Very high | Severe | Severe | 10 sections, 11 forms, 6 primaries, 1,400+ lines |
-| 3 | `inventory/index.php` | Very high | Severe | Moderate | **9 primary buttons** — worst hierarchy in the app |
-| 4 | `orders/index.php` | Very high | High | Moderate | 7 primaries, 6 forms |
-| 5 | `products/_form.php` | High | High | Severe | **71 fields**, 8 primaries, no section nav |
-| 6 | `products/index.php` | High | Moderate | Moderate | 14 columns, 6 forms, 4 primaries |
-| 7 | `purchase-planning/generate.php` | High | Moderate | Moderate | 17 columns; core of workflow #1 |
-| 8 | `shipments/index.php` | High | High | Low | 5 primaries |
-| 9 | `ship-my-box/index.php` | Medium | High | Low | 7 primaries |
-| 10 | `purchasing/control-center.php` | Medium | Moderate | High | **21 columns**, no stacking |
-| 11 | `allocation-center.php` / `reservation-center.php` | Medium | Low | Moderate | Per-row Auto/Manual; no bulk |
-| 12 | `customers/view.php` | Medium | Moderate | High | 24 columns |
-| 13 | `suppliers/view.php` | Medium | Moderate | High | 22 columns |
-| 14 | `integrations/woocommerce.php` | Low | Severe | Severe | 7 sections, 20 cols, 6 forms, no sync progress |
-| 15 | `reports/sales.php` | Low | Moderate | High | **26 columns** — widest in the app |
+### 4.1 Scoring factors
 
-**Implementation order is impact-driven, not module-driven.** Ranks 1–4 span three different modules and are addressed together in Phase 3 because they share the same defect (action hierarchy + section density), not because they share a directory.
+| Factor | How it is measured |
+|---|---|
+| **Operator impact** | Does fixing it remove steps or confusion from daily work? |
+| **Frequency** | Position in the four core workflows (inferred, see above) |
+| **UX friction** | Measured density: forms + `<h5>` sections + widest table |
+| **Accessibility impact** | Measured contrast failures, missing landmarks, mobile reachability |
+| **Implementation risk** | Number of forms that must keep posting identically |
+
+### 4.2 Cross-cutting work, ranked above any single page
+
+Phase 2.6 measurement shows the largest remaining wins are **not** page-specific. These affect
+dozens of pages each and should be scheduled before individual page work.
+
+| # | Item | Scope | Operator impact | A11y | Risk |
+|---|---|---:|---|---|---|
+| C1 | **Confirmation dialogs** replacing native `confirm()` | 48 sites | High — "Delete supplier order" and "Mark Arrived" are currently indistinguishable | High | Medium |
+| C2 | **Mobile table stacking** | 43 of 61 table pages | High — a 26-column table is sideways-scrolled on a phone | High | Low |
+| C3 | **Pagination** on list pages that `LIMIT` without it | 38 pages | High — rows are silently unreachable | Medium | Medium |
+| C4 | **Form system** incl. the open border-contrast decision (§8.4) | app-wide | Medium | **High** — input borders are 1.37:1 vs the 3:1 required | Medium |
+| C5 | **`.page-header` rollout** | 41 pages have an `<h1>` but no `.page-header` | Medium | Low | Low |
+| C6 | **Loading / pending states** | 0 exist | Medium — long syncs and imports give no feedback | Low | Low |
+| C7 | **Empty states** | 41 of ~88 list surfaces | Low | Low | Low |
+| C8 | **99 inline `style=` attributes** | 33 files | None — maintainability only | None | Low |
+
+### 4.3 Page ranking (re-measured)
+
+Density = `<form>` count + `<h5>` section count. Columns = widest `<thead>` on the page.
+
+| # | Page | Freq | Density | Cols | Risk | Evidence / change since original |
+|---|---|---|---:|---:|---|---|
+| 1 | `orders/view.php` | Very high | **28** | 9 | **High** | 12 forms + 16 sections; four adjacent payment sections. Unchanged — still the densest page in the app. |
+| 2 | `supplier-orders/view.php` | Very high | **21** | 16 | **High** | 11 forms + 10 sections. Owns receiving and reverse receiving. Its "6 primaries" were all form submits — the density, not the buttons, is the problem. |
+| 3 | `reports/sales.php` | Low | 5 | **26** | Low | Widest table in the app. **Up from #15** — column count is now weighted properly, and reports are exempt from the cap but not from being scannable. |
+| 4 | `customers/view.php` | Medium | 5 | **24** | Low | **Up from #12.** No mobile stacking. |
+| 5 | `suppliers/view.php` | Medium | 4 | **22** | Low | **Up from #13.** No mobile stacking. |
+| 6 | `purchasing/control-center.php` | Medium | 5 | **21** | Low | **Up from #10.** Densest *operational* table. |
+| 7 | `purchasing/index.php` | Medium | 2 | **20** | Low | Newly ranked. |
+| 8 | `integrations/woocommerce.php` | Low | **13** | 20 | Medium | 6 forms + 7 sections + 20 cols, and no progress feedback on a long sync (C6). |
+| 9 | `products/_form.php` | High | 11 | 13 | **High** | 71 fields, no section navigation. Down from #5 only because C1–C4 outrank it, not because it improved. |
+| 10 | `products/index.php` | High | 6 | 14 | Medium | 6 forms, 14 columns. |
+| 11 | `products/import.php` | Low | 7 | **18** | Medium | Newly ranked; shares the wizard pattern with four other importers. |
+| 12 | `purchase-planning/generate.php` | High | 3 | 17 | Low | Core of workflow #1. |
+| 13 | `catalog/tabs/*` (4 pages) | Medium | 12 | 11 | Medium | ~400 near-identical lines each. Merging them is **logic** refactoring — out of V3 scope (§7). |
+| 14 | `allocation-center.php` / `reservation-center.php` | Medium | 3 | 10 | Low | Per-row Auto/Manual; no bulk selection. |
+| — | ~~`inventory/index.php`~~ | — | 3 | 13 | — | **Withdrawn from the ranking.** Was #3 on a corrected artifact; it has 1 CTA and unremarkable density. Ordinary list-page standardisation only. |
+| — | ~~`orders/index.php`~~ | — | 6 | 11 | — | **Dropped from #4** to ordinary list work for the same reason. |
+| — | ~~`shipments/index.php`~~, ~~`ship-my-box/index.php`~~ | — | 5 / 4 | 11 / 8 | — | **Dropped.** Their counts were pills and submits. |
+
+**Implementation order is impact-driven, not module-driven** — and after re-measurement, the
+cross-cutting items in §4.2 outrank every individual page except the two record pages.
 
 ---
 
@@ -571,6 +615,63 @@ It is **excluded from the four phases** because it requires a `?panel=1` conditi
 
 ---
 
+## 6A. Phase 2 Outcomes and Lessons
+
+Recorded in Phase 2.6. Phase 2 ran as six commits: status tokens → badge migration → button
+tokenisation → primary/filter decisions → typography → legacy colour cleanup.
+
+### 6A.1 What was delivered
+
+**Status semantics unified.** Ten badge helpers each chose their own Bootstrap colour, so the
+same business status rendered differently depending on the page — `shipped` appeared in four
+different colours, `waiting_stock` in two, and `received` (a success step) shared amber with
+`waiting_stock` (a blocked one). All ten now render through one helper on a five-token scale.
+The rule settled on is **one colour per enum value per column**, not one colour per English
+word: `ship_requests.status = 'pending'` stays amber because it means "staff must review",
+while `mewmii_orders.order_status = 'pending'` is neutral because it means "nothing to do yet".
+
+**Buttons separated into roles.** `btn-primary` had been carrying four unrelated meanings at
+once — page CTA, active filter, form submit, bulk action. Selection now has its own treatment
+(`.btn-filter` / `.is-active`), and brand pink means "action" and nothing else. Twelve variants
+plus a new `.btn-ghost` moved off stock Bootstrap.
+
+**Typography hierarchy fixed.** The application contained **no `<h1>` at all** — every page title
+was an `<h2>` and headings then jumped to `<h5>`. 79 titles were promoted; the type scale is
+applied from tokens; money and quantity columns use tabular figures.
+
+**Tokens normalised.** 60 tokens, and **no hardcoded colour, radius, or type value survives
+outside `tokens.css`**. Three legacy tokens retired, two pink-tinted greys neutralised.
+
+### 6A.2 Accessibility fixed along the way
+
+None of these were in the original audit; all were found by measuring rather than looking.
+
+| Issue | Was | Now | Fixed in |
+|---|---|---|---|
+| Primary CTA label — the app's most-clicked control | **2.04:1** | 7.82:1 | 2.3 |
+| `--danger-accent` as stat text | **4.12:1** | 7.12:1 (retired) | 2.5 |
+| `neutral` badge at 12px | **4.47:1** | 4.81:1 | 2.1 |
+| No `<h1>` anywhere | 0 pages | every page | 2.4 |
+
+### 6A.3 Lessons that change how the rest of V3 is run
+
+1. **A CSS class is not a semantic role.** The "9 competing primary buttons" finding was a grep
+   artifact that conflated filter pills, form submits, and real CTAs, and it reached the impact
+   ranking unchallenged. Every future count of `btn-*`, `badge bg-*`, `<h5>`, or `<form>` is an
+   **upper bound**, not a finding, until each instance is checked against what it does.
+2. **Measure contrast, never eyeball it.** Four failures were found by computing ratios; three
+   would have shipped otherwise, and one had been live for the entire life of the application.
+3. **Fix accessibility while a token is still unreferenced.** `--neutral` was corrected for free
+   in 2.1. Had the same defect been found in 2.2, it would have meant changing a colour already
+   live on every list page.
+4. **Verify where the work happens.** Snapshots were repeatedly lost between capture and compare,
+   costing two phases their verification, until `verify` collapsed both halves into one run.
+   Config was the wrong layer; the workflow was the problem.
+5. **Zero-visual-change phases are worth their commit.** Phase 1 and 2.1 changed nothing visible,
+   which made them provable — and made every later diff interpretable.
+
+---
+
 ## 7. Documented Exceptions to the Standard
 
 Per your direction, these pages legitimately differ. They are exceptions by design, not compliance failures.
@@ -621,6 +722,38 @@ This is a scheduling decision, not a detail — it should be settled before Phas
 6. Each phase ends with the V2 U2 audit format: files changed · actions moved/removed · remaining access paths · permission diff.
 7. Any change that turns out to require logic modification **stops and returns for approval** rather than proceeding.
 
-### 8.4 Sequencing rationale
+### 8.4 OPEN DECISION — input border contrast (blocks the Phase 3 form system)
+
+**Status: unresolved. Needs a decision before Phase 3 touches forms.**
+
+WCAG 1.4.11 requires **3:1** contrast for the visual boundary that identifies a UI component. A
+text input's border is exactly that. Measured against the white card surface:
+
+| Token | Ratio | |
+|---|---:|---|
+| `--border-subtle` `#EDEDEE` | 1.17:1 | fails |
+| `--border` `#E3E3E3` | 1.28:1 | fails |
+| `--border-strong` `#DCDCDE` — **used on every input and button** | **1.37:1** | fails |
+| `#949499` | 3.02:1 | passes |
+| `#8C9196` (already defined as `--text-subtle`) | 3.18:1 | passes |
+
+Every border in the application currently fails, and always has — this is pre-existing, not
+introduced by V3. Phase 2.5 neutralised the pink cast and fixed the ramp ordering but
+deliberately did not change the weight, because reaching 3:1 puts a visibly medium-grey edge on
+every input in the app. That is a look-and-feel decision, not a cleanup.
+
+The options:
+
+| Option | Effect |
+|---|---|
+| **A. Raise `--border-strong` to `#8C9196`** | Compliant. Inputs become clearly bounded; the UI reads heavier and less airy than Shopify/Linear. |
+| **B. Raise only on `:focus` / `:invalid`** | Cheap, but does not meet 1.4.11 — the resting state is what identifies the control. |
+| **C. Keep the light border, add a filled input background** | Compliant via a different signal (fill rather than edge); a larger visual change than A. |
+| **D. Accept the gap and document it** | No visual change; the app knowingly fails 1.4.11 on every form control. |
+
+No option is free, which is why this is being raised rather than decided. It should be settled
+**before** the Phase 3 form work, not retrofitted after.
+
+### 8.5 Sequencing rationale
 
 Phases run strictly in order. Phase 1 is a prerequisite for everything. Phase 2 must precede 3 so tables and confirmations are built on settled tokens. Phase 3 must precede 4 so the highest-risk restructuring happens against components already proven in production. Each phase is independently shippable and independently revertable.
