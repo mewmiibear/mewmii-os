@@ -1,0 +1,3 @@
+# Generated snapshots are local artefacts, not source.
+*.json
+!.gitignore
