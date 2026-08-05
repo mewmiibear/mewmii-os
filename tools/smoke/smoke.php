@@ -212,7 +212,7 @@ function discoverRoutes(): array
             }
         }
 
-        $crawlable[] = ['route' => $route, 'id_params' => $idParams, 'needs_id' => $idParams !== []];
+        $crawlable[] = ['route' => $route, 'id_params' => $idParams];
     }
 
     return ['crawlable' => $crawlable, 'excluded' => $excluded];
@@ -225,21 +225,27 @@ function commandRoutes(): int
     $plain = [];
     $parameterised = [];
     foreach ($discovered['crawlable'] as $entry) {
-        if ($entry['needs_id']) {
-            $parameterised[] = $entry['route'];
+        if (($entry['id_params'] ?? []) !== []) {
+            $parameterised[$entry['route']] = $entry['id_params'];
         } else {
             $plain[] = $entry['route'];
         }
     }
 
-    printf("CRAWLABLE - no parameters (%d)\n", count($plain));
+    printf("CRAWLABLE - reads no identifier parameter (%d)\n", count($plain));
     foreach ($plain as $route) {
         echo "  {$route}\n";
     }
 
-    printf("\nCRAWLABLE - needs ?id= , discovered from list pages at run time (%d)\n", count($parameterised));
-    foreach ($parameterised as $route) {
-        echo "  {$route}\n";
+    printf(
+        "\nCRAWLABLE - reads an identifier parameter (%d)\n"
+        . "  Every route is still crawled bare first. Only those that FAIL bare are retried with a\n"
+        . "  query string harvested from a real link - so a list page taking ?supplier_id= as an\n"
+        . "  optional filter is crawled normally, while a detail page requiring ?id= gets a real one.\n",
+        count($parameterised)
+    );
+    foreach ($parameterised as $route => $params) {
+        printf("  %-52s %s\n", $route, implode(', ', $params));
     }
 
     printf("\nEXCLUDED (%d)\n", count($discovered['excluded']));
@@ -513,35 +519,56 @@ function commandCapture(array $options): int
     $pages = [];
     $observedQueries = [];
 
-    // Pass 1 - parameterless routes. Harvest the app's own links as we go, so
-    // pass 2 can sample detail routes with real, correctly-named parameters.
-    $plain = array_values(array_filter($discovered['crawlable'], static fn (array $r): bool => !$r['needs_id']));
-    $parameterised = array_values(array_filter($discovered['crawlable'], static fn (array $r): bool => $r['needs_id']));
-
-    foreach ($plain as $index => $entry) {
+    // Pass 1 - crawl EVERY route bare, harvesting the app's own links as we go.
+    //
+    // Deliberately not split by "does the source read $_GET['*_id']". That test
+    // conflates a detail page that REQUIRES an id with a list page that accepts
+    // one as an optional filter, and the first baseline got it badly wrong:
+    // orders/index.php, products/index.php, inventory/index.php and
+    // supplier-orders/index.php all read *_id as filters, so all four - the
+    // busiest pages in the app - were treated as un-crawlable and skipped.
+    //
+    // Behaviour decides instead of source: a bare GET that succeeds needs no
+    // parameters, whatever its source reads.
+    $routes = $discovered['crawlable'];
+    foreach ($routes as $index => $entry) {
         if ($limit > 0 && $index >= $limit) {
             break;
         }
         $pages[$entry['route']] = crawl($http, $entry['route'], $observedQueries);
-        progress($index + 1, count($plain), $entry['route']);
+        progress($index + 1, count($routes), $entry['route']);
     }
 
-    // Pass 2 - routes needing ?id=, using an id harvested from a list page.
+    // Pass 2 - retry only what actually failed bare, using a query string
+    // harvested from a real link. Runs after pass 1 so every page has had a
+    // chance to contribute links.
     echo "\n";
-    foreach ($parameterised as $index => $entry) {
-        $query = pickQuery($observedQueries[$entry['route']] ?? [], $entry['id_params']);
+    $retried = 0;
+    foreach ($routes as $entry) {
+        $route = $entry['route'];
+        $status = $pages[$route]['status'] ?? 0;
 
+        if ($status >= 200 && $status < 400) {
+            continue;
+        }
+        if (($entry['id_params'] ?? []) === []) {
+            continue;
+        }
+
+        $query = pickQuery($observedQueries[$route] ?? [], $entry['id_params']);
         if ($query === null) {
-            $pages[$entry['route']] = [
-                'skipped' => 'no link to this route carrying ' . implode('/', $entry['id_params'])
-                    . ' was found on any crawled page - the module is probably empty',
+            $pages[$route] = [
+                'skipped' => 'needs ' . implode('/', $entry['id_params'])
+                    . ' and no link carrying one was found on any crawled page - the module is probably empty',
+                'bare_status' => $status,
             ];
             continue;
         }
 
-        $route = $entry['route'] . '?' . $query;
-        $pages[$entry['route']] = crawl($http, $route, $observedQueries) + ['sampled_query' => $query];
-        progress($index + 1, count($parameterised), $route);
+        $retried++;
+        $pages[$route] = crawl($http, $route . '?' . $query, $observedQueries)
+            + ['sampled_query' => $query, 'bare_status' => $status];
+        progress($retried, count($routes), $route . '?' . $query);
     }
 
     $snapshot = [

@@ -177,16 +177,23 @@ crawled; this tool's deny-list is what keeps it safe.
 
 ## Pages needing an identifier parameter
 
-Some routes read an identifier from the query string and cannot be crawled bare. The tool detects
-**any** `$_GET['id']` or `$_GET['*_id']` a page reads — not just `id` — which is what the first
-baseline run got wrong.
+**Every route is crawled bare first.** Only routes that actually *fail* bare are retried with a
+query string harvested from a real link during pass 1.
 
-In pass 2 it samples them using query strings harvested from **the application's own links**
-during pass 1. Using real links means the parameter names are always correct: `?customer_id=` for
+This is deliberate, and it is the second thing the baseline runs got wrong. Reading
+`$_GET['supplier_id']` does not mean a page *requires* it — list pages read `*_id` as optional
+filters. The second baseline classified `orders/index.php`, `products/index.php`,
+`inventory/index.php` and `supplier-orders/index.php` as un-crawlable on that basis and skipped
+all four: the busiest pages in the application, and the ones Phase 2 changes most. Letting
+behaviour decide instead of source removes that whole class of error — a page that returns 200
+bare needs nothing, whatever its source reads.
+
+Retries use the app's own links, so parameter names are always correct: `?customer_id=` for
 customer storage, `?product_id=&variation_id=` for inventory allocate/reserve. A route is recorded
-as `skipped`, with the reason, when no link to it was found — typically an empty module.
+as `skipped`, with its bare status and the reason, when no usable link was found — typically an
+empty module.
 
-Sampling picks the **lowest** identifier, not the first seen. If a before-run and an after-run
+Retries pick the **lowest** identifier, not the first seen. If a before-run and an after-run
 sampled *different* records, two legitimately different states (a draft order vs a shipped one)
 would diff as a false BREAKING form change. Lowest-id is stable across runs provided the record
 still exists — so **do not delete the sampled records between a before and after capture.**
