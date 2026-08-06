@@ -4,6 +4,100 @@ All notable changes to Mewmii OS are recorded here, newest first.
 
 ## Unreleased
 
+### V3 Phase 3 — Interaction & Density (3.1–3.5, plus the 3.1a/3.2g regression fixes)
+
+Phase 3 of the V3 redesign, organised by *system* rather than by page per the Phase 2.6
+re-ranking (`V3_DESIGN_SYSTEM.md` §4.2). Eleven commits, each independently verified before
+the next began. **No database, schema, business logic, routing, permission or workflow change
+anywhere in the phase** — form `action`/`method`/field `name` attributes and every
+`app_has_permission()` gate are byte-identical throughout.
+
+**3.1 — Form control system.** All seven states as one interlocking unit, because a control
+that is compliant at rest but indistinguishable on hover, or focusable with no visible focus,
+is not usable. New `--border-input` `#848890`, deliberately **separate from `--border-strong`**
+so form controls could be made compliant without silently restyling `.btn-secondary`,
+`.btn-outline-secondary`, `.btn-filter` and `.badge-status--outline`, which share that token.
+`#848890` rather than the `#8C9196` originally proposed in Option A: `#8C9196` passes on white
+(3.18:1) but fails on the `--bg` fill a readonly control uses (2.94:1), so it would have been
+compliant on some form controls and not others. Focus is carried by the **border colour
+change**, not the ring — `--focus-ring` composites to `#E0E9FC` over white, 1.22:1, effectively
+invisible, and raising the alpha does not rescue it. Placeholder moved off `--text-subtle`
+(3.18:1, fails the 4.5:1 text floor) onto `--text-muted`, with `opacity: 1` because Firefox's
+default placeholder opacity would otherwise drop it back under.
+
+**3.2 — Confirmation dialogs, six sub-commits.** 52 of 53 native `confirm()` calls replaced;
+`settings/reset_test_data.php` keeps its server-validated typed phrase and was never in scope.
+The audit found **53 sites, not the 48 the design doc stated**, and that every one guards a
+form submission — none guards a link — which made a single submit interceptor viable.
+
+- *3.2a* framework only, zero call sites converted. Declarative `data-confirm` for the 49
+  static guards; `window.ConfirmUI.confirm()` for the 4 that fire only on a runtime condition.
+  Uses `requestSubmit()`, never `submit()` — the latter silently skips HTML5 validation, so a
+  required field left empty would post anyway, a regression introduced by the very change meant
+  to make things safer. Loaded from `footer.php` **after** the Bootstrap bundle, because the
+  other app scripts load from `header.php` before it and a script reading `window.bootstrap` at
+  parse time gets `undefined` — the ordering trap that disabled a modal for a release in V2.
+- *3.2b/3.2c* 23 destructive sites (danger tone). Every one gained the record it acts on, which
+  a native `confirm()` cannot show: "Delete this supplier order?" became
+  *Delete supplier order PO-1023?*. Consequence text verified against the code rather than
+  assumed — all five catalog deletes are guarded by `catalog_*_delete_if_unused()`, so the body
+  says a record still assigned to products cannot be deleted.
+- *3.2d* 10 reversible workflow sites (warning tone). This is the split the audit found missing:
+  `supplier-orders/view.php` gave "Mark Arrived" and "Delete" identical native dialogs.
+- *3.2e* 15 routine sites (neutral tone). Approvals, retries, automation, draft creation.
+- *3.2f* the 4 programmatic sites. One — the shipping-allocation overwrite — turned out to have
+  a **PHP-derived** condition and moved to the declarative path instead, which also removed the
+  need to reimplement re-entry protection.
+
+**3.3 — Table system.** Header on `--surface-sunken`; row hover set through
+`--bs-table-bg-state` (the variable Bootstrap's own `.table-hover` rule reads — setting
+`background` directly loses to its more specific selector); selected row via `:has()` with no
+JS; tabular figures applied through the existing `.text-end` convention (221 cells, 44 files)
+with no markup change. **Sticky headers deliberately not implemented** — `position: sticky`
+needs a scrolling container with constrained height and no table in the application has one, so
+it is a layout decision, not CSS polish.
+
+**3.4 — Pagination.** 17 hand-rolled blocks → one `render_pagination()` in
+`includes/pagination.php`. All 17 were compared and found **semantically identical** before
+extraction, so behaviour is provably unchanged rather than assumed. Page-number links stayed
+out: §2.13 specifies them for ≤7 pages, but adding them here would change what every list shows
+in the same commit that consolidates markup.
+
+**3.5 — Loading and pending states.** Five implementations found, three duplicating each other;
+consolidated into `LoadingUI`. `supplier-order-form.js` gained the spinner and the preserved
+width §2.13 specifies — it previously set `button.disabled = true` and nothing else. `drawer.js`
+and the webhooks batch-progress region deliberately left alone: the first owns loading, error
+*and* retry as one flow, the second is a genuine progress region rather than a duplicate.
+
+**3.1a / 3.2g — two regressions found by browser QA, neither visible to the smoke verifier.**
+
+The hover rule carried `:not(:disabled):not([readonly])` guards, making it `(0,4,0)` against
+`.form-control:focus` and `.form-control.is-invalid` at `(0,2,0)`. With the pointer resting on a
+field — the normal state immediately after clicking into it — the focus ring and the invalid
+border both fell back to the hover colour. Measured in Chrome: focus read `rgb(107,111,118)`
+instead of `rgb(52,114,239)`. A WCAG 2.4.11 regression introduced by Phase 3.1 itself, where the
+guards meant to protect disabled/readonly were the cause. Rewritten as an explicit precedence —
+`disabled > readonly > invalid > focus > hover > resting` — enforced by source order at matched
+specificity, with an extra qualifier only where two states genuinely coexist. Hover is now
+unqualified so everything below outranks it by order alone; readonly and disabled cancel hover
+explicitly rather than hover excluding them. No `!important`. No colour moved, so every contrast
+figure holds unchanged.
+
+Separately, **Bootstrap 5.3's `Modal.show()` unconditionally writes `role="dialog"`**, clobbering
+the value set beforehand — so every destructive confirmation was announcing to a screen reader
+as an ordinary dialog. The attribute now goes in the existing `shown.bs.modal` handler.
+
+**Verification.** Every sub-phase ran `tools/smoke/smoke.php verify` against the preceding
+snapshot: 0 breaking, 0 warnings, 0 informational, exit 0, on all eleven. The browser QA pass
+went 57/5 → **67 passed, 0 failed**. Regression walkthrough across the eight highest-risk
+modules: 12 pages, HTTP 200, exactly one `<h1>`, no PHP notices, empty JS console.
+
+Two verification lessons are recorded in `docs/QA_PROCESS.md` rather than here, because both
+recur: a smoke "PASS" carrying unexplained warnings is not a pass (twice it meant a contaminated
+baseline, once a dataset difference), and a browser QA failure must have its cause confirmed
+before it is treated as a defect — of the first five, two were artifacts of the harness's own
+sequencing.
+
 ### SO-D.1 / SO-D.2 / P7a — Supplier order index, backorder visibility, edit protection
 
 Three small independent changes to Supplier Orders. **No schema table or column added** (one index), and receiving, the inventory ledger, costing, `product_cost_history`, cancel, and delete are untouched throughout.

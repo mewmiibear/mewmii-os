@@ -64,6 +64,56 @@ Tracks the status of active improvement work, per module. Status values: Not Sta
 | Phase 2 — Drawer expansion to other modules (Supplier Orders, Customer Orders, Products, etc.) | Not Started | Explicitly deferred — same reason |
 | Phase 3 implementation (per-module redesign: Inventory → Supplier Orders → Customer Orders → Products/Catalog → Suppliers → Shipments → Reports) | Not Started | Each module goes through its own full audit → design → approval → implement → review → document cycle individually, not as one pass |
 
+## Mewmii OS V3 — UI/UX redesign
+
+Authoritative spec, ranking and roadmap: `docs/V3_DESIGN_SYSTEM.md`. Evidence base:
+`docs/V3_UIUX_AUDIT.md`. **V3 is visual-only** — no database, schema, business logic, routing,
+permission or workflow change in any phase.
+
+### Phase status
+
+| Phase | Scope | Status |
+|---|---|---|
+| **1 — Foundation** | CSS extracted from `header.php` into `assets/css/`; token layer | **Completed** |
+| **2 — Visual Language** | Status semantics, badges, button roles, typography, token cleanup (2.1–2.5); audit correction + re-ranking (2.6) | **Completed** |
+| **3 — Interaction & Density** | Form controls, confirmations, tables, pagination, loading (3.1–3.5) + regression fixes (3.1a/3.2g) | **Completed — browser + smoke verified** |
+| **4 — Structure** | Record-page restructure, `products/_form.php` section nav, sidebar 8→5, breadcrumbs, toast | Not Started |
+
+### Phase 3 detail
+
+| Sub-phase | Status | Notes |
+|---|---|---|
+| **3.1 — Form control system** | Completed | All seven states as one unit. New `--border-input` `#848890`, kept separate from `--border-strong` so buttons were not silently restyled. `#848890` not `#8C9196` — the latter fails on the `--bg` fill a readonly control uses (2.94:1). Focus carried by the border, not the ring (`--focus-ring` measures 1.22:1) |
+| **3.2a — Confirmation framework** | Completed | Declarative `data-confirm` + programmatic `ConfirmUI.confirm()`. `requestSubmit()` never `submit()` — the latter skips HTML5 validation. Loaded after the Bootstrap bundle in `footer.php` |
+| **3.2b / 3.2c — Destructive** | Completed | 23 sites, danger tone. Each gained the record name a native `confirm()` could not show. Consequence text verified against the code, not assumed |
+| **3.2d — Reversible workflow** | Completed | 10 sites, warning tone. Fixes the defect where "Mark Arrived" and "Delete" were indistinguishable |
+| **3.2e — Routine** | Completed | 15 sites, neutral tone |
+| **3.2f — Programmatic** | Completed | 4 sites; one moved to the declarative path when its condition proved PHP-derived |
+| **3.3 — Table system** | Completed | Header surface, hover via `--bs-table-bg-state`, selected row via `:has()` (no JS), tabular figures via the existing `.text-end` convention |
+| **3.4 — Pagination** | Completed | 17 hand-rolled blocks → `includes/pagination.php`. All 17 verified semantically identical before extraction |
+| **3.5 — Loading / pending** | Completed | Five implementations, three duplicated → `LoadingUI`. `drawer.js` and the webhooks progress region deliberately untouched |
+| **3.1a / 3.2g — Regression fixes** | **Completed** | Hover specificity was overriding focus and invalid (WCAG 2.4.11 regression introduced by 3.1 itself); Bootstrap's `Modal.show()` was clobbering `role="alertdialog"`. Both found by browser QA, neither visible to smoke |
+| Sticky table headers | **Deferred — decision recorded** | `position: sticky` needs a scrolling container with constrained height; no table has one. A layout decision, not CSS polish. Not to be implemented without an approved scrolling-container design |
+| **3.6 — `.page-header` rollout + filter chips** | Not Started | Next |
+| 3.7 — Widest tables | Not Started | `reports/sales.php` (26 cols), `customers/view.php` (24), `suppliers/view.php` (22), `purchasing/control-center.php` (21), `purchasing/index.php` (20) |
+| 3.8 — Empty states, item-picker merge, 99 inline `style=` | Not Started | Long tail |
+
+### Verification tooling (permanent)
+
+| Item | Status | Notes |
+|---|---|---|
+| `tools/smoke` | In use | Structural regression verifier. Clean (0/0/0) on all eleven Phase 3 sub-phases |
+| `tools/browser-qa` | **Added in 3.1a** | Computed-style and behavioural verifier. Found two real defects that 268 CLI assertions and six clean smoke runs missed |
+| `docs/QA_PROCESS.md` | **Added in 3.1a** | The standard 7-step workflow, seeded-dataset requirement, and baseline-capture procedure |
+| Seeded QA dataset | In use | `tools/browser-qa/seed_qa.php`. Snapshots from `after-3.1a.json` onward embed it — run the seed before comparing |
+| Browser coverage gap | **Open, documented** | Chrome/Edge only. No Firefox or Safari; no real screen-reader output; no touch input. See `QA_PROCESS.md` §6 |
+
+### Known documentation gap
+
+Phases 1 and 2 are **not recorded in `CHANGELOG.md`** — they were tracked in
+`V3_DESIGN_SYSTEM.md` §6A instead, which remains accurate. The Phase 3 changelog entry is
+therefore the first V3 entry in that file. Backfilling 1 and 2 is optional and has not been done.
+
 ## Supplier Orders
 
 | Item | Status | Notes |

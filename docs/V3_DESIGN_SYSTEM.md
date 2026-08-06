@@ -1,8 +1,16 @@
 # Mewmii OS V3 — Design System Specification & Implementation Plan
 
-**Status:** Phases 1 and 2 implemented and verified. Phase 2.6 review complete: the §4 ranking is
-approved, and §8.4 is decided (Option A, delivered inside Phase 3.1). Phase 3 is planned in §5 and
-awaiting go-ahead — no Phase 3 implementation has started.
+**Status:** Phases 1, 2 and **3 implemented and verified.** Phase 2.6 review complete: the §4
+ranking is approved, and §8.4 is decided (Option A, delivered inside Phase 3.1). Phase 3.1–3.5
+shipped as eleven commits, followed by the 3.1a/3.2g regression fixes; Phase 4 has not started.
+Per-sub-phase status and the deferred sticky-header decision live in
+`docs/IMPLEMENTATION_STATUS.md`. Verification workflow: `docs/QA_PROCESS.md`.
+
+**§8.1 is now out of date and superseded.** It says this project has no test suite and no PHP
+binary, and recommends a smoke harness "before Phase 4". Three verifiers now exist and are part
+of the permanent toolchain: `tools/smoke` (structural), `tools/browser-qa` (computed style and
+behaviour, added in 3.1a after it caught two defects smoke structurally could not see), and
+`tests/` (V2 behavioural suites over the real ledger).
 **Supersedes:** the roadmap section (§9) *and* the impact ranking (§8) of `V3_UIUX_AUDIT.md`. That
 document remains the evidence base; this document is the authoritative spec, ranking, and plan.
 Where the two disagree, this one is correct — see §6A.3 for why one of its findings was withdrawn.
