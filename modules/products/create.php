@@ -101,14 +101,39 @@ if (is_array($lastProductDefaults)) {
 }
 
 // Shipping origin falls back to Japan when there is no previous value to reuse - the common
-// case for this business. Resolved by name against the existing shipping rate countries; if
-// there is no Japan row the field simply stays empty, exactly as before.
+// case for this business.
+//
+// shipping_rate_countries has no country-code column - country_name (UNIQUE) is the only
+// identifying field, and the table is never seeded by any migration: every row is typed by an
+// operator in modules/settings/shipping_rates.php. So a literal name match is the only lookup
+// the current schema allows, and it is only as reliable as what was typed.
+//
+// Two things make that safer without touching the schema:
+//   1. settings.default_shipping_origin_country_id wins if present. That is an explicit id, so
+//      it survives the country being renamed. Nothing in the app writes this key - it exists as
+//      an escape hatch to be set once by hand if the name match ever stops matching.
+//   2. The name match is TRIM'd and accepts 'JP'. The column collation (utf8mb4_general_ci) is
+//      already case-insensitive, so 'japan'/'JAPAN' match without extra handling.
+//
+// If none resolve, the field stays empty - the same state it had before this default existed,
+// so a miss costs the operator one dropdown selection and never picks a wrong country.
 if ($form['shipping_origin_country_id'] === '') {
-    $japanStmt = $pdo->prepare("SELECT id FROM shipping_rate_countries WHERE country_name = 'Japan' LIMIT 1");
-    $japanStmt->execute();
-    $japanCountryId = $japanStmt->fetchColumn();
-    if ($japanCountryId !== false) {
-        $form['shipping_origin_country_id'] = (string) (int) $japanCountryId;
+    $originStmt = $pdo->prepare('SELECT setting_value FROM settings WHERE setting_key = ?');
+    $originStmt->execute(['default_shipping_origin_country_id']);
+    $configuredOriginId = (int) ($originStmt->fetchColumn() ?: 0);
+
+    if ($configuredOriginId > 0) {
+        $checkStmt = $pdo->prepare('SELECT id FROM shipping_rate_countries WHERE id = ? LIMIT 1');
+        $checkStmt->execute([$configuredOriginId]);
+        $resolvedOriginId = $checkStmt->fetchColumn();
+    } else {
+        $checkStmt = $pdo->prepare("SELECT id FROM shipping_rate_countries WHERE TRIM(country_name) IN ('Japan', 'JP') ORDER BY id LIMIT 1");
+        $checkStmt->execute();
+        $resolvedOriginId = $checkStmt->fetchColumn();
+    }
+
+    if ($resolvedOriginId !== false) {
+        $form['shipping_origin_country_id'] = (string) (int) $resolvedOriginId;
     }
 }
 
