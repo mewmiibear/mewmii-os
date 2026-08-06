@@ -1,0 +1,12 @@
+{
+  "name": "mewmii-browser-qa",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Browser QA harness for Mewmii OS - drives an installed Chrome and asserts on computed styles and real event behaviour.",
+  "scripts": {
+    "qa": "node qa.js"
+  },
+  "dependencies": {
+    "puppeteer-core": "^25.5.0"
+  }
+}

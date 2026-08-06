@@ -603,24 +603,40 @@ a.stat-card-link:hover {
     font-weight: var(--font-weight-medium);
 }
 
-/* --- Form control states (V3 Phase 3.1) ---------------------------------------------
-   All seven states are specified together because they are one interlocking unit: a
-   control that is compliant at rest but indistinguishable on hover, or focusable with no
-   visible focus, is not actually usable. See V3_DESIGN_SYSTEM.md §2.11.1 for the measured
-   values. Presentation only - no field name, no `action`, no validation behaviour changes.
+/* --- Form control states (V3 Phase 3.1, cascade corrected in 3.1a) ------------------
+   All seven states are one interlocking unit: a control that is compliant at rest but
+   indistinguishable on hover, or focusable with no visible focus, is not usable. See
+   V3_DESIGN_SYSTEM.md §2.11.1. Presentation only - no field name, no `action`, no
+   validation behaviour changes.
 
-   Measured boundary contrast:
+   STATE PRECEDENCE, highest first:
+
+     disabled  >  readonly  >  invalid  >  focus  >  hover  >  resting
+
+   Enforced by SOURCE ORDER at matched specificity, plus one extra qualifier only where a
+   pair of states genuinely coexists. No !important anywhere.
+
+   3.1a fixed a real regression found in browser QA. Hover previously carried
+   :not(:disabled):not([readonly]) guards, which made it (0,4,0) - beating both
+   .form-control:focus and .form-control.is-invalid at (0,2,0). The consequence: with the
+   pointer resting on a field, the focus ring and the invalid border both silently fell
+   back to the hover colour. Since the pointer is normally still over a field right after
+   you click into it, focus was invisible exactly when it mattered. The guards are gone;
+   readonly and disabled now re-assert themselves lower down instead, which is what makes
+   the order above hold without inflating specificity.
+
+   Measured boundary contrast (unchanged by 3.1a - no colour moved):
      resting   --border-input  #848890 on --surface  3.56:1  pass
      hover     --text-muted    #6B6F76 on --surface  5.05:1  pass
      focus     --border-focus  #3472EF on --surface  4.38:1  pass
      invalid   --danger        #A32458 on --surface  7.12:1  pass
      readonly  --border-input  #848890 on --bg       3.29:1  pass
-     disabled  --border        #E3E3E3 on --bg       1.28:1  EXEMPT (1.4.11 excludes
-                                                     inactive components, and a disabled
-                                                     control should recede)
-   Readonly is NOT exempt: it stays focusable and its text selectable, so it carries the
-   full 3:1 boundary. */
+     disabled  --border        #E3E3E3 on --bg       1.19:1  EXEMPT (1.4.11 excludes
+                                                     inactive components)
+   Readonly is NOT exempt: it stays focusable and its text selectable, so it keeps the
+   full 3:1 boundary AND still shows focus. */
 
+/* 1. Resting */
 .form-control,
 .form-select {
     border-radius: var(--radius-sm);
@@ -634,19 +650,20 @@ a.stat-card-link:hover {
     border-color: var(--border-input);
 }
 
-/* Hover - excluded on disabled and readonly, which must not appear interactive. */
-.form-control:hover:not(:disabled):not([readonly]),
-.form-select:hover:not(:disabled),
-.form-check-input:hover:not(:disabled) {
+/* 2. Hover. Deliberately unqualified at (0,2,0) so every state below can outrank it by
+   source order alone. Readonly and disabled cancel it explicitly further down. */
+.form-control:hover,
+.form-select:hover,
+.form-check-input:hover {
     border-color: var(--text-muted);
 }
 
-/* Focus. The BORDER COLOUR CHANGE is the focus indicator, not the ring: --focus-ring is
+/* 3. Focus. The BORDER COLOUR CHANGE is the focus indicator, not the ring: --focus-ring is
    rgba(52,114,239,0.15), which composites to #E0E9FC over white - 1.22:1, effectively
-   invisible, and raising the alpha does not rescue it (0.45 still only reaches 1.85:1).
-   The ring stays as a supporting halo and is never the sole signal. Satisfies WCAG 2.4.11
-   through the border. --border-focus resolves to the same #3472EF the previous rule got
-   from --secondary, so focus renders identically to before. */
+   invisible, and raising the alpha does not rescue it (0.45 reaches only 1.85:1). The ring
+   is a supporting halo and never the sole signal, satisfying WCAG 2.4.11 through the
+   border. Same specificity as hover but later, so a hovered field that gains focus now
+   shows focus - the 3.1a fix. */
 .form-control:focus,
 .form-select:focus,
 .form-check-input:focus {
@@ -654,9 +671,11 @@ a.stat-card-link:hover {
     box-shadow: var(--focus-ring);
 }
 
-/* Invalid. Deliberately .is-invalid (set by entry-form-validation.js via checkValidity())
-   and :user-invalid - never bare :invalid, which matches every empty required field on
-   page load and would render a pristine form entirely red. */
+/* 4. Invalid. Later than focus and hover at the same specificity, so an error stays visible
+   whether the field is hovered, focused, or both. Deliberately .is-invalid (set by
+   entry-form-validation.js via checkValidity()) and :user-invalid - never bare :invalid,
+   which matches every empty required field on page load and would render a pristine form
+   entirely red. */
 .form-control.is-invalid,
 .form-select.is-invalid,
 .form-check-input.is-invalid,
@@ -665,6 +684,7 @@ a.stat-card-link:hover {
     border-color: var(--danger);
 }
 
+/* Focused AND invalid: keep the error colour, add the ring so focus is still locatable. */
 .form-control.is-invalid:focus,
 .form-select.is-invalid:focus,
 .form-control:user-invalid:focus,
@@ -673,8 +693,8 @@ a.stat-card-link:hover {
     box-shadow: var(--focus-ring);
 }
 
-/* Readonly - a real value the operator may read, select and copy, so it keeps a compliant
-   boundary and primary text colour. Only the fill recedes. Never pointer-events: none. */
+/* 5. Readonly - a real value the operator may read, select and copy. Only the fill recedes;
+   the boundary stays compliant. Never pointer-events: none. */
 .form-control[readonly],
 .form-select[readonly] {
     background-color: var(--bg);
@@ -682,13 +702,35 @@ a.stat-card-link:hover {
     color: var(--text);
 }
 
-/* Disabled - the one state allowed to recede below 3:1. */
+/* Readonly must not look interactive, so it cancels hover at (0,3,0). */
+.form-control[readonly]:hover,
+.form-select[readonly]:hover {
+    border-color: var(--border-input);
+}
+
+/* ...but readonly IS focusable, so focus must still show. Same specificity as the rule
+   above and later, so hovering a focused readonly field still reads as focused. */
+.form-control[readonly]:focus,
+.form-select[readonly]:focus {
+    border-color: var(--border-focus);
+    box-shadow: var(--focus-ring);
+}
+
+/* 6. Disabled - the one state allowed to recede below 3:1, and the one that outranks
+   everything else. Last in the block, so it wins at equal specificity. */
 .form-control:disabled,
 .form-select:disabled,
 .form-check-input:disabled {
     background-color: var(--bg);
     border-color: var(--border);
     color: var(--text-muted);
+}
+
+/* Cancels hover at (0,3,0), later than the readonly equivalent so it wins if both apply. */
+.form-control:disabled:hover,
+.form-select:disabled:hover,
+.form-check-input:disabled:hover {
+    border-color: var(--border);
 }
 
 /* Placeholder is text, so it needs 4.5:1, not 3:1. --text-subtle #8C9196 measures 3.18:1
@@ -698,7 +740,6 @@ a.stat-card-link:hover {
     color: var(--text-muted);
     opacity: 1;
 }
-
 .form-text {
     color: var(--text-muted);
     font-size: var(--font-size-secondary);

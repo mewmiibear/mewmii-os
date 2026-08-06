@@ -1,0 +1,7 @@
+# Generated artefacts. Screenshots are evidence for one run, not source.
+shots/
+issues.json
+
+# puppeteer-core is installed on demand - see README.
+node_modules/
+package-lock.json

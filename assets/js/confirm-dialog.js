@@ -98,10 +98,6 @@
             cancelBtn.textContent = options.cancelLabel || 'Cancel';
 
             node.setAttribute('data-tone', tone);
-            /* alertdialog tells a screen reader this interrupts for a consequential
-               choice. Reserved for genuinely destructive actions - applying it to a
-               routine approval would cry wolf. */
-            node.setAttribute('role', tone === 'danger' ? 'alertdialog' : 'dialog');
 
             pending = { resolve: resolve };
             settled = false;
@@ -111,6 +107,16 @@
                reflex keypress is the safe one. */
             node.addEventListener('shown.bs.modal', function onShown() {
                 node.removeEventListener('shown.bs.modal', onShown);
+
+                /* Set AFTER Bootstrap has shown the modal, not before. Modal.show()
+                   unconditionally writes role="dialog" onto the element, so anything set
+                   beforehand is silently clobbered - confirmed in browser QA, where every
+                   destructive dialog was announcing as a plain dialog. alertdialog tells a
+                   screen reader this interrupts for a consequential choice, and is reserved
+                   for genuinely destructive actions: applying it to a routine approval
+                   would cry wolf. */
+                node.setAttribute('role', tone === 'danger' ? 'alertdialog' : 'dialog');
+
                 (tone === 'danger' ? cancelBtn : confirmBtn).focus();
             });
 
