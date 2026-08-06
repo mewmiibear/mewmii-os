@@ -332,7 +332,7 @@ function catalog_tab_collections_render(array $ctx): void
                                         data-source-id="<?php echo (int) $collection['id']; ?>"
                                         data-source-name="<?php echo app_escape($collection['name']); ?>"
                                         data-product-count="<?php echo (int) $collection['product_count']; ?>">Move</button>
-                                    <form method="post" class="d-inline" action="/modules/catalog/index.php?tab=collections" onsubmit="return confirm('Delete this collection?');">
+                                    <form method="post" class="d-inline" action="/modules/catalog/index.php?tab=collections" data-confirm="This cannot be undone. A record still assigned to products cannot be deleted." data-confirm-title="Delete collection &quot;<?php echo app_escape($collection['name']); ?>&quot;?" data-confirm-label="Delete collection" data-confirm-tone="danger">
                                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                                         <input type="hidden" name="action" value="delete">
                                         <input type="hidden" name="collection_id" value="<?php echo (int) $collection['id']; ?>">

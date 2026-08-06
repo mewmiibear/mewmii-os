@@ -277,7 +277,7 @@ function catalog_tab_tags_render(array $ctx): void
                                         data-source-id="<?php echo (int) $tag['id']; ?>"
                                         data-source-name="<?php echo app_escape($tag['name']); ?>"
                                         data-product-count="<?php echo (int) $tag['product_count']; ?>">Merge</button>
-                                    <form method="post" class="d-inline" action="/modules/catalog/index.php?tab=tags" onsubmit="return confirm('Delete this tag?');">
+                                    <form method="post" class="d-inline" action="/modules/catalog/index.php?tab=tags" data-confirm="This cannot be undone. A record still assigned to products cannot be deleted." data-confirm-title="Delete tag &quot;<?php echo app_escape($tag['name']); ?>&quot;?" data-confirm-label="Delete tag" data-confirm-tone="danger">
                                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                                         <input type="hidden" name="action" value="delete">
                                         <input type="hidden" name="tag_id" value="<?php echo (int) $tag['id']; ?>">

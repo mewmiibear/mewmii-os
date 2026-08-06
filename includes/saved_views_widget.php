@@ -31,7 +31,11 @@ function render_saved_views_widget(PDO $pdo, string $module): void
                 <a class="btn btn-sm btn-outline-secondary" href="<?php echo app_escape($basePath . '?' . $view['query_string']); ?>">
                     <?php echo app_escape($view['name']); ?>
                 </a>
-                <form method="post" action="/modules/saved-views/delete.php" class="d-inline" onsubmit="return confirm('Delete the saved view &quot;<?php echo app_escape(addslashes($view['name'])); ?>&quot;?');">
+                <?php /* addslashes() is gone with the native confirm: it existed only to keep a
+                         quote in the view name from breaking the JS string literal. The name now
+                         lives in an HTML attribute, where app_escape() is the correct and
+                         sufficient escaping. */ ?>
+                <form method="post" action="/modules/saved-views/delete.php" class="d-inline" data-confirm="This cannot be undone. The filters it saved are not affected." data-confirm-title="Delete saved view &quot;<?php echo app_escape($view['name']); ?>&quot;?" data-confirm-label="Delete view" data-confirm-tone="danger">
                     <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                     <input type="hidden" name="module" value="<?php echo app_escape($module); ?>">
                     <input type="hidden" name="view_id" value="<?php echo (int) $view['id']; ?>">

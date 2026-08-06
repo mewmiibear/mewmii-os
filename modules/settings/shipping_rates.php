@@ -180,7 +180,7 @@ require_once __DIR__ . '/../../includes/header.php';
                         <td class="text-end">
                             <div class="d-flex gap-1 justify-content-end">
                                 <a class="btn btn-sm btn-outline-secondary" href="/modules/settings/shipping_rates.php?edit=<?php echo (int) $country['id']; ?>">Edit</a>
-                                <form method="post" class="d-inline" action="/modules/settings/shipping_rates.php" onsubmit="return confirm('Delete this shipping rate? Products using it will have their shipping origin cleared.');">
+                                <form method="post" class="d-inline" action="/modules/settings/shipping_rates.php" data-confirm="This cannot be undone. Products using it will have their shipping origin cleared." data-confirm-title="Delete shipping rate for <?php echo app_escape($country['country_name']); ?>?" data-confirm-label="Delete rate" data-confirm-tone="danger">
                                     <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                                     <input type="hidden" name="action" value="delete">
                                     <input type="hidden" name="country_id" value="<?php echo (int) $country['id']; ?>">

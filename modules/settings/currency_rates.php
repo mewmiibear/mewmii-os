@@ -301,7 +301,7 @@ require_once __DIR__ . '/../../includes/header.php';
                         <td class="text-end">
                             <div class="d-flex gap-1 justify-content-end">
                                 <a class="btn btn-sm btn-outline-secondary" href="/modules/settings/currency_rates.php?edit=<?php echo app_escape($currencyCode); ?>">Edit</a>
-                                <form method="post" class="d-inline" action="/modules/settings/currency_rates.php" onsubmit="return confirm('Delete all rates for this currency?');">
+                                <form method="post" class="d-inline" action="/modules/settings/currency_rates.php" data-confirm="This cannot be undone. Every stored rate for this currency is removed." data-confirm-title="Delete all <?php echo app_escape($currencyCode); ?> rates?" data-confirm-label="Delete rates" data-confirm-tone="danger">
                                     <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                                     <input type="hidden" name="action" value="delete">
                                     <input type="hidden" name="currency_code" value="<?php echo app_escape($currencyCode); ?>">

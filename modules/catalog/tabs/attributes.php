@@ -399,7 +399,7 @@ function catalog_tab_attributes_render_list(array $ctx): void
                             <?php if ($canManage): ?>
                                 <div class="d-flex gap-1 justify-content-end">
                                     <a class="btn btn-sm btn-outline-secondary" href="/modules/catalog/index.php?tab=attributes&manage=<?php echo (int) $attribute['id']; ?>">Manage Values</a>
-                                    <form method="post" class="d-inline" action="/modules/catalog/index.php?tab=attributes" onsubmit="return confirm('Delete this attribute? This only works if no product currently has it assigned.');">
+                                    <form method="post" class="d-inline" action="/modules/catalog/index.php?tab=attributes" data-confirm="This cannot be undone. An attribute still assigned to products cannot be deleted." data-confirm-title="Delete attribute &quot;<?php echo app_escape($attribute['name']); ?>&quot;?" data-confirm-label="Delete attribute" data-confirm-tone="danger">
                                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                                         <input type="hidden" name="action" value="delete">
                                         <input type="hidden" name="attribute_id" value="<?php echo (int) $attribute['id']; ?>">
@@ -492,7 +492,7 @@ function catalog_tab_attributes_render_manage(array $ctx): void
                 <input type="hidden" name="action" value="update_value">
                 <input type="hidden" name="value_id" value="<?php echo (int) $value['id']; ?>">
             </form>
-            <form method="post" action="/modules/catalog/index.php?tab=attributes&manage=<?php echo (int) $attribute['id']; ?>" id="delete-value-form-<?php echo (int) $value['id']; ?>" class="d-none" onsubmit="return confirm('Delete this value? This only works if no product currently has it selected.');">
+            <form method="post" action="/modules/catalog/index.php?tab=attributes&manage=<?php echo (int) $attribute['id']; ?>" id="delete-value-form-<?php echo (int) $value['id']; ?>" class="d-none" data-confirm="This cannot be undone. A value still selected on products cannot be deleted." data-confirm-title="Delete value &quot;<?php echo app_escape($value['value']); ?>&quot;?" data-confirm-label="Delete value" data-confirm-tone="danger">
                 <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                 <input type="hidden" name="action" value="delete_value">
                 <input type="hidden" name="value_id" value="<?php echo (int) $value['id']; ?>">

@@ -120,7 +120,7 @@ require_once __DIR__ . '/../../includes/header.php';
         <p class="text-muted mb-0">Background outbound jobs (WooCommerce sync and future integrations) - queued by the app, executed by cli/job_worker.php.</p>
     </div>
     <div class="d-flex gap-2">
-        <form method="post" class="d-inline" onsubmit="return confirm('Delete completed jobs older than <?php echo (int) JOB_QUEUE_CLEANUP_DAYS_DEFAULT; ?> days? Pending, processing, and failed jobs are never affected.');">
+        <form method="post" class="d-inline" data-confirm="This cannot be undone. Only completed jobs are removed - pending, processing and failed jobs are never affected." data-confirm-title="Delete jobs older than <?php echo (int) JOB_QUEUE_CLEANUP_DAYS_DEFAULT; ?> days?" data-confirm-label="Delete jobs" data-confirm-tone="danger">
             <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
             <input type="hidden" name="action" value="cleanup">
             <button type="submit" class="btn btn-outline-secondary btn-sm">Clean Old Completed Jobs</button>

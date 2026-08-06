@@ -388,7 +388,7 @@ function catalog_tab_categories_render(array $ctx): void
                                         data-source-id="<?php echo (int) $category['id']; ?>"
                                         data-source-name="<?php echo app_escape($category['name']); ?>"
                                         data-product-count="<?php echo (int) $category['product_count']; ?>">Move</button>
-                                    <form method="post" class="d-inline" action="/modules/catalog/index.php?tab=categories" onsubmit="return confirm('Delete this category?');">
+                                    <form method="post" class="d-inline" action="/modules/catalog/index.php?tab=categories" data-confirm="This cannot be undone. A category still assigned to products, or with subcategories, cannot be deleted." data-confirm-title="Delete category &quot;<?php echo app_escape($category['name']); ?>&quot;?" data-confirm-label="Delete category" data-confirm-tone="danger">
                                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                                         <input type="hidden" name="action" value="delete">
                                         <input type="hidden" name="category_id" value="<?php echo (int) $category['id']; ?>">

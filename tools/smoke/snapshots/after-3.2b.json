@@ -1,0 +1,5622 @@
+{
+    "meta": {
+        "captured_at": "2026-08-06T07:05:44+02:00",
+        "base_url": "http://127.0.0.1:8901",
+        "tool_version": 1,
+        "routes_crawled": 94,
+        "routes_excluded": 56
+    },
+    "excluded": [
+        {
+            "route": "config.example.php",
+            "reason": "configuration template, not routable"
+        },
+        {
+            "route": "config.php",
+            "reason": "configuration file holding database credentials - not a page (the server correctly returns 403)"
+        },
+        {
+            "route": "generate_password.php",
+            "reason": "developer utility, not an application page"
+        },
+        {
+            "route": "install.php",
+            "reason": "installer - would re-seed the database"
+        },
+        {
+            "route": "logout.php",
+            "reason": "would terminate the crawler session mid-run"
+        },
+        {
+            "route": "modules/catalog/tabs/attributes.php",
+            "reason": "tab partial - included by its module index; standalone it only defines functions and renders a blank page"
+        },
+        {
+            "route": "modules/catalog/tabs/brands.php",
+            "reason": "tab partial - included by its module index; standalone it only defines functions and renders a blank page"
+        },
+        {
+            "route": "modules/catalog/tabs/categories.php",
+            "reason": "tab partial - included by its module index; standalone it only defines functions and renders a blank page"
+        },
+        {
+            "route": "modules/catalog/tabs/collections.php",
+            "reason": "tab partial - included by its module index; standalone it only defines functions and renders a blank page"
+        },
+        {
+            "route": "modules/catalog/tabs/tags.php",
+            "reason": "tab partial - included by its module index; standalone it only defines functions and renders a blank page"
+        },
+        {
+            "route": "modules/customers/ajax/create_customer.php",
+            "reason": "AJAX fragment endpoint - returns JSON/HTML fragments, not a page; some perform writes without a POST guard"
+        },
+        {
+            "route": "modules/dashboard/index.php",
+            "reason": "empty file - renders a blank page"
+        },
+        {
+            "route": "modules/finance/asset_attachment_download.php",
+            "reason": "file download - returns a binary attachment"
+        },
+        {
+            "route": "modules/finance/receipt_download.php",
+            "reason": "file download - returns a binary attachment"
+        },
+        {
+            "route": "modules/inventory/ajax/drawer.php",
+            "reason": "AJAX fragment endpoint - returns JSON/HTML fragments, not a page; some perform writes without a POST guard"
+        },
+        {
+            "route": "modules/inventory/ajax/history.php",
+            "reason": "AJAX fragment endpoint - returns JSON/HTML fragments, not a page; some perform writes without a POST guard"
+        },
+        {
+            "route": "modules/inventory/views/drawer.php",
+            "reason": "view partial - rendered by a controller, fatals if hit directly (see modules/inventory/views/drawer.php)"
+        },
+        {
+            "route": "modules/orders/_item_picker_modal.php",
+            "reason": "partial - included by another page, not routable on its own"
+        },
+        {
+            "route": "modules/orders/bulk_action.php",
+            "reason": "bulk mutation endpoint (POST-only)"
+        },
+        {
+            "route": "modules/orders/delete.php",
+            "reason": "destructive action endpoint (POST-guarded, but never worth a GET)"
+        },
+        {
+            "route": "modules/orders/receipt_download.php",
+            "reason": "file download - returns a binary attachment"
+        },
+        {
+            "route": "modules/products/_form.php",
+            "reason": "partial - included by another page, not routable on its own"
+        },
+        {
+            "route": "modules/products/ajax/add_gallery_images.php",
+            "reason": "AJAX fragment endpoint - returns JSON/HTML fragments, not a page; some perform writes without a POST guard"
+        },
+        {
+            "route": "modules/products/ajax/add_variation_gallery_images.php",
+            "reason": "AJAX fragment endpoint - returns JSON/HTML fragments, not a page; some perform writes without a POST guard"
+        },
+        {
+            "route": "modules/products/ajax/add_variation_manual.php",
+            "reason": "AJAX fragment endpoint - returns JSON/HTML fragments, not a page; some perform writes without a POST guard"
+        },
+        {
+            "route": "modules/products/ajax/bulk_variation_action.php",
+            "reason": "AJAX fragment endpoint - returns JSON/HTML fragments, not a page; some perform writes without a POST guard"
+        },
+        {
+            "route": "modules/products/ajax/delete_variation.php",
+            "reason": "AJAX fragment endpoint - returns JSON/HTML fragments, not a page; some perform writes without a POST guard"
+        },
+        {
+            "route": "modules/products/ajax/generate_variations.php",
+            "reason": "AJAX fragment endpoint - returns JSON/HTML fragments, not a page; some perform writes without a POST guard"
+        },
+        {
+            "route": "modules/products/ajax/get_variation_images.php",
+            "reason": "AJAX fragment endpoint - returns JSON/HTML fragments, not a page; some perform writes without a POST guard"
+        },
+        {
+            "route": "modules/products/ajax/save_attributes.php",
+            "reason": "AJAX fragment endpoint - returns JSON/HTML fragments, not a page; some perform writes without a POST guard"
+        },
+        {
+            "route": "modules/products/ajax/save_variation.php",
+            "reason": "AJAX fragment endpoint - returns JSON/HTML fragments, not a page; some perform writes without a POST guard"
+        },
+        {
+            "route": "modules/products/ajax/update_attribute_value.php",
+            "reason": "AJAX fragment endpoint - returns JSON/HTML fragments, not a page; some perform writes without a POST guard"
+        },
+        {
+            "route": "modules/products/ajax/update_gallery.php",
+            "reason": "AJAX fragment endpoint - returns JSON/HTML fragments, not a page; some perform writes without a POST guard"
+        },
+        {
+            "route": "modules/products/ajax/update_variation_attributes.php",
+            "reason": "AJAX fragment endpoint - returns JSON/HTML fragments, not a page; some perform writes without a POST guard"
+        },
+        {
+            "route": "modules/products/ajax/update_variation_gallery.php",
+            "reason": "AJAX fragment endpoint - returns JSON/HTML fragments, not a page; some perform writes without a POST guard"
+        },
+        {
+            "route": "modules/products/ajax/upload_main_image.php",
+            "reason": "AJAX fragment endpoint - returns JSON/HTML fragments, not a page; some perform writes without a POST guard"
+        },
+        {
+            "route": "modules/products/bulk_action.php",
+            "reason": "bulk mutation endpoint (POST-only)"
+        },
+        {
+            "route": "modules/products/delete.php",
+            "reason": "destructive action endpoint (POST-guarded, but never worth a GET)"
+        },
+        {
+            "route": "modules/products/import_template.php",
+            "reason": "file download - returns a CSV template"
+        },
+        {
+            "route": "modules/products/reopen_preorder.php",
+            "reason": "action endpoint - POST-only, redirects on GET"
+        },
+        {
+            "route": "modules/products/sync.php",
+            "reason": "ACTION ENDPOINT - triggers a full WooCommerce product push. Only its CSRF check stops a GET. Never crawled."
+        },
+        {
+            "route": "modules/products/sync_one.php",
+            "reason": "action endpoint - POST-only, redirects on GET"
+        },
+        {
+            "route": "modules/purchasing/create_order.php",
+            "reason": "action endpoint - POST-only, redirects on GET"
+        },
+        {
+            "route": "modules/saved-views/delete.php",
+            "reason": "destructive action endpoint (POST-guarded, but never worth a GET)"
+        },
+        {
+            "route": "modules/search/ajax_quick.php",
+            "reason": "AJAX fragment endpoint"
+        },
+        {
+            "route": "modules/settings/export_customer_orders.php",
+            "reason": "file download - returns CSV, not an HTML page"
+        },
+        {
+            "route": "modules/settings/export_customers.php",
+            "reason": "file download - returns CSV, not an HTML page"
+        },
+        {
+            "route": "modules/settings/export_products.php",
+            "reason": "file download - returns CSV, not an HTML page"
+        },
+        {
+            "route": "modules/settings/export_supplier_orders.php",
+            "reason": "file download - returns CSV, not an HTML page"
+        },
+        {
+            "route": "modules/settings/reset_test_data.php",
+            "reason": "DESTRUCTIVE - deletes orders, customers, supplier orders. Never crawled."
+        },
+        {
+            "route": "modules/supplier-orders/_item_picker_modal.php",
+            "reason": "partial - included by another page, not routable on its own"
+        },
+        {
+            "route": "modules/supplier-orders/delete.php",
+            "reason": "destructive action endpoint (POST-guarded, but never worth a GET)"
+        },
+        {
+            "route": "modules/webhooks/ajax/retry_pending.php",
+            "reason": "AJAX fragment endpoint - returns JSON/HTML fragments, not a page; some perform writes without a POST guard"
+        },
+        {
+            "route": "modules/webhooks/woocommerce.php",
+            "reason": "server-to-server webhook receiver - HMAC-authenticated, not a browser page"
+        },
+        {
+            "route": "resolution_receipt.php",
+            "reason": "token-authenticated receipt download - requires ?receipt_id= and ?token=, returns a file not a page"
+        },
+        {
+            "route": "test-db.php",
+            "reason": "developer connectivity probe, not an application page"
+        }
+    ],
+    "pages": {
+        "index.php": {
+            "status": 200,
+            "bytes": 18123,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 3
+            },
+            "page_header": false,
+            "components": {
+                "cards": 4,
+                "badges": 1,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 54,
+                "buttons": 19
+            },
+            "tables": [],
+            "forms": [
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "login.php": {
+            "status": 200,
+            "bytes": 18123,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 3
+            },
+            "page_header": false,
+            "components": {
+                "cards": 4,
+                "badges": 1,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 54,
+                "buttons": 19
+            },
+            "tables": [],
+            "forms": [
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/attributes/edit.php": {
+            "status": 200,
+            "bytes": 15579,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 2
+            },
+            "page_header": true,
+            "components": {
+                "cards": 4,
+                "badges": 0,
+                "empty_states": 3,
+                "filter_cards": 1,
+                "modals": 7,
+                "sidebar_links": 42
+            },
+            "controls": {
+                "links": 45,
+                "buttons": 16
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 5
+                }
+            ],
+            "forms": [
+                {
+                    "action": "/modules/catalog/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q",
+                        "tab"
+                    ],
+                    "buttons": [
+                        "@Search"
+                    ]
+                },
+                {
+                    "action": "/modules/catalog/index.php?tab=attributes",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "name"
+                    ],
+                    "buttons": [
+                        "@Add"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/attributes/index.php": {
+            "status": 200,
+            "bytes": 15579,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 2
+            },
+            "page_header": true,
+            "components": {
+                "cards": 4,
+                "badges": 0,
+                "empty_states": 3,
+                "filter_cards": 1,
+                "modals": 7,
+                "sidebar_links": 42
+            },
+            "controls": {
+                "links": 45,
+                "buttons": 16
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 5
+                }
+            ],
+            "forms": [
+                {
+                    "action": "/modules/catalog/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q",
+                        "tab"
+                    ],
+                    "buttons": [
+                        "@Search"
+                    ]
+                },
+                {
+                    "action": "/modules/catalog/index.php?tab=attributes",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "name"
+                    ],
+                    "buttons": [
+                        "@Add"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/brands/edit.php": {
+            "status": 200,
+            "bytes": 18901,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 3
+            },
+            "page_header": true,
+            "components": {
+                "cards": 4,
+                "badges": 0,
+                "empty_states": 3,
+                "filter_cards": 1,
+                "modals": 14,
+                "sidebar_links": 42
+            },
+            "controls": {
+                "links": 45,
+                "buttons": 22
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 4
+                }
+            ],
+            "forms": [
+                {
+                    "action": "/modules/catalog/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q",
+                        "tab"
+                    ],
+                    "buttons": [
+                        "@Search"
+                    ]
+                },
+                {
+                    "action": "/modules/catalog/index.php?tab=brands",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "description",
+                        "logo",
+                        "name"
+                    ],
+                    "buttons": [
+                        "@Add"
+                    ]
+                },
+                {
+                    "action": "/modules/catalog/index.php?tab=brands",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "destination_id",
+                        "source_id"
+                    ],
+                    "buttons": [
+                        "@",
+                        "@Cancel",
+                        "@Move Products"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/brands/index.php": {
+            "status": 200,
+            "bytes": 18901,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 3
+            },
+            "page_header": true,
+            "components": {
+                "cards": 4,
+                "badges": 0,
+                "empty_states": 3,
+                "filter_cards": 1,
+                "modals": 14,
+                "sidebar_links": 42
+            },
+            "controls": {
+                "links": 45,
+                "buttons": 22
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 4
+                }
+            ],
+            "forms": [
+                {
+                    "action": "/modules/catalog/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q",
+                        "tab"
+                    ],
+                    "buttons": [
+                        "@Search"
+                    ]
+                },
+                {
+                    "action": "/modules/catalog/index.php?tab=brands",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "description",
+                        "logo",
+                        "name"
+                    ],
+                    "buttons": [
+                        "@Add"
+                    ]
+                },
+                {
+                    "action": "/modules/catalog/index.php?tab=brands",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "destination_id",
+                        "source_id"
+                    ],
+                    "buttons": [
+                        "@",
+                        "@Cancel",
+                        "@Move Products"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/catalog/index.php": {
+            "status": 200,
+            "bytes": 19303,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 3
+            },
+            "page_header": true,
+            "components": {
+                "cards": 4,
+                "badges": 0,
+                "empty_states": 3,
+                "filter_cards": 1,
+                "modals": 14,
+                "sidebar_links": 42
+            },
+            "controls": {
+                "links": 45,
+                "buttons": 22
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 4
+                }
+            ],
+            "forms": [
+                {
+                    "action": "/modules/catalog/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q",
+                        "tab"
+                    ],
+                    "buttons": [
+                        "@Search"
+                    ]
+                },
+                {
+                    "action": "/modules/catalog/index.php?tab=categories",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "description",
+                        "image",
+                        "name",
+                        "parent_id"
+                    ],
+                    "buttons": [
+                        "@Add"
+                    ]
+                },
+                {
+                    "action": "/modules/catalog/index.php?tab=categories",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "destination_id",
+                        "source_id"
+                    ],
+                    "buttons": [
+                        "@",
+                        "@Cancel",
+                        "@Move Products"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/categories/edit.php": {
+            "status": 200,
+            "bytes": 19303,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 3
+            },
+            "page_header": true,
+            "components": {
+                "cards": 4,
+                "badges": 0,
+                "empty_states": 3,
+                "filter_cards": 1,
+                "modals": 14,
+                "sidebar_links": 42
+            },
+            "controls": {
+                "links": 45,
+                "buttons": 22
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 4
+                }
+            ],
+            "forms": [
+                {
+                    "action": "/modules/catalog/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q",
+                        "tab"
+                    ],
+                    "buttons": [
+                        "@Search"
+                    ]
+                },
+                {
+                    "action": "/modules/catalog/index.php?tab=categories",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "description",
+                        "image",
+                        "name",
+                        "parent_id"
+                    ],
+                    "buttons": [
+                        "@Add"
+                    ]
+                },
+                {
+                    "action": "/modules/catalog/index.php?tab=categories",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "destination_id",
+                        "source_id"
+                    ],
+                    "buttons": [
+                        "@",
+                        "@Cancel",
+                        "@Move Products"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/categories/index.php": {
+            "status": 200,
+            "bytes": 19303,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 3
+            },
+            "page_header": true,
+            "components": {
+                "cards": 4,
+                "badges": 0,
+                "empty_states": 3,
+                "filter_cards": 1,
+                "modals": 14,
+                "sidebar_links": 42
+            },
+            "controls": {
+                "links": 45,
+                "buttons": 22
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 4
+                }
+            ],
+            "forms": [
+                {
+                    "action": "/modules/catalog/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q",
+                        "tab"
+                    ],
+                    "buttons": [
+                        "@Search"
+                    ]
+                },
+                {
+                    "action": "/modules/catalog/index.php?tab=categories",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "description",
+                        "image",
+                        "name",
+                        "parent_id"
+                    ],
+                    "buttons": [
+                        "@Add"
+                    ]
+                },
+                {
+                    "action": "/modules/catalog/index.php?tab=categories",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "destination_id",
+                        "source_id"
+                    ],
+                    "buttons": [
+                        "@",
+                        "@Cancel",
+                        "@Move Products"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/collections/edit.php": {
+            "status": 200,
+            "bytes": 19247,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 3
+            },
+            "page_header": true,
+            "components": {
+                "cards": 4,
+                "badges": 0,
+                "empty_states": 3,
+                "filter_cards": 1,
+                "modals": 14,
+                "sidebar_links": 42
+            },
+            "controls": {
+                "links": 46,
+                "buttons": 22
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 4
+                }
+            ],
+            "forms": [
+                {
+                    "action": "/modules/catalog/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q",
+                        "tab"
+                    ],
+                    "buttons": [
+                        "@Search"
+                    ]
+                },
+                {
+                    "action": "/modules/catalog/index.php?tab=collections",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "description",
+                        "image",
+                        "name"
+                    ],
+                    "buttons": [
+                        "@Add"
+                    ]
+                },
+                {
+                    "action": "/modules/catalog/index.php?tab=collections",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "destination_id",
+                        "source_id"
+                    ],
+                    "buttons": [
+                        "@",
+                        "@Cancel",
+                        "@Move Products"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/collections/index.php": {
+            "status": 200,
+            "bytes": 19247,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 3
+            },
+            "page_header": true,
+            "components": {
+                "cards": 4,
+                "badges": 0,
+                "empty_states": 3,
+                "filter_cards": 1,
+                "modals": 14,
+                "sidebar_links": 42
+            },
+            "controls": {
+                "links": 46,
+                "buttons": 22
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 4
+                }
+            ],
+            "forms": [
+                {
+                    "action": "/modules/catalog/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q",
+                        "tab"
+                    ],
+                    "buttons": [
+                        "@Search"
+                    ]
+                },
+                {
+                    "action": "/modules/catalog/index.php?tab=collections",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "description",
+                        "image",
+                        "name"
+                    ],
+                    "buttons": [
+                        "@Add"
+                    ]
+                },
+                {
+                    "action": "/modules/catalog/index.php?tab=collections",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "destination_id",
+                        "source_id"
+                    ],
+                    "buttons": [
+                        "@",
+                        "@Cancel",
+                        "@Move Products"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/customer-storage/index.php": {
+            "status": 200,
+            "bytes": 15438,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 2
+            },
+            "page_header": false,
+            "components": {
+                "cards": 3,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 41,
+                "buttons": 15
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 4
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "arrival_date",
+                        "customer_id",
+                        "quantity",
+                        "unit_key"
+                    ],
+                    "buttons": [
+                        "@Add to Storage"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/customer-storage/view.php": {
+            "status": 200,
+            "bytes": 17906,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 5
+            },
+            "page_header": false,
+            "components": {
+                "cards": 5,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 41,
+                "buttons": 19
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 6
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "arrival_date",
+                        "quantity",
+                        "unit_key"
+                    ],
+                    "buttons": [
+                        "@Add"
+                    ]
+                },
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "quantity",
+                        "storage_id"
+                    ],
+                    "buttons": [
+                        "@Remove"
+                    ]
+                },
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "storage_id",
+                        "storage_location"
+                    ],
+                    "buttons": [
+                        "@Save"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ],
+            "sampled_query": "customer_id=1",
+            "bare_status": 404
+        },
+        "modules/customers/create.php": {
+            "status": 200,
+            "bytes": 14939,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 3
+            },
+            "page_header": true,
+            "components": {
+                "cards": 3,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 41,
+                "buttons": 15
+            },
+            "tables": [],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "address",
+                        "birthday",
+                        "email",
+                        "instagram_username",
+                        "name",
+                        "notes",
+                        "phone"
+                    ],
+                    "buttons": [
+                        "@Create Customer"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/customers/edit.php": {
+            "status": 200,
+            "bytes": 14926,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 3
+            },
+            "page_header": true,
+            "components": {
+                "cards": 3,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 41,
+                "buttons": 15
+            },
+            "tables": [],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "address",
+                        "birthday",
+                        "email",
+                        "instagram_username",
+                        "name",
+                        "notes",
+                        "phone"
+                    ],
+                    "buttons": [
+                        "@Save Changes"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ],
+            "sampled_query": "id=1",
+            "bare_status": 404
+        },
+        "modules/customers/import.php": {
+            "status": 200,
+            "bytes": 12906,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 2
+            },
+            "page_header": false,
+            "components": {
+                "cards": 2,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 40,
+                "buttons": 14
+            },
+            "tables": [],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "csv_file"
+                    ],
+                    "buttons": [
+                        "@Validate & Import"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/customers/index.php": {
+            "status": 200,
+            "bytes": 15733,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": false,
+            "components": {
+                "cards": 3,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 1,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 44,
+                "buttons": 22
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 9
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": [
+                        "@Filter"
+                    ]
+                },
+                {
+                    "action": "/modules/saved-views/save.php",
+                    "method": "post",
+                    "inputs": [
+                        "module",
+                        "name",
+                        "query_string"
+                    ],
+                    "buttons": [
+                        "@Save"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/customers/view.php": {
+            "status": 200,
+            "bytes": 16490,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 6
+            },
+            "page_header": false,
+            "components": {
+                "cards": 6,
+                "badges": 2,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 45,
+                "buttons": 15
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 5
+                },
+                {
+                    "index": 1,
+                    "columns": 5
+                },
+                {
+                    "index": 2,
+                    "columns": 6
+                }
+            ],
+            "forms": [
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ],
+            "sampled_query": "id=1",
+            "bare_status": 404
+        },
+        "modules/finance/asset_create.php": {
+            "status": 200,
+            "bytes": 18748,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 5
+            },
+            "page_header": true,
+            "components": {
+                "cards": 5,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 41,
+                "buttons": 15
+            },
+            "tables": [],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "asset_code",
+                        "assigned_to",
+                        "bank_account_id",
+                        "category",
+                        "currency",
+                        "description",
+                        "document",
+                        "exchange_rate",
+                        "location",
+                        "name",
+                        "notes",
+                        "purchase_amount",
+                        "purchase_date",
+                        "supplier_id",
+                        "warranty_expiry"
+                    ],
+                    "buttons": [
+                        "@Save Asset"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/finance/asset_edit.php": {
+            "skipped": "needs id and no link carrying one was found on any crawled page - the module is probably empty",
+            "bare_status": 404
+        },
+        "modules/finance/asset_view.php": {
+            "skipped": "needs id and no link carrying one was found on any crawled page - the module is probably empty",
+            "bare_status": 404
+        },
+        "modules/finance/assets.php": {
+            "status": 200,
+            "bytes": 16739,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": false,
+            "components": {
+                "cards": 3,
+                "badges": 0,
+                "empty_states": 3,
+                "filter_cards": 1,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 42,
+                "buttons": 16
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 10
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "get",
+                    "inputs": [
+                        "category",
+                        "date_from",
+                        "date_to",
+                        "location",
+                        "q",
+                        "status"
+                    ],
+                    "buttons": [
+                        "@Filter"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/finance/bank_accounts.php": {
+            "status": 200,
+            "bytes": 15526,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 3
+            },
+            "page_header": true,
+            "components": {
+                "cards": 3,
+                "badges": 0,
+                "empty_states": 2,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 40,
+                "buttons": 14
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 5
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "account_type",
+                        "action",
+                        "currency",
+                        "name",
+                        "notes"
+                    ],
+                    "buttons": [
+                        "@Add Account"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/finance/categories.php": {
+            "status": 200,
+            "bytes": 13626,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 3
+            },
+            "page_header": true,
+            "components": {
+                "cards": 3,
+                "badges": 0,
+                "empty_states": 2,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 40,
+                "buttons": 14
+            },
+            "tables": [],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "name",
+                        "parent_id"
+                    ],
+                    "buttons": [
+                        "@Add Category"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/finance/create.php": {
+            "status": 200,
+            "bytes": 16865,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 5
+            },
+            "page_header": true,
+            "components": {
+                "cards": 5,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 41,
+                "buttons": 15
+            },
+            "tables": [],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "amount",
+                        "bank_account_id",
+                        "category_id",
+                        "currency",
+                        "description",
+                        "exchange_rate",
+                        "expense_date",
+                        "payment_method",
+                        "receipt",
+                        "reference_number",
+                        "supplier_id",
+                        "tax_deductible"
+                    ],
+                    "buttons": [
+                        "@Save Expense"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/finance/edit.php": {
+            "skipped": "needs id and no link carrying one was found on any crawled page - the module is probably empty",
+            "bare_status": 404
+        },
+        "modules/finance/index.php": {
+            "status": 200,
+            "bytes": 15775,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": false,
+            "components": {
+                "cards": 3,
+                "badges": 0,
+                "empty_states": 3,
+                "filter_cards": 1,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 43,
+                "buttons": 17
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 8
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "get",
+                    "inputs": [
+                        "category_id",
+                        "date_from",
+                        "date_to",
+                        "q",
+                        "status"
+                    ],
+                    "buttons": [
+                        "@Filter"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/finance/manual_income.php": {
+            "status": 200,
+            "bytes": 18641,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 3
+            },
+            "page_header": true,
+            "components": {
+                "cards": 4,
+                "badges": 0,
+                "empty_states": 2,
+                "filter_cards": 1,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 41,
+                "buttons": 17
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 6
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "get",
+                    "inputs": [
+                        "category",
+                        "date_from",
+                        "date_to",
+                        "q"
+                    ],
+                    "buttons": [
+                        "@Filter"
+                    ]
+                },
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "amount",
+                        "bank_account_id",
+                        "category",
+                        "currency",
+                        "description",
+                        "exchange_rate",
+                        "income_date",
+                        "reference_number"
+                    ],
+                    "buttons": [
+                        "@Add Manual Income"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/finance/view.php": {
+            "skipped": "needs id and no link carrying one was found on any crawled page - the module is probably empty",
+            "bare_status": 404
+        },
+        "modules/integrations/woocommerce.php": {
+            "status": 200,
+            "bytes": 33018,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 8
+            },
+            "page_header": false,
+            "components": {
+                "cards": 35,
+                "badges": 0,
+                "empty_states": 12,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 40,
+                "buttons": 24
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 4
+                },
+                {
+                    "index": 1,
+                    "columns": 4
+                },
+                {
+                    "index": 2,
+                    "columns": 4
+                },
+                {
+                    "index": 3,
+                    "columns": 4
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "auto_sync_enabled",
+                        "set_auto_sync"
+                    ],
+                    "buttons": [
+                        "@Save"
+                    ]
+                },
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "import_customers"
+                    ],
+                    "buttons": [
+                        "@Import Customers Now"
+                    ]
+                },
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "import_orders"
+                    ],
+                    "buttons": [
+                        "@Import Orders Now"
+                    ]
+                },
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "import_products"
+                    ],
+                    "buttons": [
+                        "@Import Products Now"
+                    ]
+                },
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "set_sync_mode",
+                        "sync_mode"
+                    ],
+                    "buttons": [
+                        "@Save"
+                    ]
+                },
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "test_connection"
+                    ],
+                    "buttons": [
+                        "@Test Connection"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/inventory/allocate.php": {
+            "status": 200,
+            "bytes": 16222,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 5
+            },
+            "page_header": false,
+            "components": {
+                "cards": 5,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 42,
+                "buttons": 19
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 6
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "action"
+                    ],
+                    "buttons": [
+                        "@Allocate Automatically (FIFO)"
+                    ]
+                },
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "qty[2]",
+                        "rows[]"
+                    ],
+                    "buttons": [
+                        "@Allocate Selected"
+                    ]
+                },
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "release_quantity"
+                    ],
+                    "buttons": [
+                        "@Release"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ],
+            "sampled_query": "product_id=2",
+            "bare_status": 404
+        },
+        "modules/inventory/allocation-center.php": {
+            "status": 200,
+            "bytes": 14655,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": false,
+            "components": {
+                "cards": 2,
+                "badges": 1,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 41,
+                "buttons": 15
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 9
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "product_id"
+                    ],
+                    "buttons": [
+                        "@Auto Allocate"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/inventory/export.php": {
+            "status": 200,
+            "bytes": 215,
+            "php_errors": [],
+            "title": "",
+            "headings": {
+                "h1": 0,
+                "h2": 0,
+                "h3": 0,
+                "h5": 0
+            },
+            "page_header": false,
+            "components": {
+                "cards": 0,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 0,
+                "sidebar_links": 0
+            },
+            "controls": {
+                "links": 0,
+                "buttons": 0
+            },
+            "tables": [],
+            "forms": []
+        },
+        "modules/inventory/import_opening_stock.php": {
+            "status": 200,
+            "bytes": 12884,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 2
+            },
+            "page_header": false,
+            "components": {
+                "cards": 2,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 40,
+                "buttons": 14
+            },
+            "tables": [],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "csv_file"
+                    ],
+                    "buttons": [
+                        "@Validate & Import"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/inventory/index.php": {
+            "status": 200,
+            "bytes": 29206,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 3
+            },
+            "page_header": true,
+            "components": {
+                "cards": 3,
+                "badges": 3,
+                "empty_states": 0,
+                "filter_cards": 1,
+                "modals": 20,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 51,
+                "buttons": 53
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 12
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "get",
+                    "inputs": [
+                        "catalog_type",
+                        "category_id",
+                        "needs_ordering",
+                        "product_type",
+                        "q",
+                        "stage",
+                        "stock_status",
+                        "supplier_id"
+                    ],
+                    "buttons": [
+                        "@Filter"
+                    ]
+                },
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "adjustment_type",
+                        "notes",
+                        "quantity",
+                        "reason",
+                        "unit_key"
+                    ],
+                    "buttons": [
+                        "@",
+                        "@Cancel",
+                        "@Save Adjustment"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/inventory/report.php": {
+            "status": 200,
+            "bytes": 14051,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": false,
+            "components": {
+                "cards": 2,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 40,
+                "buttons": 12
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 7
+                }
+            ],
+            "forms": [
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/inventory/reservation-center.php": {
+            "status": 200,
+            "bytes": 13773,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": false,
+            "components": {
+                "cards": 2,
+                "badges": 1,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 41,
+                "buttons": 13
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 7
+                }
+            ],
+            "forms": [
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/inventory/reserve.php": {
+            "status": 200,
+            "bytes": 15372,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 4
+            },
+            "page_header": false,
+            "components": {
+                "cards": 4,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 42,
+                "buttons": 17
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 6
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "action"
+                    ],
+                    "buttons": [
+                        "@Reserve Automatically (FIFO)"
+                    ]
+                },
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "qty[1]",
+                        "rows[]"
+                    ],
+                    "buttons": [
+                        "@Reserve Selected"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ],
+            "sampled_query": "product_id=1",
+            "bare_status": 404
+        },
+        "modules/notifications/index.php": {
+            "status": 200,
+            "bytes": 14343,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": true,
+            "components": {
+                "cards": 3,
+                "badges": 0,
+                "empty_states": 3,
+                "filter_cards": 1,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 40,
+                "buttons": 16
+            },
+            "tables": [],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "get",
+                    "inputs": [
+                        "status",
+                        "type"
+                    ],
+                    "buttons": [
+                        "@Filter"
+                    ]
+                },
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "action"
+                    ],
+                    "buttons": [
+                        "@Generate Alerts Now"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/operations/job_queue.php": {
+            "status": 200,
+            "bytes": 16716,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": false,
+            "components": {
+                "cards": 7,
+                "badges": 0,
+                "empty_states": 3,
+                "filter_cards": 1,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 40,
+                "buttons": 16
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 9
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "get",
+                    "inputs": [
+                        "q",
+                        "status",
+                        "type"
+                    ],
+                    "buttons": [
+                        "@Filter"
+                    ]
+                },
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "action"
+                    ],
+                    "buttons": [
+                        "@Clean Old Completed Jobs"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/orders/create.php": {
+            "status": 200,
+            "bytes": 20825,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 4
+            },
+            "page_header": false,
+            "components": {
+                "cards": 2,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 21,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 40,
+                "buttons": 30
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 7
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "customer_id",
+                        "customer_note",
+                        "internal_note",
+                        "order_number",
+                        "shipping_fee"
+                    ],
+                    "buttons": [
+                        "@+ Add Product",
+                        "@+ New Customer",
+                        "@Create Order"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/orders/edit.php": {
+            "status": 200,
+            "bytes": 21769,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 4
+            },
+            "page_header": false,
+            "components": {
+                "cards": 2,
+                "badges": 1,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 21,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 40,
+                "buttons": 30
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 7
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "customer_id",
+                        "customer_note",
+                        "internal_note",
+                        "order_date",
+                        "shipping_fee"
+                    ],
+                    "buttons": [
+                        "@+ Add Product",
+                        "@+ New Customer",
+                        "@Save Changes"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ],
+            "sampled_query": "id=1",
+            "bare_status": 404
+        },
+        "modules/orders/import.php": {
+            "status": 200,
+            "bytes": 13730,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 2
+            },
+            "page_header": false,
+            "components": {
+                "cards": 2,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 40,
+                "buttons": 14
+            },
+            "tables": [],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "csv_file"
+                    ],
+                    "buttons": [
+                        "@Validate & Import"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/orders/index.php": {
+            "status": 200,
+            "bytes": 19748,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": true,
+            "components": {
+                "cards": 3,
+                "badges": 3,
+                "empty_states": 0,
+                "filter_cards": 1,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 50,
+                "buttons": 27
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 8
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "get",
+                    "inputs": [
+                        "payment_status",
+                        "q",
+                        "status",
+                        "view"
+                    ],
+                    "buttons": [
+                        "@Filter"
+                    ]
+                },
+                {
+                    "action": "/modules/orders/bulk_action.php",
+                    "method": "post",
+                    "inputs": [
+                        "bulk_action"
+                    ],
+                    "buttons": []
+                },
+                {
+                    "action": "/modules/saved-views/save.php",
+                    "method": "post",
+                    "inputs": [
+                        "module",
+                        "name",
+                        "query_string"
+                    ],
+                    "buttons": [
+                        "@Save"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/orders/view.php": {
+            "status": 200,
+            "bytes": 42122,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 12
+            },
+            "page_header": true,
+            "components": {
+                "cards": 12,
+                "badges": 7,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 49,
+                "buttons": 23
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 0
+                },
+                {
+                    "index": 1,
+                    "columns": 8
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "add_note",
+                        "note_text"
+                    ],
+                    "buttons": [
+                        "@Add"
+                    ]
+                },
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "cancel_order"
+                    ],
+                    "buttons": [
+                        "@Cancel Order"
+                    ]
+                },
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "create_resolution",
+                        "resolution_item_ids[]",
+                        "resolution_reason"
+                    ],
+                    "buttons": [
+                        "@Create Resolution Request"
+                    ]
+                },
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "new_status",
+                        "notes",
+                        "status_field"
+                    ],
+                    "buttons": [
+                        "@Update"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ],
+            "sampled_query": "id=1",
+            "bare_status": 404
+        },
+        "modules/products/control-center.php": {
+            "status": 200,
+            "bytes": 17216,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": false,
+            "components": {
+                "cards": 4,
+                "badges": 3,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 48,
+                "buttons": 17
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 4
+                },
+                {
+                    "index": 1,
+                    "columns": 6
+                }
+            ],
+            "forms": [
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ],
+            "sampled_query": "id=1",
+            "bare_status": 404
+        },
+        "modules/products/create.php": {
+            "status": 200,
+            "bytes": 61844,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": false,
+            "components": {
+                "cards": 18,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 46,
+                "buttons": 26
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 11
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "attribute_selections",
+                        "availability_override",
+                        "barcode",
+                        "brand_id",
+                        "catalog_type",
+                        "category_id",
+                        "collection_id",
+                        "cost_currency",
+                        "cost_currency_other",
+                        "description",
+                        "estimated_arrival_date",
+                        "estimated_release_month",
+                        "expiry_date",
+                        "gallery_images[]",
+                        "has_expiry",
+                        "internal_code",
+                        "main_image",
+                        "market_currency",
+                        "market_currency_other",
+                        "min_stock_threshold",
+                        "moq",
+                        "name",
+                        "original_currency",
+                        "original_currency_other",
+                        "original_price",
+                        "preorder_closing_date",
+                        "product_cost",
+                        "product_type",
+                        "sale_enabled",
+                        "sale_price",
+                        "sale_start_date",
+                        "selling_price",
+                        "shipping_origin_country_id",
+                        "short_description",
+                        "sku",
+                        "status",
+                        "stock_quantity",
+                        "supplier_id",
+                        "supplier_sku",
+                        "target_stock_level",
+                        "weight_grams"
+                    ],
+                    "buttons": [
+                        "@+ Add Attribute",
+                        "@Apply to Selected",
+                        "@Generate Variations",
+                        "save_action"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/products/deactivate.php": {
+            "status": 200,
+            "bytes": 31986,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": false,
+            "components": {
+                "cards": 4,
+                "badges": 5,
+                "empty_states": 0,
+                "filter_cards": 1,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 54,
+                "buttons": 39
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 13
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "get",
+                    "inputs": [
+                        "brand_id",
+                        "catalog_type",
+                        "category_id",
+                        "collection_id",
+                        "dir",
+                        "missing_image",
+                        "q",
+                        "sort",
+                        "status",
+                        "stock_status",
+                        "supplier_id",
+                        "tag_ids[]"
+                    ],
+                    "buttons": [
+                        "@Filter"
+                    ]
+                },
+                {
+                    "action": "/modules/products/bulk_action.php",
+                    "method": "post",
+                    "inputs": [],
+                    "buttons": []
+                },
+                {
+                    "action": "/modules/products/duplicate.php",
+                    "method": "post",
+                    "inputs": [
+                        "product_id"
+                    ],
+                    "buttons": [
+                        "@Duplicate"
+                    ]
+                },
+                {
+                    "action": "/modules/products/duplicate.php",
+                    "method": "post",
+                    "inputs": [
+                        "product_id"
+                    ],
+                    "buttons": [
+                        "@Duplicate"
+                    ]
+                },
+                {
+                    "action": "/modules/products/sync.php",
+                    "method": "post",
+                    "inputs": [],
+                    "buttons": [
+                        "@Sync to WooCommerce"
+                    ]
+                },
+                {
+                    "action": "/modules/saved-views/save.php",
+                    "method": "post",
+                    "inputs": [
+                        "module",
+                        "name",
+                        "query_string"
+                    ],
+                    "buttons": [
+                        "@Save"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/products/duplicate.php": {
+            "status": 200,
+            "bytes": 31986,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": false,
+            "components": {
+                "cards": 4,
+                "badges": 5,
+                "empty_states": 0,
+                "filter_cards": 1,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 54,
+                "buttons": 39
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 13
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "get",
+                    "inputs": [
+                        "brand_id",
+                        "catalog_type",
+                        "category_id",
+                        "collection_id",
+                        "dir",
+                        "missing_image",
+                        "q",
+                        "sort",
+                        "status",
+                        "stock_status",
+                        "supplier_id",
+                        "tag_ids[]"
+                    ],
+                    "buttons": [
+                        "@Filter"
+                    ]
+                },
+                {
+                    "action": "/modules/products/bulk_action.php",
+                    "method": "post",
+                    "inputs": [],
+                    "buttons": []
+                },
+                {
+                    "action": "/modules/products/duplicate.php",
+                    "method": "post",
+                    "inputs": [
+                        "product_id"
+                    ],
+                    "buttons": [
+                        "@Duplicate"
+                    ]
+                },
+                {
+                    "action": "/modules/products/duplicate.php",
+                    "method": "post",
+                    "inputs": [
+                        "product_id"
+                    ],
+                    "buttons": [
+                        "@Duplicate"
+                    ]
+                },
+                {
+                    "action": "/modules/products/sync.php",
+                    "method": "post",
+                    "inputs": [],
+                    "buttons": [
+                        "@Sync to WooCommerce"
+                    ]
+                },
+                {
+                    "action": "/modules/saved-views/save.php",
+                    "method": "post",
+                    "inputs": [
+                        "module",
+                        "name",
+                        "query_string"
+                    ],
+                    "buttons": [
+                        "@Save"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/products/edit.php": {
+            "status": 200,
+            "bytes": 69818,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 4
+            },
+            "page_header": false,
+            "components": {
+                "cards": 19,
+                "badges": 1,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 28,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 47,
+                "buttons": 49
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 12
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "availability_override",
+                        "barcode",
+                        "brand_id",
+                        "catalog_type",
+                        "category_id",
+                        "collection_id",
+                        "cost_currency",
+                        "cost_currency_other",
+                        "description",
+                        "estimated_arrival_date",
+                        "estimated_release_month",
+                        "expiry_date",
+                        "gallery_images[]",
+                        "has_expiry",
+                        "internal_code",
+                        "main_image",
+                        "market_currency",
+                        "market_currency_other",
+                        "min_stock_threshold",
+                        "moq",
+                        "name",
+                        "original_currency",
+                        "original_currency_other",
+                        "original_price",
+                        "preorder_closing_date",
+                        "product_cost",
+                        "product_type",
+                        "sale_enabled",
+                        "sale_price",
+                        "sale_start_date",
+                        "selling_price",
+                        "shipping_origin_country_id",
+                        "short_description",
+                        "sku",
+                        "status",
+                        "stock_quantity",
+                        "supplier_id",
+                        "supplier_sku",
+                        "target_stock_level",
+                        "weight_grams"
+                    ],
+                    "buttons": [
+                        "@+ Add Attribute",
+                        "@+ Add Variation Manually",
+                        "@Apply to Selected",
+                        "@Generate Variations",
+                        "@Save Changes"
+                    ]
+                },
+                {
+                    "action": "/modules/products/deactivate.php",
+                    "method": "post",
+                    "inputs": [
+                        "product_id"
+                    ],
+                    "buttons": [
+                        "@Deactivate"
+                    ]
+                },
+                {
+                    "action": "/modules/products/delete.php",
+                    "method": "post",
+                    "inputs": [
+                        "product_id"
+                    ],
+                    "buttons": [
+                        "@Delete"
+                    ]
+                },
+                {
+                    "action": "/modules/products/duplicate.php",
+                    "method": "post",
+                    "inputs": [
+                        "product_id"
+                    ],
+                    "buttons": [
+                        "@Duplicate"
+                    ]
+                },
+                {
+                    "action": "/modules/products/sync_one.php",
+                    "method": "post",
+                    "inputs": [
+                        "product_id"
+                    ],
+                    "buttons": [
+                        "@Sync this Product"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ],
+            "sampled_query": "id=1",
+            "bare_status": 404
+        },
+        "modules/products/import.php": {
+            "status": 200,
+            "bytes": 14535,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 2
+            },
+            "page_header": false,
+            "components": {
+                "cards": 2,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 43,
+                "buttons": 15
+            },
+            "tables": [],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "csv_file"
+                    ],
+                    "buttons": [
+                        "@Validate & Preview"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/products/index.php": {
+            "status": 200,
+            "bytes": 31986,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": false,
+            "components": {
+                "cards": 4,
+                "badges": 5,
+                "empty_states": 0,
+                "filter_cards": 1,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 54,
+                "buttons": 39
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 13
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "get",
+                    "inputs": [
+                        "brand_id",
+                        "catalog_type",
+                        "category_id",
+                        "collection_id",
+                        "dir",
+                        "missing_image",
+                        "q",
+                        "sort",
+                        "status",
+                        "stock_status",
+                        "supplier_id",
+                        "tag_ids[]"
+                    ],
+                    "buttons": [
+                        "@Filter"
+                    ]
+                },
+                {
+                    "action": "/modules/products/bulk_action.php",
+                    "method": "post",
+                    "inputs": [],
+                    "buttons": []
+                },
+                {
+                    "action": "/modules/products/duplicate.php",
+                    "method": "post",
+                    "inputs": [
+                        "product_id"
+                    ],
+                    "buttons": [
+                        "@Duplicate"
+                    ]
+                },
+                {
+                    "action": "/modules/products/duplicate.php",
+                    "method": "post",
+                    "inputs": [
+                        "product_id"
+                    ],
+                    "buttons": [
+                        "@Duplicate"
+                    ]
+                },
+                {
+                    "action": "/modules/products/sync.php",
+                    "method": "post",
+                    "inputs": [],
+                    "buttons": [
+                        "@Sync to WooCommerce"
+                    ]
+                },
+                {
+                    "action": "/modules/saved-views/save.php",
+                    "method": "post",
+                    "inputs": [
+                        "module",
+                        "name",
+                        "query_string"
+                    ],
+                    "buttons": [
+                        "@Save"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/products/suppliers.php": {
+            "skipped": "needs id and no link carrying one was found on any crawled page - the module is probably empty",
+            "bare_status": 404
+        },
+        "modules/products/variations.php": {
+            "status": 200,
+            "bytes": 31986,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": false,
+            "components": {
+                "cards": 4,
+                "badges": 5,
+                "empty_states": 0,
+                "filter_cards": 1,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 54,
+                "buttons": 39
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 13
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "get",
+                    "inputs": [
+                        "brand_id",
+                        "catalog_type",
+                        "category_id",
+                        "collection_id",
+                        "dir",
+                        "missing_image",
+                        "q",
+                        "sort",
+                        "status",
+                        "stock_status",
+                        "supplier_id",
+                        "tag_ids[]"
+                    ],
+                    "buttons": [
+                        "@Filter"
+                    ]
+                },
+                {
+                    "action": "/modules/products/bulk_action.php",
+                    "method": "post",
+                    "inputs": [],
+                    "buttons": []
+                },
+                {
+                    "action": "/modules/products/duplicate.php",
+                    "method": "post",
+                    "inputs": [
+                        "product_id"
+                    ],
+                    "buttons": [
+                        "@Duplicate"
+                    ]
+                },
+                {
+                    "action": "/modules/products/duplicate.php",
+                    "method": "post",
+                    "inputs": [
+                        "product_id"
+                    ],
+                    "buttons": [
+                        "@Duplicate"
+                    ]
+                },
+                {
+                    "action": "/modules/products/sync.php",
+                    "method": "post",
+                    "inputs": [],
+                    "buttons": [
+                        "@Sync to WooCommerce"
+                    ]
+                },
+                {
+                    "action": "/modules/saved-views/save.php",
+                    "method": "post",
+                    "inputs": [
+                        "module",
+                        "name",
+                        "query_string"
+                    ],
+                    "buttons": [
+                        "@Save"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/products/view.php": {
+            "status": 200,
+            "bytes": 16868,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 5
+            },
+            "page_header": false,
+            "components": {
+                "cards": 5,
+                "badges": 6,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 43,
+                "buttons": 15
+            },
+            "tables": [],
+            "forms": [
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ],
+            "sampled_query": "id=1",
+            "bare_status": 404
+        },
+        "modules/purchase-planning/generate.php": {
+            "status": 200,
+            "bytes": 13992,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 2
+            },
+            "page_header": true,
+            "components": {
+                "cards": 3,
+                "badges": 0,
+                "empty_states": 3,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 41,
+                "buttons": 13
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 4
+                }
+            ],
+            "forms": [
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/purchasing/control-center.php": {
+            "status": 200,
+            "bytes": 14221,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 4
+            },
+            "page_header": true,
+            "components": {
+                "cards": 4,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 44,
+                "buttons": 13
+            },
+            "tables": [],
+            "forms": [
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/purchasing/index.php": {
+            "status": 200,
+            "bytes": 20840,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 1,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": true,
+            "components": {
+                "cards": 8,
+                "badges": 4,
+                "empty_states": 3,
+                "filter_cards": 1,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 43,
+                "buttons": 14
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 12
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "get",
+                    "inputs": [
+                        "in_stock_only",
+                        "q",
+                        "reorder_only",
+                        "sort",
+                        "status",
+                        "supplier_id"
+                    ],
+                    "buttons": [
+                        "@Filter"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/reports/cost_history.php": {
+            "status": 200,
+            "bytes": 12978,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": true,
+            "components": {
+                "cards": 3,
+                "badges": 0,
+                "empty_states": 3,
+                "filter_cards": 1,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 40,
+                "buttons": 14
+            },
+            "tables": [],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": [
+                        "@Filter"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/reports/forecast.php": {
+            "status": 200,
+            "bytes": 16170,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": true,
+            "components": {
+                "cards": 3,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 1,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 44,
+                "buttons": 17
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 9
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "get",
+                    "inputs": [
+                        "period",
+                        "q",
+                        "reorder_only",
+                        "supplier_id"
+                    ],
+                    "buttons": [
+                        "@Filter"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/reports/inventory.php": {
+            "status": 200,
+            "bytes": 16201,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 3
+            },
+            "page_header": true,
+            "components": {
+                "cards": 6,
+                "badges": 1,
+                "empty_states": 2,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 45,
+                "buttons": 16
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 5
+                },
+                {
+                    "index": 1,
+                    "columns": 5
+                }
+            ],
+            "forms": [
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/reports/margins.php": {
+            "status": 200,
+            "bytes": 21380,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": true,
+            "components": {
+                "cards": 9,
+                "badges": 8,
+                "empty_states": 0,
+                "filter_cards": 1,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 46,
+                "buttons": 14
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 7
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "get",
+                    "inputs": [
+                        "category_id",
+                        "margin_max",
+                        "margin_min",
+                        "q",
+                        "sort",
+                        "supplier_id"
+                    ],
+                    "buttons": [
+                        "@Filter"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/reports/sales.php": {
+            "status": 200,
+            "bytes": 17645,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 6
+            },
+            "page_header": false,
+            "components": {
+                "cards": 10,
+                "badges": 0,
+                "empty_states": 10,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 44,
+                "buttons": 16
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 5
+                },
+                {
+                    "index": 1,
+                    "columns": 4
+                },
+                {
+                    "index": 2,
+                    "columns": 4
+                },
+                {
+                    "index": 3,
+                    "columns": 4
+                },
+                {
+                    "index": 4,
+                    "columns": 4
+                }
+            ],
+            "forms": [
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/reports/supplier_detail.php": {
+            "status": 200,
+            "bytes": 17521,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 3
+            },
+            "page_header": true,
+            "components": {
+                "cards": 10,
+                "badges": 1,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 43,
+                "buttons": 13
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 7
+                },
+                {
+                    "index": 1,
+                    "columns": 7
+                }
+            ],
+            "forms": [
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ],
+            "sampled_query": "id=1",
+            "bare_status": 404
+        },
+        "modules/reports/suppliers.php": {
+            "status": 200,
+            "bytes": 14565,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": true,
+            "components": {
+                "cards": 3,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 1,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 41,
+                "buttons": 15
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 8
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": [
+                        "@Filter"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/saved-views/save.php": {
+            "status": 200,
+            "bytes": 18123,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 3
+            },
+            "page_header": false,
+            "components": {
+                "cards": 4,
+                "badges": 1,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 54,
+                "buttons": 19
+            },
+            "tables": [],
+            "forms": [
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/search/index.php": {
+            "status": 200,
+            "bytes": 12005,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": false,
+            "components": {
+                "cards": 1,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 39,
+                "buttons": 11
+            },
+            "tables": [],
+            "forms": [
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/settings/currency_rates.php": {
+            "status": 200,
+            "bytes": 15196,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 2
+            },
+            "page_header": false,
+            "components": {
+                "cards": 3,
+                "badges": 0,
+                "empty_states": 3,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 42,
+                "buttons": 16
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 5
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "currency_code",
+                        "market_rate",
+                        "original_rate",
+                        "supplier_rate"
+                    ],
+                    "buttons": [
+                        "@Save Currency"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/settings/export.php": {
+            "status": 200,
+            "bytes": 13950,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": false,
+            "components": {
+                "cards": 2,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 47,
+                "buttons": 14
+            },
+            "tables": [],
+            "forms": [
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/settings/inventory_reconciliation.php": {
+            "status": 200,
+            "bytes": 16896,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 6
+            },
+            "page_header": true,
+            "components": {
+                "cards": 6,
+                "badges": 6,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 39,
+                "buttons": 11
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 4
+                },
+                {
+                    "index": 1,
+                    "columns": 4
+                }
+            ],
+            "forms": [
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/settings/maintenance.php": {
+            "status": 200,
+            "bytes": 13223,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 4
+            },
+            "page_header": false,
+            "components": {
+                "cards": 4,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 42,
+                "buttons": 14
+            },
+            "tables": [],
+            "forms": [
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/settings/shipping_rates.php": {
+            "status": 200,
+            "bytes": 14399,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 2
+            },
+            "page_header": false,
+            "components": {
+                "cards": 3,
+                "badges": 0,
+                "empty_states": 3,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 41,
+                "buttons": 15
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 3
+                }
+            ],
+            "forms": [
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                },
+                {
+                    "action": "/modules/settings/shipping_rates.php",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "country_name",
+                        "rate_per_gram"
+                    ],
+                    "buttons": [
+                        "@Add"
+                    ]
+                }
+            ]
+        },
+        "modules/settings/system_health.php": {
+            "status": 200,
+            "bytes": 28989,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 6
+            },
+            "page_header": false,
+            "components": {
+                "cards": 6,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 43,
+                "buttons": 22
+            },
+            "tables": [],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "action"
+                    ],
+                    "buttons": [
+                        "@Check Public Reachability"
+                    ]
+                },
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "action"
+                    ],
+                    "buttons": [
+                        "@Create Symlink (safest fix)"
+                    ]
+                },
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "action"
+                    ],
+                    "buttons": [
+                        "@Test URL Mapping"
+                    ]
+                },
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "action"
+                    ],
+                    "buttons": [
+                        "@Run Live Write Test"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/ship-my-box/create.php": {
+            "status": 200,
+            "bytes": 12633,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 2
+            },
+            "page_header": false,
+            "components": {
+                "cards": 2,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 40,
+                "buttons": 14
+            },
+            "tables": [],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "get",
+                    "inputs": [
+                        "customer_id"
+                    ],
+                    "buttons": [
+                        "@Load Stored Items"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/ship-my-box/index.php": {
+            "status": 200,
+            "bytes": 15235,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": true,
+            "components": {
+                "cards": 3,
+                "badges": 0,
+                "empty_states": 3,
+                "filter_cards": 1,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 46,
+                "buttons": 20
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 6
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "get",
+                    "inputs": [
+                        "q",
+                        "status"
+                    ],
+                    "buttons": [
+                        "@Filter"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/ship-my-box/view.php": {
+            "skipped": "needs id and no link carrying one was found on any crawled page - the module is probably empty",
+            "bare_status": 404
+        },
+        "modules/shipments/create.php": {
+            "status": 200,
+            "bytes": 19374,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 3
+            },
+            "page_header": false,
+            "components": {
+                "cards": 3,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 40,
+                "buttons": 14
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 2
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "customer_id",
+                        "manual_product_id[]",
+                        "manual_quantity[]",
+                        "manual_variation_id[]"
+                    ],
+                    "buttons": [
+                        "@Create Shipment"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/shipments/index.php": {
+            "status": 200,
+            "bytes": 18132,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": true,
+            "components": {
+                "cards": 3,
+                "badges": 0,
+                "empty_states": 3,
+                "filter_cards": 1,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 42,
+                "buttons": 20
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 9
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "get",
+                    "inputs": [
+                        "awaiting_tracking",
+                        "q",
+                        "status"
+                    ],
+                    "buttons": [
+                        "@Filter"
+                    ]
+                },
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "bulk_action"
+                    ],
+                    "buttons": []
+                },
+                {
+                    "action": "/modules/saved-views/save.php",
+                    "method": "post",
+                    "inputs": [
+                        "module",
+                        "name",
+                        "query_string"
+                    ],
+                    "buttons": [
+                        "@Save"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/shipments/view.php": {
+            "skipped": "needs id and no link carrying one was found on any crawled page - the module is probably empty",
+            "bare_status": 404
+        },
+        "modules/supplier-orders/create.php": {
+            "status": 200,
+            "bytes": 21240,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 3
+            },
+            "page_header": false,
+            "components": {
+                "cards": 2,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 14,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 40,
+                "buttons": 22
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 7
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "currency",
+                        "currency_other",
+                        "exchange_rate",
+                        "notes",
+                        "order_date",
+                        "payment_status",
+                        "purchase_number",
+                        "shipping_fee",
+                        "supplier_id"
+                    ],
+                    "buttons": [
+                        "@+ Add Product",
+                        "@Create Supplier Order"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/supplier-orders/edit.php": {
+            "status": 200,
+            "bytes": 22816,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 3
+            },
+            "page_header": false,
+            "components": {
+                "cards": 2,
+                "badges": 1,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 14,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 40,
+                "buttons": 22
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 7
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "currency",
+                        "currency_other",
+                        "exchange_rate",
+                        "notes",
+                        "order_date",
+                        "payment_status",
+                        "shipping_fee",
+                        "supplier_id"
+                    ],
+                    "buttons": [
+                        "@+ Add Product",
+                        "@Save Changes"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ],
+            "sampled_query": "id=1",
+            "bare_status": 404
+        },
+        "modules/supplier-orders/import.php": {
+            "status": 200,
+            "bytes": 13418,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 2
+            },
+            "page_header": false,
+            "components": {
+                "cards": 2,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 40,
+                "buttons": 14
+            },
+            "tables": [],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "csv_file"
+                    ],
+                    "buttons": [
+                        "@Validate & Import"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/supplier-orders/index.php": {
+            "status": 200,
+            "bytes": 19346,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": true,
+            "components": {
+                "cards": 3,
+                "badges": 4,
+                "empty_states": 0,
+                "filter_cards": 1,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 45,
+                "buttons": 26
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 8
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "get",
+                    "inputs": [
+                        "filter",
+                        "q",
+                        "status"
+                    ],
+                    "buttons": [
+                        "@Filter"
+                    ]
+                },
+                {
+                    "action": "/modules/saved-views/save.php",
+                    "method": "post",
+                    "inputs": [
+                        "module",
+                        "name",
+                        "query_string"
+                    ],
+                    "buttons": [
+                        "@Save"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                },
+                {
+                    "action": "/modules/supplier-orders/delete.php",
+                    "method": "post",
+                    "inputs": [
+                        "order_id"
+                    ],
+                    "buttons": [
+                        "@Delete"
+                    ]
+                }
+            ]
+        },
+        "modules/supplier-orders/view.php": {
+            "status": 200,
+            "bytes": 45220,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 10
+            },
+            "page_header": true,
+            "components": {
+                "cards": 9,
+                "badges": 4,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 14,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 45,
+                "buttons": 35
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 0
+                },
+                {
+                    "index": 1,
+                    "columns": 0
+                },
+                {
+                    "index": 2,
+                    "columns": 7
+                },
+                {
+                    "index": 3,
+                    "columns": 7
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "action"
+                    ],
+                    "buttons": [
+                        "@Clear",
+                        "@Fill Remaining",
+                        "@Receive Entered"
+                    ]
+                },
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "action"
+                    ],
+                    "buttons": [
+                        "@Mark Arrived"
+                    ]
+                },
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "allocation_method",
+                        "shipping_allocated[1]",
+                        "total_shipping_cost"
+                    ],
+                    "buttons": [
+                        "@Allocate Shipping"
+                    ]
+                },
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "amount",
+                        "bank_account_id",
+                        "notes",
+                        "payment_date",
+                        "payment_method"
+                    ],
+                    "buttons": [
+                        "@Add Payment"
+                    ]
+                },
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "amount",
+                        "cost_type",
+                        "cost_type_other",
+                        "item_id",
+                        "notes"
+                    ],
+                    "buttons": [
+                        "@Add Cost"
+                    ]
+                },
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "reverse_item_id",
+                        "reverse_quantity",
+                        "reverse_reason"
+                    ],
+                    "buttons": [
+                        "@",
+                        "@Cancel",
+                        "@Reverse Receipt"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ],
+            "sampled_query": "id=1",
+            "bare_status": 404
+        },
+        "modules/suppliers/create.php": {
+            "status": 200,
+            "bytes": 15395,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 5
+            },
+            "page_header": true,
+            "components": {
+                "cards": 5,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 41,
+                "buttons": 15
+            },
+            "tables": [],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "contact",
+                        "contact_person",
+                        "country",
+                        "currency",
+                        "email",
+                        "name",
+                        "notes",
+                        "payment_terms",
+                        "phone"
+                    ],
+                    "buttons": [
+                        "@Create Supplier"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/suppliers/edit.php": {
+            "status": 200,
+            "bytes": 15373,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 5
+            },
+            "page_header": true,
+            "components": {
+                "cards": 5,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 41,
+                "buttons": 15
+            },
+            "tables": [],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "contact",
+                        "contact_person",
+                        "country",
+                        "currency",
+                        "email",
+                        "name",
+                        "notes",
+                        "payment_terms",
+                        "phone"
+                    ],
+                    "buttons": [
+                        "@Save Changes"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ],
+            "sampled_query": "id=1",
+            "bare_status": 404
+        },
+        "modules/suppliers/import.php": {
+            "status": 200,
+            "bytes": 12926,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 2
+            },
+            "page_header": false,
+            "components": {
+                "cards": 2,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 40,
+                "buttons": 14
+            },
+            "tables": [],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "csv_file"
+                    ],
+                    "buttons": [
+                        "@Validate & Import"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/suppliers/index.php": {
+            "status": 200,
+            "bytes": 15034,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": false,
+            "components": {
+                "cards": 3,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 1,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 44,
+                "buttons": 18
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 5
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "get",
+                    "inputs": [
+                        "dir",
+                        "q",
+                        "sort"
+                    ],
+                    "buttons": [
+                        "@Filter"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/suppliers/view.php": {
+            "status": 200,
+            "bytes": 18096,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 5
+            },
+            "page_header": false,
+            "components": {
+                "cards": 7,
+                "badges": 4,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 45,
+                "buttons": 17
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 0
+                },
+                {
+                    "index": 1,
+                    "columns": 7
+                },
+                {
+                    "index": 2,
+                    "columns": 6
+                },
+                {
+                    "index": 3,
+                    "columns": 6
+                }
+            ],
+            "forms": [
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ],
+            "sampled_query": "id=1",
+            "bare_status": 404
+        },
+        "modules/sync-logs/index.php": {
+            "status": 200,
+            "bytes": 13074,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": false,
+            "components": {
+                "cards": 2,
+                "badges": 0,
+                "empty_states": 3,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 39,
+                "buttons": 11
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 5
+                }
+            ],
+            "forms": [
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/tags/edit.php": {
+            "status": 200,
+            "bytes": 18639,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 3
+            },
+            "page_header": true,
+            "components": {
+                "cards": 4,
+                "badges": 0,
+                "empty_states": 3,
+                "filter_cards": 1,
+                "modals": 14,
+                "sidebar_links": 42
+            },
+            "controls": {
+                "links": 45,
+                "buttons": 22
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 3
+                }
+            ],
+            "forms": [
+                {
+                    "action": "/modules/catalog/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q",
+                        "tab"
+                    ],
+                    "buttons": [
+                        "@Search"
+                    ]
+                },
+                {
+                    "action": "/modules/catalog/index.php?tab=tags",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "destination_id",
+                        "source_id"
+                    ],
+                    "buttons": [
+                        "@",
+                        "@Cancel",
+                        "@Merge Tags"
+                    ]
+                },
+                {
+                    "action": "/modules/catalog/index.php?tab=tags",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "name"
+                    ],
+                    "buttons": [
+                        "@Add"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/tags/index.php": {
+            "status": 200,
+            "bytes": 18639,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 3
+            },
+            "page_header": true,
+            "components": {
+                "cards": 4,
+                "badges": 0,
+                "empty_states": 3,
+                "filter_cards": 1,
+                "modals": 14,
+                "sidebar_links": 42
+            },
+            "controls": {
+                "links": 45,
+                "buttons": 22
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 3
+                }
+            ],
+            "forms": [
+                {
+                    "action": "/modules/catalog/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q",
+                        "tab"
+                    ],
+                    "buttons": [
+                        "@Search"
+                    ]
+                },
+                {
+                    "action": "/modules/catalog/index.php?tab=tags",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "destination_id",
+                        "source_id"
+                    ],
+                    "buttons": [
+                        "@",
+                        "@Cancel",
+                        "@Merge Tags"
+                    ]
+                },
+                {
+                    "action": "/modules/catalog/index.php?tab=tags",
+                    "method": "post",
+                    "inputs": [
+                        "action",
+                        "name"
+                    ],
+                    "buttons": [
+                        "@Add"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "modules/webhooks/events.php": {
+            "status": 200,
+            "bytes": 20399,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": false,
+            "components": {
+                "cards": 6,
+                "badges": 0,
+                "empty_states": 3,
+                "filter_cards": 1,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 41,
+                "buttons": 19
+            },
+            "tables": [
+                {
+                    "index": 0,
+                    "columns": 8
+                }
+            ],
+            "forms": [
+                {
+                    "action": "",
+                    "method": "get",
+                    "inputs": [
+                        "resource",
+                        "status"
+                    ],
+                    "buttons": [
+                        "@Filter"
+                    ]
+                },
+                {
+                    "action": "",
+                    "method": "post",
+                    "inputs": [
+                        "action"
+                    ],
+                    "buttons": [
+                        "@Clean Old Completed Events"
+                    ]
+                },
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        },
+        "resolution.php": {
+            "status": 200,
+            "bytes": 12112,
+            "php_errors": [],
+            "title": "Mewmii OS",
+            "headings": {
+                "h1": 1,
+                "h2": 0,
+                "h3": 0,
+                "h5": 1
+            },
+            "page_header": false,
+            "components": {
+                "cards": 2,
+                "badges": 0,
+                "empty_states": 0,
+                "filter_cards": 0,
+                "modals": 7,
+                "sidebar_links": 37
+            },
+            "controls": {
+                "links": 39,
+                "buttons": 11
+            },
+            "tables": [],
+            "forms": [
+                {
+                    "action": "/modules/search/index.php",
+                    "method": "get",
+                    "inputs": [
+                        "q"
+                    ],
+                    "buttons": []
+                }
+            ]
+        }
+    }
+}

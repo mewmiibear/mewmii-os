@@ -331,7 +331,7 @@ function catalog_tab_brands_render(array $ctx): void
                                         data-source-id="<?php echo (int) $brand['id']; ?>"
                                         data-source-name="<?php echo app_escape($brand['name']); ?>"
                                         data-product-count="<?php echo (int) $brand['product_count']; ?>">Move</button>
-                                    <form method="post" class="d-inline" action="/modules/catalog/index.php?tab=brands" onsubmit="return confirm('Delete this brand?');">
+                                    <form method="post" class="d-inline" action="/modules/catalog/index.php?tab=brands" data-confirm="This cannot be undone. A record still assigned to products cannot be deleted." data-confirm-title="Delete brand &quot;<?php echo app_escape($brand['name']); ?>&quot;?" data-confirm-label="Delete brand" data-confirm-tone="danger">
                                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                                         <input type="hidden" name="action" value="delete">
                                         <input type="hidden" name="brand_id" value="<?php echo (int) $brand['id']; ?>">

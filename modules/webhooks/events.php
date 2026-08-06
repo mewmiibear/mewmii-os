@@ -110,7 +110,7 @@ require_once __DIR__ . '/../../includes/header.php';
         <p class="text-muted mb-0">Inbound WooCommerce webhook deliveries and their processing status.</p>
     </div>
     <div class="d-flex gap-2">
-        <form method="post" class="d-inline" onsubmit="return confirm('Delete completed webhook events older than ' + <?php echo (int) wc_webhook_cleanup_days(); ?> + ' days? Pending, processing, and failed events are never affected.');">
+        <form method="post" class="d-inline" data-confirm="This cannot be undone. Only completed events are removed - pending, processing and failed events are never affected." data-confirm-title="Delete webhook events older than <?php echo (int) wc_webhook_cleanup_days(); ?> days?" data-confirm-label="Delete events" data-confirm-tone="danger">
             <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
             <input type="hidden" name="action" value="cleanup">
             <button type="submit" class="btn btn-outline-secondary btn-sm">Clean Old Completed Events</button>
