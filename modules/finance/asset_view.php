@@ -167,7 +167,7 @@ require_once __DIR__ . '/../../includes/header.php';
                         <input type="hidden" name="action" value="dispose">
                         <label class="form-label small mb-1">Disposal Date</label>
                         <input type="date" class="form-control form-control-sm mb-2" name="disposal_date" value="<?php echo app_escape(date('Y-m-d')); ?>" required>
-                        <button type="submit" class="btn btn-outline-danger btn-sm w-100" onclick="return confirm('Dispose this asset? This cannot be undone.');">Dispose Asset</button>
+                        <button type="submit" class="btn btn-outline-danger btn-sm w-100" data-confirm="This cannot be undone. The asset record is kept but marked disposed." data-confirm-title="Dispose asset &quot;<?php echo app_escape($asset['name']); ?>&quot;?" data-confirm-label="Dispose asset" data-confirm-tone="danger">Dispose Asset</button>
                     </form>
                 <?php endif; ?>
             <?php endif; ?>

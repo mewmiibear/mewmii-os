@@ -251,7 +251,7 @@ require_once __DIR__ . '/../../includes/header.php';
                                 <a class="btn btn-sm btn-outline-secondary" href="/modules/supplier-orders/edit.php?id=<?php echo (int) $order['id']; ?>">Edit</a>
                             <?php endif; ?>
                             <?php if ($canManage): ?>
-                                <form method="post" action="/modules/supplier-orders/delete.php" class="d-inline" onsubmit="return confirm('Delete this supplier order? This cannot be undone.');">
+                                <form method="post" action="/modules/supplier-orders/delete.php" class="d-inline" data-confirm="This cannot be undone. The order and its lines are removed permanently." data-confirm-title="Delete supplier order <?php echo app_escape($order['purchase_number']); ?>?" data-confirm-label="Delete order" data-confirm-tone="danger">
                                     <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                                     <input type="hidden" name="order_id" value="<?php echo (int) $order['id']; ?>">
                                     <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>

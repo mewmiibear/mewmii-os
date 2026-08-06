@@ -507,7 +507,7 @@ require_once __DIR__ . '/../../includes/header.php';
         $orderDeletable = $canManage && $order['order_status'] === 'pending' && $order['payment_status'] === 'pending' && $order['shipped_at'] === null;
         ?>
         <?php if ($orderDeletable): ?>
-            <form method="post" action="/modules/orders/delete.php" class="d-inline" onsubmit="return confirm('Permanently delete this order? This cannot be undone.');">
+            <form method="post" action="/modules/orders/delete.php" class="d-inline" data-confirm="This cannot be undone. The order and its items are removed permanently." data-confirm-title="Delete order <?php echo app_escape(order_display_number_compact($order['order_number'])); ?>?" data-confirm-label="Delete order" data-confirm-tone="danger">
                 <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                 <input type="hidden" name="order_id" value="<?php echo (int) $orderId; ?>">
                 <button type="submit" class="btn btn-outline-danger btn-sm">Delete</button>
@@ -762,7 +762,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 </div>
 
                 <div id="rejectReceiptPanel" class="mt-3 p-3 border border-danger-subtle rounded bg-danger-subtle bg-opacity-10" style="display:none;">
-                    <form method="post" onsubmit="return confirm('Reject this receipt and delete the uploaded file? The customer will be asked to upload a replacement.');">
+                    <form method="post" data-confirm="The uploaded file is deleted and cannot be recovered. The customer will be asked to upload a replacement." data-confirm-title="Reject receipt?" data-confirm-label="Reject receipt" data-confirm-tone="danger">
                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                         <input type="hidden" name="reject_receipt" value="1">
                         <label for="receipt_reject_reason" class="form-label small fw-semibold mb-1">Rejection reason</label>

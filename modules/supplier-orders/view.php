@@ -561,7 +561,7 @@ require_once __DIR__ . '/../../includes/header.php';
             </form>
         <?php endif; ?>
         <?php if ($canDelete): ?>
-            <form method="post" action="/modules/supplier-orders/delete.php" class="d-inline" onsubmit="return confirm('Delete this supplier order? This cannot be undone.');">
+            <form method="post" action="/modules/supplier-orders/delete.php" class="d-inline" data-confirm="This cannot be undone. The order and its lines are removed permanently." data-confirm-title="Delete supplier order <?php echo app_escape($order['purchase_number']); ?>?" data-confirm-label="Delete order" data-confirm-tone="danger">
                 <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                 <input type="hidden" name="order_id" value="<?php echo (int) $orderId; ?>">
                 <button type="submit" class="btn btn-outline-danger btn-sm">Delete</button>
@@ -980,7 +980,7 @@ require_once __DIR__ . '/../../includes/header.php';
                                                     <span class="badge bg-light text-dark border me-1 mb-1 d-inline-flex align-items-center gap-1">
                                                         <?php echo app_escape($costRow['cost_type']); ?>: RM <?php echo app_escape(number_format((float) $costRow['amount'], 2)); ?>
                                                         <?php if ($canManage): ?>
-                                                            <form method="post" class="d-inline" onsubmit="return confirm('Remove this additional cost?');">
+                                                            <form method="post" class="d-inline" data-confirm="This cannot be undone. The line's landed cost is recalculated without it." data-confirm-title="Remove <?php echo app_escape($costRow['cost_type']); ?> cost of RM <?php echo app_escape(number_format((float) $costRow['amount'], 2)); ?>?" data-confirm-label="Remove cost" data-confirm-tone="danger">
                                                                 <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                                                                 <input type="hidden" name="action" value="delete_item_cost">
                                                                 <input type="hidden" name="cost_id" value="<?php echo (int) $costRow['id']; ?>">
@@ -1092,7 +1092,7 @@ require_once __DIR__ . '/../../includes/header.php';
                                 <?php endif; ?>
                             </div>
                             <?php if ($canManage): ?>
-                                <form method="post" onsubmit="return confirm('Delete this payment record?');">
+                                <form method="post" data-confirm="This cannot be undone. Paid and Remaining are recalculated without it." data-confirm-title="Delete payment of RM <?php echo app_escape(number_format((float) $payment['amount'], 2)); ?>?" data-confirm-label="Delete payment" data-confirm-tone="danger">
                                     <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                                     <input type="hidden" name="action" value="delete_payment">
                                     <input type="hidden" name="payment_id" value="<?php echo (int) $payment['id']; ?>">

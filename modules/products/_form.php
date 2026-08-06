@@ -107,7 +107,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                         <button type="submit" class="btn btn-outline-secondary btn-sm">Deactivate</button>
                     </form>
                 <?php endif; ?>
-                <form method="post" action="/modules/products/delete.php" class="d-inline" onsubmit="return confirm('Permanently delete this product? This only works if it has no order/inventory/supplier history, and cannot be undone.');">
+                <form method="post" action="/modules/products/delete.php" class="d-inline" data-confirm="This cannot be undone, and only works if the product has no order, inventory or supplier history." data-confirm-title="Delete product &quot;<?php echo app_escape($form['name']); ?>&quot;?" data-confirm-label="Delete product" data-confirm-tone="danger">
                     <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                     <input type="hidden" name="product_id" value="<?php echo (int) $productId; ?>">
                     <button type="submit" class="btn btn-outline-danger btn-sm">Delete</button>

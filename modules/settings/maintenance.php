@@ -111,7 +111,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <?php if ($deletableProducts === []): ?>
         <p class="text-muted mb-0">Nothing to clean up.</p>
     <?php else: ?>
-        <form method="post" onsubmit="return confirm('Permanently delete the selected products? This cannot be undone.');">
+        <form method="post" data-confirm="This cannot be undone. Every product ticked above is removed permanently." data-confirm-title="Delete the selected products?" data-confirm-label="Delete products" data-confirm-tone="danger">
             <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
             <input type="hidden" name="type" value="products">
             <table class="table table-sm align-middle">
@@ -139,7 +139,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <?php if ($deletableOrders === []): ?>
         <p class="text-muted mb-0">Nothing to clean up.</p>
     <?php else: ?>
-        <form method="post" onsubmit="return confirm('Permanently delete the selected orders? This cannot be undone.');">
+        <form method="post" data-confirm="This cannot be undone. Every order ticked above is removed permanently." data-confirm-title="Delete the selected orders?" data-confirm-label="Delete orders" data-confirm-tone="danger">
             <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
             <input type="hidden" name="type" value="orders">
             <table class="table table-sm align-middle">
@@ -167,7 +167,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <?php if ($deletableSupplierOrders === []): ?>
         <p class="text-muted mb-0">Nothing to clean up.</p>
     <?php else: ?>
-        <form method="post" onsubmit="return confirm('Permanently delete the selected supplier orders? This cannot be undone.');">
+        <form method="post" data-confirm="This cannot be undone. Every supplier order ticked above is removed permanently." data-confirm-title="Delete the selected supplier orders?" data-confirm-label="Delete supplier orders" data-confirm-tone="danger">
             <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
             <input type="hidden" name="type" value="supplier_orders">
             <table class="table table-sm align-middle">

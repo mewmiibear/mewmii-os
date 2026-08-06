@@ -174,7 +174,7 @@ require_once __DIR__ . '/../../includes/header.php';
                                 <td data-label="" class="text-end">
                                     <?php if ($canManage): ?>
                                         <a class="btn btn-sm btn-outline-primary" href="/modules/products/suppliers.php?id=<?php echo (int) $productId; ?>&edit=<?php echo (int) $source['id']; ?>">Edit</a>
-                                        <form method="post" class="d-inline" onsubmit="return confirm('Remove this supplier from the sourcing catalogue?');">
+                                        <form method="post" class="d-inline" data-confirm="This cannot be undone. Quoted prices for this supplier are removed. Purchase history and landed cost are not affected." data-confirm-title="Remove <?php echo app_escape($source['supplier_name']); ?> from sourcing?" data-confirm-label="Remove supplier" data-confirm-tone="danger">
                                             <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                                             <input type="hidden" name="action" value="delete">
                                             <input type="hidden" name="sourcing_id" value="<?php echo (int) $source['id']; ?>">
