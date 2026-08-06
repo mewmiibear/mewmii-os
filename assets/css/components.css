@@ -720,3 +720,37 @@ a.stat-card-link:hover {
         justify-content: flex-end;
     }
 }
+
+/* --- Confirmation dialog (V3 Phase 3.2a) ---------------------------------------------
+   The single shared dialog rendered by includes/footer.php. Deliberately narrow in
+   scope: sizing and the destructive accent only. Button variants themselves are
+   untouched - the script swaps between the existing .btn-primary and .btn-danger rather
+   than introducing a dialog-specific button. */
+
+/* §2.13's `sm` width - a confirmation asks one question and should not look like a form. */
+.modal-confirm {
+    max-width: 400px;
+}
+
+.modal-confirm .modal-title {
+    font-size: var(--font-size-section);
+    font-weight: var(--font-weight-medium);
+    color: var(--text);
+    margin: 0;
+}
+
+.modal-confirm .modal-body {
+    color: var(--text-muted);
+    font-size: var(--font-size-secondary);
+}
+
+/* Destructive actions get a top accent rather than a fully red dialog. The consequence
+   is carried by the wording and the confirm button; tinting the whole surface would make
+   every delete feel like an error state and leave nothing louder for a real failure. */
+#app-confirm-dialog[data-tone="danger"] .modal-content {
+    border-top: 3px solid var(--danger);
+}
+
+#app-confirm-dialog[data-tone="warning"] .modal-content {
+    border-top: 3px solid var(--warning);
+}
