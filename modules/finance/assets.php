@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/pagination.php';
 require_once __DIR__ . '/../../includes/finance.php';
 app_require_permission('finance.view');
 
@@ -174,27 +175,7 @@ require_once __DIR__ . '/../../includes/header.php';
     </div>
 
     <?php
-    $assetPageUrl = static function (int $targetPage): string {
-        return '/modules/finance/assets.php?' . http_build_query(array_merge($_GET, ['page' => $targetPage]));
-    };
-    $assetRangeStart = $totalCount === 0 ? 0 : (($page - 1) * $perPage) + 1;
-    $assetRangeEnd = min($totalCount, $page * $perPage);
-    ?>
-    <div class="d-flex justify-content-between align-items-center mt-3">
-        <p class="text-muted small mb-0">
-            <?php if ($totalCount > 0): ?>
-                Showing <?php echo (int) $assetRangeStart; ?>&ndash;<?php echo (int) $assetRangeEnd; ?> of <?php echo (int) $totalCount; ?>
-            <?php else: ?>
-                0 assets
-            <?php endif; ?>
-        </p>
-        <?php if ($totalPages > 1): ?>
-            <div class="d-flex gap-2 align-items-center">
-                <a class="btn btn-sm btn-outline-secondary <?php echo $page <= 1 ? 'disabled' : ''; ?>" href="<?php echo app_escape($assetPageUrl(max(1, $page - 1))); ?>">&laquo; Prev</a>
-                <span class="text-muted small">Page <?php echo (int) $page; ?> of <?php echo (int) $totalPages; ?></span>
-                <a class="btn btn-sm btn-outline-secondary <?php echo $page >= $totalPages ? 'disabled' : ''; ?>" href="<?php echo app_escape($assetPageUrl(min($totalPages, $page + 1))); ?>">Next &raquo;</a>
-            </div>
-        <?php endif; ?>
-    </div>
+    render_pagination('/modules/finance/assets.php', $page, $totalPages, $totalCount, $perPage, 'asset');
+        ?>
 </div>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

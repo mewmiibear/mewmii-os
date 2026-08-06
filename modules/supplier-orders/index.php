@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/pagination.php';
 require_once __DIR__ . '/../../includes/supplier_orders.php';
 require_once __DIR__ . '/../../includes/saved_views_widget.php';
 app_require_permission('supplier-orders.view');
@@ -279,27 +280,7 @@ require_once __DIR__ . '/../../includes/header.php';
     </div>
 
     <?php
-    $supplierOrdersPageUrl = static function (int $targetPage): string {
-        return '/modules/supplier-orders/index.php?' . http_build_query(array_merge($_GET, ['page' => $targetPage]));
-    };
-    $supplierOrdersRangeStart = $totalCount === 0 ? 0 : (($page - 1) * $perPage) + 1;
-    $supplierOrdersRangeEnd = min($totalCount, $page * $perPage);
-    ?>
-    <div class="d-flex justify-content-between align-items-center mt-3">
-        <p class="text-muted small mb-0">
-            <?php if ($totalCount > 0): ?>
-                Showing <?php echo (int) $supplierOrdersRangeStart; ?>&ndash;<?php echo (int) $supplierOrdersRangeEnd; ?> of <?php echo (int) $totalCount; ?> supplier order<?php echo $totalCount === 1 ? '' : 's'; ?>
-            <?php else: ?>
-                0 supplier orders
-            <?php endif; ?>
-        </p>
-        <?php if ($totalPages > 1): ?>
-            <div class="d-flex gap-2 align-items-center">
-                <a class="btn btn-sm btn-outline-secondary <?php echo $page <= 1 ? 'disabled' : ''; ?>" href="<?php echo app_escape($supplierOrdersPageUrl(max(1, $page - 1))); ?>">&laquo; Prev</a>
-                <span class="text-muted small">Page <?php echo (int) $page; ?> of <?php echo (int) $totalPages; ?></span>
-                <a class="btn btn-sm btn-outline-secondary <?php echo $page >= $totalPages ? 'disabled' : ''; ?>" href="<?php echo app_escape($supplierOrdersPageUrl(min($totalPages, $page + 1))); ?>">Next &raquo;</a>
-            </div>
-        <?php endif; ?>
-    </div>
+    render_pagination('/modules/supplier-orders/index.php', $page, $totalPages, $totalCount, $perPage, 'supplier order');
+        ?>
 </div>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/pagination.php';
 app_require_permission('settings.manage');
 
 $appTitle = 'Sync Logs';
@@ -106,27 +107,7 @@ require_once __DIR__ . '/../../includes/header.php';
     </div>
 
     <?php
-    $pageUrl = static function (int $targetPage): string {
-        return '/modules/sync-logs/index.php?' . http_build_query(array_merge($_GET, ['page' => $targetPage]));
-    };
-    $rangeStart = $totalCount === 0 ? 0 : (($page - 1) * $perPage) + 1;
-    $rangeEnd = min($totalCount, $page * $perPage);
-    ?>
-    <div class="d-flex justify-content-between align-items-center mt-3">
-        <p class="text-muted small mb-0">
-            <?php if ($totalCount > 0): ?>
-                Showing <?php echo (int) $rangeStart; ?>&ndash;<?php echo (int) $rangeEnd; ?> of <?php echo (int) $totalCount; ?> log entr<?php echo $totalCount === 1 ? 'y' : 'ies'; ?>
-            <?php else: ?>
-                0 log entries
-            <?php endif; ?>
-        </p>
-        <?php if ($totalPages > 1): ?>
-            <div class="d-flex gap-2 align-items-center">
-                <a class="btn btn-sm btn-outline-secondary <?php echo $page <= 1 ? 'disabled' : ''; ?>" href="<?php echo app_escape($pageUrl(max(1, $page - 1))); ?>">&laquo; Prev</a>
-                <span class="text-muted small">Page <?php echo (int) $page; ?> of <?php echo (int) $totalPages; ?></span>
-                <a class="btn btn-sm btn-outline-secondary <?php echo $page >= $totalPages ? 'disabled' : ''; ?>" href="<?php echo app_escape($pageUrl(min($totalPages, $page + 1))); ?>">Next &raquo;</a>
-            </div>
-        <?php endif; ?>
-    </div>
+    render_pagination('/modules/sync-logs/index.php', $page, $totalPages, $totalCount, $perPage, 'log entry', 'log entries');
+        ?>
 </div>
 <?php require_once __DIR__ . '/../../includes/footer.php'; ?>

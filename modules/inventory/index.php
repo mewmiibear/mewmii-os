@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../../includes/bootstrap.php';
+require_once __DIR__ . '/../../includes/pagination.php';
 require_once __DIR__ . '/../../includes/inventory.php';
 require_once __DIR__ . '/../../includes/product_variations.php';
 require_once __DIR__ . '/../../includes/product_images.php';
@@ -887,28 +888,8 @@ require_once __DIR__ . '/../../includes/header.php';
     </div>
 
     <?php
-    $inventoryPageUrl = static function (int $targetPage): string {
-        return '/modules/inventory/index.php?' . http_build_query(array_merge($_GET, ['page' => $targetPage]));
-    };
-    $inventoryRangeStart = $totalCount === 0 ? 0 : (($page - 1) * $perPage) + 1;
-    $inventoryRangeEnd = min($totalCount, $page * $perPage);
-    ?>
-    <div class="d-flex justify-content-between align-items-center mt-3">
-        <p class="text-muted small mb-0">
-            <?php if ($totalCount > 0): ?>
-                Showing <?php echo (int) $inventoryRangeStart; ?>&ndash;<?php echo (int) $inventoryRangeEnd; ?> of <?php echo (int) $totalCount; ?> product<?php echo $totalCount === 1 ? '' : 's'; ?>
-            <?php else: ?>
-                0 products
-            <?php endif; ?>
-        </p>
-        <?php if ($totalPages > 1): ?>
-            <div class="d-flex gap-2 align-items-center">
-                <a class="btn btn-sm btn-outline-secondary <?php echo $page <= 1 ? 'disabled' : ''; ?>" href="<?php echo app_escape($inventoryPageUrl(max(1, $page - 1))); ?>">&laquo; Prev</a>
-                <span class="text-muted small">Page <?php echo (int) $page; ?> of <?php echo (int) $totalPages; ?></span>
-                <a class="btn btn-sm btn-outline-secondary <?php echo $page >= $totalPages ? 'disabled' : ''; ?>" href="<?php echo app_escape($inventoryPageUrl(min($totalPages, $page + 1))); ?>">Next &raquo;</a>
-            </div>
-        <?php endif; ?>
-    </div>
+    render_pagination('/modules/inventory/index.php', $page, $totalPages, $totalCount, $perPage, 'product');
+        ?>
 </div>
 
 <?php if ($canManage): ?>
