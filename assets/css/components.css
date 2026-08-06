@@ -210,18 +210,53 @@
 }
 
 /* --- Tables: calmer borders, more breathing room, muted header text --------------- */
+/* V3 Phase 3.3: the last hardcoded spacing literal in this block moves onto the scale
+   (0.85rem -> --space-3 / --space-4, i.e. the 12px/16px §2.10 specifies). A ~1.6px change,
+   invisible in isolation, but it removes the final arbitrary value from the table system. */
 .table> :not(caption)>*>* {
-    padding: 0.85rem 1rem;
+    padding: var(--space-3) var(--space-4);
     border-bottom-color: var(--border-subtle);
 }
 
+/* Header sits on the sunken surface so it reads as a label strip rather than a first row -
+   the same treatment .filter-card already uses to sit behind content. */
 .table thead th {
+    background: var(--surface-sunken);
     color: var(--text-muted);
     font-size: var(--font-size-label);
     font-weight: var(--font-weight-medium);
     text-transform: uppercase;
     letter-spacing: 0.02em;
     border-bottom-width: 2px;
+}
+
+/* Row hover. Bootstrap's .table-hover drives this through --bs-table-bg-state, so setting
+   that variable is what actually wins - overriding `background` directly would be beaten by
+   Bootstrap's own more specific rule. No transform or shift: a row that moves under the
+   cursor makes a dense table harder to track, not easier. */
+.table-hover>tbody>tr:hover>* {
+    --bs-table-bg-state: var(--bg);
+}
+
+/* Selected row, driven entirely by the checkbox already in the markup - no JS, no new class,
+   nothing for a page to remember to toggle. :has() is already used in product-form.css, and
+   where it is unsupported the row simply does not tint, which costs nothing. */
+.table>tbody>tr:has(input[type="checkbox"]:checked)>* {
+    --bs-table-bg-state: var(--brand-tint);
+    background: var(--brand-tint);
+}
+
+.table>tbody>tr:has(input[type="checkbox"]:checked)>*:first-child {
+    box-shadow: inset 3px 0 0 0 var(--brand);
+}
+
+/* Numeric alignment. .text-end is already the numeric-column convention here (221 cells
+   across 44 files), so tabular figures can be applied without touching any markup: digits
+   share one width, so quantities and money line up column-wise instead of drifting. */
+.table .text-end,
+.table td.text-end,
+.table th.text-end {
+    font-variant-numeric: tabular-nums;
 }
 
 /* --- Alerts: soft pastel tints instead of default saturated Bootstrap colours ----- */
