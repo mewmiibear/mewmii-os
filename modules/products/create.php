@@ -79,6 +79,85 @@ $form = [
     'weight_grams' => '',
     'shipping_origin_country_id' => '',
 ];
+
+// --- Create-form speed pass: defaults for a blank form ------------------------------------
+// Everything below only seeds $form BEFORE the POST handler runs. On a POST the handler
+// overwrites every one of these from $_POST, so a value the user cleared stays cleared and
+// nothing here can survive into a save the user didn't ask for. Nothing is persisted and no
+// schema changed - the remembered values live in the session only.
+//
+// cost_currency is already SYSTEM_BASE_CURRENCY, which includes/currency_rates.php defines as
+// JPY, so the required "default JPY" needs no separate handling here.
+
+// Last-used values from the previous create in this session (see the redirect block below).
+$lastProductDefaults = $_SESSION['last_product_defaults'] ?? [];
+if (is_array($lastProductDefaults)) {
+    foreach (['supplier_id', 'brand_id', 'category_id', 'shipping_origin_country_id'] as $rememberedField) {
+        $rememberedValue = trim((string) ($lastProductDefaults[$rememberedField] ?? ''));
+        if ($rememberedValue !== '') {
+            $form[$rememberedField] = $rememberedValue;
+        }
+    }
+}
+
+// Shipping origin falls back to Japan when there is no previous value to reuse - the common
+// case for this business. Resolved by name against the existing shipping rate countries; if
+// there is no Japan row the field simply stays empty, exactly as before.
+if ($form['shipping_origin_country_id'] === '') {
+    $japanStmt = $pdo->prepare("SELECT id FROM shipping_rate_countries WHERE country_name = 'Japan' LIMIT 1");
+    $japanStmt->execute();
+    $japanCountryId = $japanStmt->fetchColumn();
+    if ($japanCountryId !== false) {
+        $form['shipping_origin_country_id'] = (string) (int) $japanCountryId;
+    }
+}
+
+// Suggest the next SKU in whichever prefix sequence was most recently used. Prefixes are
+// separate sequences on purpose - JP0384 and HK0384 are different products, so the next JP is
+// JP0385 no matter how high the HK numbers have climbed. The suggestion is written into the
+// normal SKU input as an ordinary editable value: it is only a starting point, the field has
+// no readonly/disabled attribute, and typing over it behaves exactly as it always did.
+//
+// Read-only lookup - no insert, no reservation, no schema. Because nothing is reserved, two
+// people creating at once could be offered the same number; the existing unique-SKU validation
+// in the POST handler below is still the thing that decides, unchanged.
+$suggestedSku = '';
+if ($form['sku'] === '') {
+    // Most recent SKU shaped as <non-digits><digits>, e.g. JP0384, QA-002, PO-1.
+    $latestSkuStmt = $pdo->query(
+        "SELECT sku FROM products WHERE sku REGEXP '^[^0-9]+[0-9]+$' ORDER BY id DESC LIMIT 1"
+    );
+    $latestSku = (string) ($latestSkuStmt->fetchColumn() ?: '');
+
+    if ($latestSku !== '' && preg_match('/^(.*?)(\d+)$/', $latestSku, $skuParts)) {
+        $skuPrefix = $skuParts[1];
+        $skuWidth = strlen($skuParts[2]);
+        $skuHighest = 0;
+
+        // Scan that prefix's own sequence only. LIKE wildcards in the prefix are escaped so a
+        // prefix containing _ or % cannot widen the match into a neighbouring sequence.
+        $prefixStmt = $pdo->prepare("SELECT sku FROM products WHERE sku LIKE ? ESCAPE '\\\\'");
+        $prefixStmt->execute([addcslashes($skuPrefix, '%_\\') . '%']);
+        foreach ($prefixStmt->fetchAll(PDO::FETCH_COLUMN) as $existingSku) {
+            if (preg_match('/^' . preg_quote($skuPrefix, '/') . '(\d+)$/', (string) $existingSku, $existingParts)) {
+                $skuHighest = max($skuHighest, (int) $existingParts[1]);
+                $skuWidth = max($skuWidth, strlen($existingParts[1]));
+            }
+        }
+
+        $candidateSku = $skuPrefix . str_pad((string) ($skuHighest + 1), $skuWidth, '0', STR_PAD_LEFT);
+
+        // Only offer it if it is genuinely free - a gap-filled or manually-entered SKU could
+        // already sit on the next number.
+        $freeStmt = $pdo->prepare('SELECT COUNT(*) FROM products WHERE sku = ?');
+        $freeStmt->execute([$candidateSku]);
+        if ((int) $freeStmt->fetchColumn() === 0) {
+            $suggestedSku = $candidateSku;
+            $form['sku'] = $candidateSku;
+        }
+    }
+}
+
 $selectedTagIds = [];
 
 $costCurrencyOptions = [SYSTEM_BASE_CURRENCY];
@@ -480,6 +559,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             error_log('[product-save-timing][create] product_id=' . $productId . ' ' . implode(' ', $__parts));
             // --- END TEMPORARY TIMING INSTRUMENTATION ---------------------------------------
+
+            // Create-form speed pass: remember the fields that stay the same across a run of
+            // products entered back-to-back, so the next blank form arrives pre-filled. Stored
+            // per-session only - no schema change, nothing persisted against the product, and
+            // these are only ever used as DEFAULTS for a blank form (see the $form defaults
+            // block above), never to overwrite anything the user typed.
+            $_SESSION['last_product_defaults'] = [
+                'supplier_id' => $form['supplier_id'],
+                'brand_id' => $form['brand_id'],
+                'category_id' => $form['category_id'],
+                'shipping_origin_country_id' => $form['shipping_origin_country_id'],
+            ];
+
+            // "Save & add another" returns to a blank create form instead of the new product's
+            // edit page. Everything above this point - validation, insert, images, WooCommerce
+            // enqueue - has already run identically; this only picks the destination.
+            if ((string) ($_POST['after_save'] ?? '') === 'new') {
+                app_redirect('/modules/products/create.php?created=1' . $wcSyncStatus . $imagesQueuedStatus);
+            }
 
             app_redirect('/modules/products/edit.php?id=' . $productId . '&created=1' . $wcSyncStatus . $imagesQueuedStatus);
         } catch (RuntimeException $exception) {

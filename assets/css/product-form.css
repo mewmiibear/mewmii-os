@@ -345,3 +345,18 @@
         padding: 1rem;
     }
 }
+
+/* --- Create-form "More details" collapse -------------------------------------------------
+   Applies on the CREATE form only (modules/products/_form.php renders .pf-more-collapsed on
+   <form id="product-form"> when !$isEdit). Edit never gets the class, so this rule never
+   matches there and the edit form is unchanged.
+
+   Deliberately an ANCESTOR-state rule rather than .d-none on each field. Several .pf-more-item
+   wrappers are also toggled by the existing sale/stock JS through classList.toggle('d-none'),
+   and writing .d-none from two places would let one mechanism undo the other - enabling a sale
+   would pop open fields that are supposed to be collapsed. Hiding from the ancestor makes them
+   nest: while collapsed this wins regardless of the JS, and once expanded the JS is back in
+   sole control. Specificity (0,2,0) beats Bootstrap's .col-* (0,1,0) without !important. */
+.pf-more-collapsed .pf-more-item {
+    display: none;
+}

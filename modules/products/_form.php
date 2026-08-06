@@ -25,6 +25,35 @@
  */
 $productFormCssPath = __DIR__ . '/../../assets/css/product-form.css';
 $productFormCssVersion = is_file($productFormCssPath) ? filemtime($productFormCssPath) : time();
+
+// Create-form speed pass: on CREATE ONLY, the non-essential fields start collapsed behind a
+// single "More details" toggle so a fast add is name/supplier/type/SKU/cost/price/image/status
+// and nothing else. EDIT is deliberately untouched - it always renders everything expanded,
+// because editing is where you go looking for the field you specifically came to change.
+//
+// The fields are hidden, never removed: this only appends a class, so every input stays in the
+// DOM with its original name/id and posts exactly as before whether the section is open or not.
+// Scattered-field show/hide by classList is the pattern this file already uses for the currency
+// "Other" inputs and the sale-fields block (see setupCurrencyToggle() below), so no new
+// mechanism is introduced. A <details> wrapper was not usable here: the advanced fields are
+// interleaved with the essentials inside the same grid rows, and one element cannot wrap
+// non-contiguous siblings without physically reordering markup that edit.php also renders.
+//
+// Re-render after a validation error starts expanded - otherwise a rejected value sitting in a
+// collapsed field would be invisible while the error message talks about it.
+//
+// IMPORTANT - why the collapse is driven by a class on the FORM and not by putting .d-none on
+// each field: several of these wrappers are ALREADY toggled by existing JS through
+// classList.toggle('d-none', ...) - .js-sale-fields, .js-stock-ready, .js-simple-section. If the
+// collapse wrote .d-none onto the same elements the two mechanisms would fight, and enabling a
+// sale would reveal fields that are supposed to be collapsed. Marking the wrapper with a plain
+// class and hiding it from an ancestor state (.pf-more-collapsed .pf-more-item in
+// product-form.css) makes the two nest instead: while collapsed the ancestor rule hides the
+// field regardless of what the sale/stock JS does, and once expanded that JS is back in sole
+// control of its own fields. Nothing here removes or re-adds .d-none.
+$pfCollapseMore = !$isEdit;
+$pfMore = $pfCollapseMore ? ' pf-more-item' : '';
+$pfFormStateClass = ($pfCollapseMore && $error === '') ? ' pf-more-collapsed' : '';
 ?>
 <link rel="stylesheet" href="/assets/css/product-form.css?v=<?php echo (int) $productFormCssVersion; ?>">
 
@@ -130,6 +159,10 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                 <?php if (!$isEdit): ?>
                     <button class="btn btn-outline-secondary" type="submit" form="product-form" name="save_action" value="draft">Save Draft</button>
                     <button class="btn btn-primary" type="submit" form="product-form" name="save_action" value="publish">Create Product</button>
+                    <!-- Only the clicked submit button's name/value is posted, so this one sends
+                         after_save=new and no save_action - the product saves with whatever the
+                         Status dropdown already shows, exactly like a plain submit. -->
+                    <button class="btn btn-outline-primary" type="submit" form="product-form" name="after_save" value="new">Save &amp; add another</button>
                 <?php else: ?>
                     <button class="btn btn-primary" type="submit" form="product-form">Save Changes</button>
                 <?php endif; ?>
@@ -201,7 +234,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
         <div class="alert alert-danger"><?php echo app_escape($error); ?></div>
     <?php endif; ?>
 
-    <form method="post" enctype="multipart/form-data" id="product-form" data-validate="1" novalidate>
+    <form method="post" enctype="multipart/form-data" id="product-form" data-validate="1" novalidate class="<?php echo trim($pfFormStateClass); ?>">
         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
         <?php if (!$isEdit): ?>
             <!-- Populated by product-form.js right before submit (create mode, variable
@@ -221,7 +254,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                             <input type="text" class="form-control" name="name" value="<?php echo app_escape($form['name']); ?>" maxlength="255" placeholder="e.g. Hello Kitty Plush 25cm" required>
                             <div class="invalid-feedback">Product name is required.</div>
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-4<?php echo $pfMore; ?>">
                             <div class="d-flex justify-content-between align-items-center">
                                 <label class="form-label mb-1">Brand</label>
                                 <a class="small" href="/modules/catalog/index.php?tab=brands" target="_blank" rel="noopener">Manage &#8599;</a>
@@ -234,21 +267,21 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                             </select>
                         </div>
 
-                        <div class="col-12">
+                        <div class="col-12<?php echo $pfMore; ?>">
                             <label class="form-label">Short Description</label>
                             <textarea class="form-control" name="short_description" rows="2" maxlength="500" placeholder="One or two sentences shown to customers"><?php echo app_escape($form['short_description']); ?></textarea>
                             <div class="form-text">Customer-facing summary - syncs to WooCommerce's short description.</div>
                         </div>
-                        <div class="col-12">
+                        <div class="col-12<?php echo $pfMore; ?>">
                             <label class="form-label">Description</label>
                             <textarea class="form-control" name="description" rows="3" placeholder="Describe this product..."><?php echo app_escape($form['description']); ?></textarea>
                         </div>
 
-                        <div class="col-12">
+                        <div class="col-12<?php echo $pfMore; ?>">
                             <hr class="my-1">
                         </div>
 
-                        <div class="col-md-4">
+                        <div class="col-md-4<?php echo $pfMore; ?>">
                             <div class="d-flex justify-content-between align-items-center">
                                 <label class="form-label mb-1">Category</label>
                                 <a class="small" href="/modules/catalog/index.php?tab=categories" target="_blank" rel="noopener">Manage &#8599;</a>
@@ -262,7 +295,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-4<?php echo $pfMore; ?>">
                             <div class="d-flex justify-content-between align-items-center">
                                 <label class="form-label mb-1">Collection</label>
                                 <a class="small" href="/modules/catalog/index.php?tab=collections" target="_blank" rel="noopener">Manage &#8599;</a>
@@ -274,7 +307,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-4<?php echo $pfMore; ?>">
                             <div class="d-flex justify-content-between align-items-center">
                                 <label class="form-label mb-1">Tags</label>
                                 <a class="small" href="/modules/catalog/index.php?tab=tags" target="_blank" rel="noopener">Manage &#8599;</a>
@@ -292,7 +325,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                             </div>
                         </div>
 
-                        <div class="col-12">
+                        <div class="col-12<?php echo $pfMore; ?>">
                             <hr class="my-1">
                         </div>
 
@@ -318,6 +351,15 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                             </select>
                             <div class="invalid-feedback">Availability type is required.</div>
                         </div>
+                        <?php if ($pfCollapseMore): ?>
+                            <div class="col-12">
+                                <button type="button" class="btn btn-link btn-sm p-0" id="pf-more-toggle"
+                                        aria-expanded="<?php echo $error === '' ? 'false' : 'true'; ?>">
+                                    <span id="pf-more-caret" aria-hidden="true"><?php echo $error === '' ? '&#9656;' : '&#9662;'; ?></span>
+                                    <span id="pf-more-label"><?php echo $error === '' ? 'More details' : 'Fewer details'; ?></span>
+                                </button>
+                            </div>
+                        <?php endif; ?>
                     </div>
                 </div>
 
@@ -331,6 +373,9 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                                 <label class="form-label">SKU <span class="text-danger">*</span></label>
                                 <input type="text" class="form-control" name="sku" value="<?php echo app_escape($form['sku']); ?>" maxlength="100" placeholder="HK-PLUSH-001" required>
                                 <div class="invalid-feedback">SKU is required.</div>
+                                <?php if (($suggestedSku ?? '') !== '' && $form['sku'] === ($suggestedSku ?? '')): ?>
+                                    <div class="form-text">Suggested next in the <code><?php echo app_escape(rtrim(preg_replace('/\d+$/', '', $suggestedSku), '')); ?></code> sequence - edit it if this product belongs to a different one.</div>
+                                <?php endif; ?>
                             </div>
                             <div class="col-md-3">
                                 <label class="form-label">Supplier</label>
@@ -341,11 +386,11 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                                     <?php endforeach; ?>
                                 </select>
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-md-3<?php echo $pfMore; ?>">
                                 <label class="form-label">Supplier SKU</label>
                                 <input type="text" class="form-control" name="supplier_sku" value="<?php echo app_escape($form['supplier_sku']); ?>" maxlength="100">
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-md-3<?php echo $pfMore; ?>">
                                 <label class="form-label">Barcode</label>
                                 <input type="text" class="form-control" name="barcode" value="<?php echo app_escape($form['barcode']); ?>">
                             </div>
@@ -378,7 +423,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                         </div>
                     </div>
 
-                    <div class="pf-group">
+                    <div class="pf-group<?php echo $pfMore; ?>">
                         <div class="pf-group-label">Original Price <span class="text-muted fw-normal text-lowercase">(brand/official retail reference)</span></div>
                         <div class="row g-3">
                             <div class="col-md-4">
@@ -403,7 +448,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                         </div>
                     </div>
 
-                    <div class="pf-group">
+                    <div class="pf-group<?php echo $pfMore; ?>">
                         <div class="pf-group-label">Market Price <span class="text-muted fw-normal text-lowercase">(calculated from Original Price)</span></div>
                         <div class="row g-3">
                             <div class="col-md-4">
@@ -425,7 +470,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                         </div>
                     </div>
 
-                    <div class="pf-group">
+                    <div class="pf-group<?php echo $pfMore; ?>">
                         <div class="pf-group-label">Weight &amp; Shipping</div>
                         <div class="row g-3">
                             <div class="col-md-4">
@@ -478,7 +523,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                                 <div class="invalid-feedback">Regular price is required.</div>
                                 <div class="form-text">Manually controlled - never auto-filled or overwritten by the calculation below.</div>
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-md-4<?php echo $pfMore; ?>">
                                 <label class="form-label d-block">&nbsp;</label>
                                 <label class="form-check">
                                     <input type="checkbox" class="form-check-input" name="sale_enabled" value="1" id="enable-sale" <?php echo $form['sale_enabled'] ? 'checked' : ''; ?>>
@@ -490,15 +535,15 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                                 <div class="fw-semibold"><span id="pf-profit">&mdash;</span> <span class="text-muted small">(<span id="pf-margin">&mdash;</span>)</span></div>
                             </div>
 
-                            <div class="col-md-4 js-sale-fields">
+                            <div class="col-md-4 js-sale-fields<?php echo $pfMore; ?>">
                                 <label class="form-label">Sale Price (RM)</label>
                                 <input type="number" step="0.01" min="0" class="form-control" name="sale_price" value="<?php echo app_escape($form['sale_price']); ?>" placeholder="0.00">
                             </div>
-                            <div class="col-md-4 js-sale-fields">
+                            <div class="col-md-4 js-sale-fields<?php echo $pfMore; ?>">
                                 <label class="form-label">Early Bird Start Date</label>
                                 <input type="date" class="form-control" name="sale_start_date" value="<?php echo app_escape($form['sale_start_date']); ?>">
                             </div>
-                            <div class="col-md-4 js-sale-fields">
+                            <div class="col-md-4 js-sale-fields<?php echo $pfMore; ?>">
                                 <label class="form-label">Early Bird Closing Date</label>
                                 <input type="date" class="form-control" name="preorder_closing_date" value="<?php echo app_escape($form['preorder_closing_date']); ?>">
                                 <div class="form-text">After this date, ordering pauses for Preorder/Early Bird until manually reopened.</div>
@@ -535,7 +580,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                         </div>
                     </div>
 
-                    <div class="pf-group">
+                    <div class="pf-group<?php echo $pfMore; ?>">
                         <div class="pf-group-label">Stock</div>
                         <div class="row g-3">
                             <div class="col-md-4 js-stock-ready js-simple-section">
@@ -574,7 +619,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                         </div>
                     </div>
 
-                    <div class="pf-group">
+                    <div class="pf-group<?php echo $pfMore; ?>">
                         <div class="pf-group-label">Availability</div>
                         <div class="row g-3">
                             <div class="col-md-6">
@@ -725,6 +770,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                     <?php endif; ?>
                     <div class="form-text mt-2">Automatically resized, compressed, and converted to WebP.</div>
 
+                    <div class="<?php echo trim($pfMore) ?: 'pf-gallery-block'; ?>">
                     <hr class="my-3">
 
                     <label class="form-label">Gallery Images</label>
@@ -752,6 +798,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                     <?php else: ?>
                         <div id="gallery-container" class="pf-gallery-grid"></div>
                     <?php endif; ?>
+                    </div>
                 </div>
 
                 <div class="card pf-card">
@@ -787,6 +834,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
             <?php if (!$isEdit): ?>
                 <button class="btn btn-primary btn-lg" type="submit" name="save_action" value="publish">Create Product</button>
                 <button class="btn btn-outline-secondary btn-lg" type="submit" name="save_action" value="draft">Save Draft</button>
+                <button class="btn btn-outline-primary btn-lg" type="submit" name="after_save" value="new">Save &amp; add another</button>
             <?php else: ?>
                 <button class="btn btn-primary btn-lg" type="submit">Save Changes</button>
             <?php endif; ?>
@@ -1181,5 +1229,32 @@ $entryFormJsVersion = is_file($entryFormJsPath) ? filemtime($entryFormJsPath) : 
             }
         });
         recomputeInlinePricing();
+    })();
+
+    // Create-form "More details" toggle. Only present on create (see $pfCollapseMore in this
+    // file's header) - on edit the button isn't rendered and this block no-ops.
+    //
+    // Flips one class on the <form>; it never touches .d-none, so it cannot interfere with the
+    // sale/stock field JS above that owns .d-none on some of the same wrappers.
+    (function() {
+        var toggle = document.getElementById('pf-more-toggle');
+        var form = document.getElementById('product-form');
+        if (!toggle || !form) {
+            return;
+        }
+
+        var caret = document.getElementById('pf-more-caret');
+        var label = document.getElementById('pf-more-label');
+
+        toggle.addEventListener('click', function() {
+            var collapsed = form.classList.toggle('pf-more-collapsed');
+            toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+            if (caret) {
+                caret.innerHTML = collapsed ? '&#9656;' : '&#9662;';
+            }
+            if (label) {
+                label.textContent = collapsed ? 'More details' : 'Fewer details';
+            }
+        });
     })();
 </script>
