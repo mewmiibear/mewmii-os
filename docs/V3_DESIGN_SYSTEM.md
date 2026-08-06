@@ -545,7 +545,7 @@ Density = `<form>` count + `<h5>` section count. Columns = widest `<thead>` on t
 | 10 | `products/index.php` | High | 6 | 14 | Medium | 6 forms, 14 columns. |
 | 11 | `products/import.php` | Low | 7 | **18** | Medium | Newly ranked; shares the wizard pattern with four other importers. |
 | 12 | `purchase-planning/generate.php` | High | 3 | 17 | Low | Core of workflow #1. |
-| 13 | `catalog/tabs/*` (4 pages) | Medium | 12 | 11 | Medium | ~400 near-identical lines each. Merging them is **logic** refactoring — out of V3 scope (§7). |
+| 13 | `catalog/tabs/*` (5 pages) | Medium | 12 | 11 | Medium | ~400 near-identical lines each. Merging them is **logic** refactoring — out of V3 scope (§7). |
 | 14 | `allocation-center.php` / `reservation-center.php` | Medium | 3 | 10 | Low | Per-row Auto/Manual; no bulk selection. |
 | — | ~~`inventory/index.php`~~ | — | 3 | 13 | — | **Withdrawn from the ranking.** Was #3 on a corrected artifact; it has 1 CTA and unremarkable density. Ordinary list-page standardisation only. |
 | — | ~~`orders/index.php`~~ | — | 6 | 11 | — | **Dropped from #4** to ordinary list work for the same reason. |
@@ -761,8 +761,10 @@ Per your direction, these pages legitimately differ. They are exceptions by desi
 | `index.php` (Dashboard) | No `.page-header`; own layout | Governed by `DASHBOARD_PHILOSOPHY.md`. V3 changes presentation only. |
 | `reports/*` | **Exempt from the 8-column cap** | Analysis is the purpose; density is a feature. Must still be scannable — alignment, tabular numerics, sticky header. |
 | `products/_form.php` | Exempt from the 720px single-column form | 71 fields require section navigation. |
-| `catalog/tabs/*` (4 pages) | Tabbed sub-app, not standard list pages | ~400 lines each, near-identical taxonomy CRUD. Merging them is real consolidation but is **logic refactoring, not visual** — out of V3 scope. Flagged for a future phase. |
+| `catalog/tabs/*` (5 pages) | Tabbed sub-app, not standard list pages | ~400 lines each, near-identical taxonomy CRUD. Merging them is real consolidation but is **logic refactoring, not visual** — out of V3 scope. Flagged for a future phase. |
 | `settings/system_health.php` | Diagnostic layout | Not an operational list. |
+| `settings/reset_test_data.php` | Diagnostic layout; no `.page-header` | Administrative maintenance utility behind a typed-phrase gate, not a normal application page. Treated consistently with System Health. *(Added Phase 3.6a-1.)* |
+| `resolution.php` | Outside the admin page standard | Root-level customer-facing resolution page, not part of the admin module experience. To be reviewed separately before any admin standard is applied. *(Added Phase 3.6a-1.)* |
 | `*/import.php` (5 pages) | Step/wizard pattern | Upload → map → preview → commit is its own flow. Standardize the wizard across all five instead of forcing the list standard. |
 | `login.php`, `install.php` | Standalone, no sidebar | Pre-authentication. |
 | `inventory/allocate.php`, `reserve.php` | Keep "Back to" instead of breadcrumb | Task-focused, modal-like in intent. |

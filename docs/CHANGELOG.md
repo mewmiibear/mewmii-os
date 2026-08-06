@@ -4,6 +4,55 @@ All notable changes to Mewmii OS are recorded here, newest first.
 
 ## Unreleased
 
+### QA tooling — `seed_qa.php` referenced a table that does not exist
+
+Separate from the UI work it was found alongside, and recorded separately so the history
+distinguishes **UI standardisation** from **QA tooling maintenance**.
+
+`tools/browser-qa/seed_qa.php` inserted its brand fixture into `product_brands`. The real table
+is `brands`, so the script fatally errored on its last two statements and seeded no brand or tag
+— which in turn meant the catalog delete dialogs had no record to name during a QA run.
+
+The bug shipped in the 3.1a commit that promoted the harness out of scratch. It had been worked
+around by hand at the time (a direct `INSERT` against the correct table), and the workaround
+never made it back into the file — so the committed script had never actually run end to end.
+Fixed in the 3.6a-1 commit; the script now completes and reports its row counts.
+
+Worth noting as a pattern: a tooling script that is only ever run once, by hand, with its
+failures patched interactively, is not verified just because the work it supported was.
+
+### V3 Phase 3.6a-1 — `.page-header` rollout (31 pages)
+
+Markup only. No behaviour, no layout redesign, no typography outside the design system, no PHP
+logic touched. Per page: the ad-hoc `d-flex justify-content-between align-items-center mb-4`
+wrapper becomes `page-header d-flex justify-content-between align-items-center` (the component
+owns the 32px bottom margin, so `mb-4` goes), the muted description takes `.page-description`,
+and trailing actions are grouped in `.action-bar`.
+
+**The documented target of 41 pages was stale** — it predates Phase 2.4 promoting 79 titles to
+`<h1>`. Re-measured before touching anything: 85 pages audited, 34 already compliant, **35
+needing migration**, of which 31 are mechanical. Adoption went **34/85 → 65/85**.
+
+Action-bar handling was deliberately not forced into one shape: 6 pages already had one, 7 had a
+`d-flex gap-2` container that is an action bar in all but name and was renamed rather than
+nested, 13 had a bare action run that was wrapped, and 5 have no actions. The transformer skipped
+anything it could not do confidently — its first pass reported 10 sites as "conditional", which
+on inspection were two different shapes, and only then were they handled correctly.
+
+**Deferred to 3.6a-2**, each needing individual judgement rather than a class swap:
+`catalog/index.php` (has `<h1>`, description and action-bar but no wrapper) and
+`search/index.php` (bespoke layout, no ad-hoc wrapper to swap).
+
+**Two pages newly excluded** and added to §7: `settings/reset_test_data.php` (administrative
+maintenance utility behind a typed-phrase gate — treated consistently with System Health) and
+`resolution.php` (root-level customer-facing page, outside the admin module experience). §7's
+`catalog/tabs/*` count was also corrected from 4 to 5.
+
+**Verification:** smoke 0 breaking / 0 warnings / 0 informational — a class rename should be
+structurally inert, and is. Browser QA 67 passed, 0 failed. Computed styles checked on five
+migrated pages: `.page-header` margin-bottom 32px, `.action-bar` gap 9.6px, exactly one `<h1>`,
+`.page-description` present.
+
 ### V3 Phase 3 — Interaction & Density (3.1–3.5, plus the 3.1a/3.2g regression fixes)
 
 Phase 3 of the V3 redesign, organised by *system* rather than by page per the Phase 2.6
