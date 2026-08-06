@@ -11,15 +11,17 @@ $sections = global_search($pdo, $term, $limitPerType);
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
-<div class="mb-4">
-    <h1 class="mb-1">Search Results</h1>
-    <p class="text-muted mb-0">
-        <?php if ($term !== ''): ?>
-            Results for "<?php echo app_escape($term); ?>"
-        <?php else: ?>
-            Type something into the search box above to get started.
-        <?php endif; ?>
-    </p>
+<div class="page-header d-flex justify-content-between align-items-center">
+    <div>
+        <h1 class="mb-1">Search Results</h1>
+        <p class="page-description">
+            <?php if ($term !== ''): ?>
+                Results for "<?php echo app_escape($term); ?>"
+            <?php else: ?>
+                Type something into the search box above to get started.
+            <?php endif; ?>
+        </p>
+    </div>
 </div>
 
 <?php if ($term !== '' && $sections === []): ?>

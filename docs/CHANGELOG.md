@@ -4,6 +4,40 @@ All notable changes to Mewmii OS are recorded here, newest first.
 
 ## Unreleased
 
+### V3 Phase 3.6a-2 — the two remaining headers
+
+Closes the `.page-header` rollout. In-scope adoption is now **67/67**; the nine pages without the
+component are all documented §7 exclusions (5 importers, `products/_form.php`,
+`settings/system_health.php`, `settings/reset_test_data.php`, and `resolution.php` — which has no
+`<h1>` in the admin sense but is counted here for completeness).
+
+**`catalog/index.php` was never bespoke — it was a measurement error in the 3.6a-1 audit.** The
+page already carried `page-header`, `page-description` and `action-bar`. The audit tested
+`str_contains($src, 'class="page-header')`, which only matches when the class is written *first*
+in the attribute; this page had `class="d-flex justify-content-between align-items-center mb-4
+page-header"`, with the class written last. The migration was therefore a class reorder plus
+dropping the stale `mb-4`. That `mb-4` had been inert — Bootstrap's utilities load before
+`components.css`, so `.page-header`'s own 32px margin already won at equal specificity — but it
+misdescribed the layout and is gone.
+
+This is the third audit in Phase 3 whose *matcher* was wrong rather than its subject (after the
+`str_ends_with('/index.php')` exclusion bug and the "9 primary buttons" class-count). Substring
+tests against hand-written markup keep producing false negatives; attribute-aware matching is the
+fix, not a wider substring.
+
+**`search/index.php` did genuinely differ.** It had `<div class="mb-4">` with no flex row, because
+it is the one migrated page with no actions at all, and `<p class="text-muted mb-0">` instead of
+`.page-description`. It now uses the same wrapper as every other page — all 31 pages from 3.6a-1
+use the identical class string regardless of whether they have an action bar, so the shape was
+matched rather than a no-actions variant invented. The description is a PHP conditional (result
+term vs. empty-state prompt) and both branches were checked.
+
+**Verification:** smoke 0 breaking / 0 warnings / 0 informational; browser QA 67 passed, 0 failed.
+Computed styles on both pages plus the empty-search branch: `.page-header` margin-bottom 32px,
+exactly one `<h1>`, `.page-description` at `--text-muted`, no horizontal overflow, no JS errors.
+Before/after screenshots differ only by the 8px the header gap grew (24px → 32px); nothing else
+moved.
+
 ### QA tooling — `seed_qa.php` referenced a table that does not exist
 
 Separate from the UI work it was found alongside, and recorded separately so the history
@@ -40,8 +74,8 @@ anything it could not do confidently — its first pass reported 10 sites as "co
 on inspection were two different shapes, and only then were they handled correctly.
 
 **Deferred to 3.6a-2**, each needing individual judgement rather than a class swap:
-`catalog/index.php` (has `<h1>`, description and action-bar but no wrapper) and
-`search/index.php` (bespoke layout, no ad-hoc wrapper to swap).
+`catalog/index.php` and `search/index.php`. *(The description of `catalog/index.php` as having
+"no wrapper" was wrong — see 3.6a-2 below.)*
 
 **Two pages newly excluded** and added to §7: `settings/reset_test_data.php` (administrative
 maintenance utility behind a typed-phrase gate — treated consistently with System Health) and
