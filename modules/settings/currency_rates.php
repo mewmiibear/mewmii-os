@@ -220,12 +220,12 @@ if (isset($_GET['created'])) {
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-header d-flex justify-content-between align-items-center">
     <div>
         <h1 class="mb-1">Currency Rates</h1>
-        <p class="text-muted mb-0">Manage supplier, original, and market exchange rates for each currency from one place.</p>
+        <p class="page-description">Manage supplier, original, and market exchange rates for each currency from one place.</p>
     </div>
-    <div class="d-flex gap-2">
+    <div class="action-bar">
         <a class="btn btn-primary" href="#currency-form">+ Add Currency</a>
         <a class="btn btn-outline-secondary btn-sm" href="/modules/settings/export.php">Data Export</a>
         <a class="btn btn-outline-secondary btn-sm" href="/modules/settings/system_health.php">System Health</a>

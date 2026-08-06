@@ -77,10 +77,10 @@ $statusBadgeClass = ['draft' => 'bg-warning text-dark', 'paid' => 'bg-success', 
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-header d-flex justify-content-between align-items-center">
     <div>
         <h1 class="mb-1">Expenses</h1>
-        <p class="text-muted mb-0">Every business expense in one place.</p>
+        <p class="page-description">Every business expense in one place.</p>
     </div>
     <?php if ($canManage): ?>
         <div class="action-bar">

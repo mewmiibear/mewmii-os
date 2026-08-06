@@ -104,7 +104,7 @@ $canViewSupplierOrdersForHistory = app_has_permission('supplier-orders.view');
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-header d-flex justify-content-between align-items-center">
     <div>
         <h1 class="mb-1">
             <?php echo app_escape($product['name']); ?>
@@ -134,12 +134,12 @@ computed stage: <?php echo var_export($debugViewStage, true); ?>
             <?php endif; ?>
             <?php echo catalog_lifecycle_badge($product); ?>
         </h1>
-        <p class="text-muted mb-0">
+        <p class="page-description">
             <?php echo app_escape($product['sku']); ?>
             &middot; <?php echo app_escape(catalog_status_dot($product['status'])); ?>
         </p>
     </div>
-    <div class="d-flex gap-2">
+    <div class="action-bar">
         <?php if ($canManage): ?>
             <a class="btn btn-primary btn-sm" href="/modules/products/edit.php?id=<?php echo (int) $productId; ?>">Edit Product</a>
             <a class="btn btn-outline-primary btn-sm" href="/modules/products/control-center.php?id=<?php echo (int) $productId; ?>">Open Product Control Center</a>

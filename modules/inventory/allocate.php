@@ -298,17 +298,17 @@ foreach ($candidatesStmt->fetchAll(PDO::FETCH_ASSOC) as $candidate) {
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-header d-flex justify-content-between align-items-center">
     <div>
         <h1 class="mb-1">Allocate Arrived Stock</h1>
-        <p class="text-muted mb-0">
+        <p class="page-description">
             <?php echo app_escape($sku); ?> &mdash; <?php echo app_escape($product['name']); ?>
             <?php if ($variationLabel !== ''): ?>
                 <span class="text-muted">(<?php echo app_escape($variationLabel); ?>)</span>
             <?php endif; ?>
         </p>
     </div>
-    <div class="d-flex gap-2">
+    <div class="action-bar">
         <a class="btn btn-outline-secondary btn-sm" href="/modules/inventory/allocation-center.php">Back to Allocation Center</a>
         <a class="btn btn-outline-secondary btn-sm" href="/modules/inventory/index.php">Back to Inventory</a>
     </div>

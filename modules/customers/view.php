@@ -113,15 +113,15 @@ $walletTransactions = wallet_list_transactions($pdo, $customerId, 20);
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-header d-flex justify-content-between align-items-center">
     <div>
         <h1 class="mb-1"><?php echo app_escape(app_customer_display_name($customer)); ?></h1>
-        <p class="text-muted mb-0">
+        <p class="page-description">
             <?php echo app_escape($customer['email'] ?? '-'); ?> &middot; <?php echo app_escape($customer['phone'] ?? '-'); ?>
             <?php if (!empty($customer['instagram_username'])): ?> &middot; @<?php echo app_escape($customer['instagram_username']); ?><?php endif; ?>
         </p>
     </div>
-    <div class="d-flex gap-2 flex-wrap justify-content-end">
+    <div class="action-bar">
         <?php if ($canCreateOrders): ?>
             <a class="btn btn-primary btn-sm" href="/modules/orders/create.php?customer_id=<?php echo (int) $customerId; ?>">New Order</a>
         <?php endif; ?>

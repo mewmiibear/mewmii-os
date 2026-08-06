@@ -105,12 +105,12 @@ $summary = $summaryStmt->fetch(PDO::FETCH_ASSOC);
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-header d-flex justify-content-between align-items-center">
     <div>
         <h1 class="mb-1">Webhook Events</h1>
-        <p class="text-muted mb-0">Inbound WooCommerce webhook deliveries and their processing status.</p>
+        <p class="page-description">Inbound WooCommerce webhook deliveries and their processing status.</p>
     </div>
-    <div class="d-flex gap-2">
+    <div class="action-bar">
         <form method="post" class="d-inline" data-confirm="This cannot be undone. Only completed events are removed - pending, processing and failed events are never affected." data-confirm-title="Delete webhook events older than <?php echo (int) wc_webhook_cleanup_days(); ?> days?" data-confirm-label="Delete events" data-confirm-tone="danger">
             <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
             <input type="hidden" name="action" value="cleanup">

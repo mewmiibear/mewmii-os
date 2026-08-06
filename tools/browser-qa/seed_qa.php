@@ -37,7 +37,7 @@ for ($i = $have; $i < 30; $i++) {
         ->execute(['QA-PO-' . str_pad((string) $i, 3, '0', STR_PAD_LEFT)]);
 }
 // A brand + tag so the catalog delete dialogs have targets
-$pdo->exec("INSERT IGNORE INTO product_brands (id,name) VALUES (900,'QA Brand')");
+$pdo->exec("INSERT IGNORE INTO brands (id,name) VALUES (900,'QA Brand')");
 $pdo->exec("INSERT IGNORE INTO product_tags (id,name) VALUES (900,'QA Tag')");
 
 foreach (['products','customers','mewmii_orders','supplier_orders'] as $t) {

@@ -145,12 +145,14 @@ if ($customerId > 0) {
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-header d-flex justify-content-between align-items-center">
     <div>
         <h1 class="mb-1">New Ship Request</h1>
-        <p class="text-muted mb-0">Select a customer, then choose which stored items to ship.</p>
+        <p class="page-description">Select a customer, then choose which stored items to ship.</p>
     </div>
-    <a class="btn btn-outline-secondary btn-sm" href="/modules/ship-my-box/index.php">Back to Ship My Box</a>
+    <div class="action-bar">
+        <a class="btn btn-outline-secondary btn-sm" href="/modules/ship-my-box/index.php">Back to Ship My Box</a>
+    </div>
 </div>
 
 <?php if ($error !== ''): ?>

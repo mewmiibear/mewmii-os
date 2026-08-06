@@ -92,12 +92,12 @@ $controlCenterPermissions = [
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-header d-flex justify-content-between align-items-center">
     <div>
         <h1 class="mb-1">Product Control Center</h1>
-        <p class="text-muted mb-0"><?php echo app_escape($product['sku']); ?> &middot; <?php echo app_escape($product['name']); ?></p>
+        <p class="page-description"><?php echo app_escape($product['sku']); ?> &middot; <?php echo app_escape($product['name']); ?></p>
     </div>
-    <div class="d-flex gap-2">
+    <div class="action-bar">
         <a class="btn btn-primary btn-sm" href="/modules/products/edit.php?id=<?php echo (int) $productId; ?>">Edit Product</a>
         <a class="btn btn-outline-secondary btn-sm" href="/modules/products/index.php">Back to Products</a>
     </div>

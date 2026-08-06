@@ -109,12 +109,12 @@ if ($editId > 0) {
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-header d-flex justify-content-between align-items-center">
     <div>
         <h1 class="mb-1">Shipping Rates</h1>
-        <p class="text-muted mb-0">Configurable RM/gram international shipping rate per origin country, used by the Pricing Intelligence estimate on products.</p>
+        <p class="page-description">Configurable RM/gram international shipping rate per origin country, used by the Pricing Intelligence estimate on products.</p>
     </div>
-    <div class="d-flex gap-2">
+    <div class="action-bar">
         <a class="btn btn-outline-secondary btn-sm" href="/modules/settings/export.php">Data Export</a>
         <a class="btn btn-outline-secondary btn-sm" href="/modules/settings/system_health.php">System Health</a>
     </div>

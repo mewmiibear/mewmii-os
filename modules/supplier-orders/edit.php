@@ -243,12 +243,14 @@ $supplierRateSuggestions = currency_rates_lookup_batch($pdo, 'supplier', SUPPLIE
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-header d-flex justify-content-between align-items-center">
     <div>
         <h1 class="mb-1">Edit Supplier Order <?php echo app_escape($order['purchase_number']); ?></h1>
-        <p class="text-muted mb-0"><?php echo supplier_order_status_badge($order['status']); ?></p>
+        <p class="page-description"><?php echo supplier_order_status_badge($order['status']); ?></p>
     </div>
-    <a class="btn btn-outline-secondary btn-sm" href="/modules/supplier-orders/view.php?id=<?php echo (int) $orderId; ?>">Back to Order</a>
+    <div class="action-bar">
+        <a class="btn btn-outline-secondary btn-sm" href="/modules/supplier-orders/view.php?id=<?php echo (int) $orderId; ?>">Back to Order</a>
+    </div>
 </div>
 
 <?php if ($showSentWarning): ?>

@@ -164,10 +164,10 @@ $canViewProducts = app_has_permission('products.view');
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-header d-flex justify-content-between align-items-center">
     <div>
         <h1 class="mb-1">Sales Report</h1>
-        <p class="text-muted mb-0">Best selling products and sales totals - paid, non-cancelled orders only.</p>
+        <p class="page-description">Best selling products and sales totals - paid, non-cancelled orders only.</p>
     </div>
 </div>
 

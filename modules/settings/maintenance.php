@@ -72,10 +72,10 @@ $deletableSupplierOrders = supplier_order_list_deletable($pdo);
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-header d-flex justify-content-between align-items-center">
     <div>
         <h1 class="mb-1">Data Cleanup</h1>
-        <p class="text-muted mb-0">Development-mode tool: only records with zero real business history are ever listed here.</p>
+        <p class="page-description">Development-mode tool: only records with zero real business history are ever listed here.</p>
     </div>
 </div>
 

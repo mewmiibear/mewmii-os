@@ -11,10 +11,10 @@ $appTitle = 'Data Export';
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-header d-flex justify-content-between align-items-center">
     <div>
         <h1 class="mb-1">Data Export</h1>
-        <p class="text-muted mb-0">Read-only CSV exports.</p>
+        <p class="page-description">Read-only CSV exports.</p>
     </div>
 </div>
 

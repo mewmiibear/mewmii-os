@@ -115,12 +115,12 @@ $summary = $summaryStmt->fetch(PDO::FETCH_ASSOC);
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-header d-flex justify-content-between align-items-center">
     <div>
         <h1 class="mb-1">Job Queue</h1>
-        <p class="text-muted mb-0">Background outbound jobs (WooCommerce sync and future integrations) - queued by the app, executed by cli/job_worker.php.</p>
+        <p class="page-description">Background outbound jobs (WooCommerce sync and future integrations) - queued by the app, executed by cli/job_worker.php.</p>
     </div>
-    <div class="d-flex gap-2">
+    <div class="action-bar">
         <form method="post" class="d-inline" data-confirm="This cannot be undone. Only completed jobs are removed - pending, processing and failed jobs are never affected." data-confirm-title="Delete jobs older than <?php echo (int) JOB_QUEUE_CLEANUP_DAYS_DEFAULT; ?> days?" data-confirm-label="Delete jobs" data-confirm-tone="danger">
             <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
             <input type="hidden" name="action" value="cleanup">

@@ -49,10 +49,10 @@ $hasFilters = $searchTerm !== '' || $categoryFilter !== '' || $statusFilter !== 
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-header d-flex justify-content-between align-items-center">
     <div>
         <h1 class="mb-1">Assets</h1>
-        <p class="text-muted mb-0">Equipment and furniture the business owns - what it is, where it is, and who has it.</p>
+        <p class="page-description">Equipment and furniture the business owns - what it is, where it is, and who has it.</p>
     </div>
     <?php if ($canManage): ?>
         <div class="action-bar">

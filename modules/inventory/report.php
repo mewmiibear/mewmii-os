@@ -33,12 +33,14 @@ unset($txRow);
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-header d-flex justify-content-between align-items-center">
     <div>
         <h1 class="mb-1">Stock Movement Report</h1>
-        <p class="text-muted mb-0">Complete inventory transaction history across every product.</p>
+        <p class="page-description">Complete inventory transaction history across every product.</p>
     </div>
-    <a class="btn btn-outline-secondary btn-sm" href="/modules/inventory/index.php">Back to Inventory</a>
+    <div class="action-bar">
+        <a class="btn btn-outline-secondary btn-sm" href="/modules/inventory/index.php">Back to Inventory</a>
+    </div>
 </div>
 
 <div class="card p-4">

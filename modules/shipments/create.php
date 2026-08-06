@@ -183,10 +183,10 @@ $allCustomers = $customersStmt->fetchAll(PDO::FETCH_ASSOC);
 
 require_once __DIR__ . '/../../includes/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-header d-flex justify-content-between align-items-center">
     <div>
         <h1 class="mb-1">Create Shipment</h1>
-        <p class="text-muted mb-0">
+        <p class="page-description">
             <?php if ($order !== null): ?>
                 From order <?php echo app_escape(order_display_number_compact($order['order_number'])); ?> (<?php echo app_escape($order['customer_name']); ?>) - only reserved/stored, not-yet-shipped items are shown.
             <?php else: ?>
@@ -194,7 +194,9 @@ require_once __DIR__ . '/../../includes/header.php';
             <?php endif; ?>
         </p>
     </div>
-    <a class="btn btn-outline-secondary btn-sm" href="<?php echo $order !== null ? '/modules/orders/view.php?id=' . (int) $orderId : '/modules/shipments/index.php'; ?>">Back</a>
+    <div class="action-bar">
+        <a class="btn btn-outline-secondary btn-sm" href="<?php echo $order !== null ? '/modules/orders/view.php?id=' . (int) $orderId : '/modules/shipments/index.php'; ?>">Back</a>
+    </div>
 </div>
 
 <?php if ($error !== ''): ?>
