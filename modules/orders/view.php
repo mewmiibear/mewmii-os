@@ -786,7 +786,7 @@ require_once __DIR__ . '/../../includes/header.php';
                         <input type="hidden" name="approve_payment" value="1">
                         <button type="submit" class="btn btn-success btn-sm">Approve Payment</button>
                     </form>
-                    <form method="post" onsubmit="return confirm('Reject this payment receipt? The order will remain pending.');">
+                    <form method="post" data-confirm="The order stays pending and the customer is asked to upload again." data-confirm-title="Reject this payment receipt?" data-confirm-label="Reject receipt" data-confirm-tone="warning">
                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                         <input type="hidden" name="reject_payment" value="1">
                         <button type="submit" class="btn btn-outline-secondary btn-sm">Reject Payment</button>
@@ -807,7 +807,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 <?php endif; ?>
 
                 <?php if (!in_array($order['order_status'], ['completed', 'cancelled'], true)): ?>
-                    <form method="post" onsubmit="return confirm('Cancel this order? Any reserved stock will be released back to available.');">
+                    <form method="post" data-confirm="Any stock reserved for it is released back to available. The order is kept on file." data-confirm-title="Cancel order <?php echo app_escape(order_display_number_compact($order['order_number'])); ?>?" data-confirm-label="Cancel order" data-confirm-tone="warning">
                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                         <input type="hidden" name="cancel_order" value="1">
                         <button type="submit" class="btn btn-outline-danger btn-sm">Cancel Order</button>
@@ -1023,7 +1023,7 @@ require_once __DIR__ . '/../../includes/header.php';
                                         <input type="hidden" name="receipt_id" value="<?php echo (int) $ritem['latest_receipt']['id']; ?>">
                                         <button type="submit" class="btn btn-sm btn-success">Approve payment</button>
                                     </form>
-                                    <form method="post" onsubmit="return confirm('Reject this payment? The customer will be asked to upload again.');">
+                                    <form method="post" data-confirm="The customer is asked to upload again. The order is not cancelled." data-confirm-title="Reject this payment?" data-confirm-label="Reject payment" data-confirm-tone="warning">
                                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                                         <input type="hidden" name="reject_payment_receipt" value="1">
                                         <input type="hidden" name="receipt_id" value="<?php echo (int) $ritem['latest_receipt']['id']; ?>">

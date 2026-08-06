@@ -554,7 +554,7 @@ require_once __DIR__ . '/../../includes/header.php';
             <a class="btn btn-outline-secondary btn-sm" href="/modules/supplier-orders/edit.php?id=<?php echo (int) $orderId; ?>">Edit</a>
         <?php endif; ?>
         <?php if ($canCancel): ?>
-            <form method="post" class="d-inline" onsubmit="return confirm('Cancel this supplier order? Any outstanding incoming stock will be reversed.');">
+            <form method="post" class="d-inline" data-confirm="Any outstanding incoming stock is reversed. Stock already received is not affected." data-confirm-title="Cancel supplier order <?php echo app_escape($order['purchase_number']); ?>?" data-confirm-label="Cancel order" data-confirm-tone="warning">
                 <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                 <input type="hidden" name="action" value="cancel">
                 <button type="submit" class="btn btn-outline-warning btn-sm">Cancel Order</button>
@@ -893,7 +893,7 @@ require_once __DIR__ . '/../../includes/header.php';
         ?>
         <?php if ($canManage && empty($order['is_historical']) && $hasOutstandingLines): ?>
             <form method="post" id="receive-batch-form" class="d-flex flex-wrap gap-2 align-items-center justify-content-end mt-3 border-top pt-3"
-                  onsubmit="return confirm('Receive the quantities entered above?');">
+                  data-confirm="Stock is added to inventory and the order status updates. Blank or zero lines are skipped." data-confirm-title="Receive the entered quantities?" data-confirm-label="Receive" data-confirm-tone="warning">
                 <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                 <input type="hidden" name="action" value="receive_batch">
                 <span class="text-muted small me-auto">
@@ -1048,14 +1048,14 @@ require_once __DIR__ . '/../../includes/header.php';
                 <div class="mb-3"><?php echo supplier_order_status_badge($order['status']); ?></div>
 
                 <?php if ($nextStatus === 'received'): ?>
-                    <form method="post" onsubmit="return confirm('Mark this entire order as arrived? Every remaining ordered quantity will be received in full.');">
+                    <form method="post" data-confirm="Every remaining ordered quantity is received in full and added to inventory." data-confirm-title="Mark supplier order <?php echo app_escape($order['purchase_number']); ?> fully arrived?" data-confirm-label="Mark arrived" data-confirm-tone="warning">
                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                         <input type="hidden" name="action" value="mark_arrived">
                         <button type="submit" class="btn btn-primary btn-sm">Mark Arrived</button>
                     </form>
                     <div class="form-text">Only a partial shipment? Use Partial Receive on the specific line below instead.</div>
                 <?php elseif ($nextStatus !== null): ?>
-                    <form method="post" onsubmit="return confirm('<?php echo app_escape((string) supplier_order_status_next_action_label((string) $order['status'])); ?>?');">
+                    <form method="post" data-confirm="This moves supplier order <?php echo app_escape($order['purchase_number']); ?> to its next workflow status." data-confirm-title="<?php echo app_escape((string) supplier_order_status_next_action_label((string) $order['status'])); ?>?" data-confirm-label="<?php echo app_escape((string) supplier_order_status_next_action_label((string) $order['status'])); ?>" data-confirm-tone="warning">
                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                         <input type="hidden" name="action" value="advance_status">
                         <input type="hidden" name="target_status" value="<?php echo app_escape($nextStatus); ?>">

@@ -257,7 +257,7 @@ require_once __DIR__ . '/../../includes/header.php';
                         <button type="submit" class="btn btn-primary btn-sm w-100">Confirm Shipped</button>
                     </form>
 
-                    <form method="post" class="d-grid" onsubmit="return confirm('Cancel this shipment? Its items become available for a future shipment again.');">
+                    <form method="post" class="d-grid" data-confirm="Its items become available for a future shipment again." data-confirm-title="Cancel shipment <?php echo app_escape($shipment['shipment_number']); ?>?" data-confirm-label="Cancel shipment" data-confirm-tone="warning">
                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                         <input type="hidden" name="action" value="cancel">
                         <button type="submit" class="btn btn-outline-danger btn-sm">Cancel Shipment</button>

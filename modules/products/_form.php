@@ -101,7 +101,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                     <button type="submit" class="btn btn-outline-secondary btn-sm">Duplicate</button>
                 </form>
                 <?php if ($product['status'] !== 'archived'): ?>
-                    <form method="post" action="/modules/products/deactivate.php" class="d-inline" onsubmit="return confirm('Deactivate this product? It will be archived and hidden from active use, but not deleted.');">
+                    <form method="post" action="/modules/products/deactivate.php" class="d-inline" data-confirm="It is archived and hidden from active use. Nothing is deleted, and it can be reactivated later." data-confirm-title="Deactivate &quot;<?php echo app_escape($form['name']); ?>&quot;?" data-confirm-label="Deactivate" data-confirm-tone="warning">
                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                         <input type="hidden" name="product_id" value="<?php echo (int) $productId; ?>">
                         <button type="submit" class="btn btn-outline-secondary btn-sm">Deactivate</button>
@@ -523,7 +523,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                                             <form method="post" action="/modules/products/reopen_preorder.php" class="mt-2">
                                                 <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                                                 <input type="hidden" name="product_id" value="<?php echo (int) $productId; ?>">
-                                                <button type="submit" class="btn btn-sm btn-primary" onclick="return confirm('Reopen preorder at Regular Price? Early Bird pricing will not return.');">Open Preorder</button>
+                                                <button type="submit" class="btn btn-sm btn-primary" data-confirm="Early Bird pricing will not return for this product." data-confirm-title="Reopen preorder at regular price?" data-confirm-label="Open preorder" data-confirm-tone="warning">Open Preorder</button>
                                             </form>
                                         <?php endif; ?>
                                     <?php else: ?>
