@@ -265,7 +265,7 @@ require_once __DIR__ . '/../../includes/header.php';
                     </td>
                     <td data-label="" class="text-end">
                         <?php if ($job['status'] !== 'completed' && $job['status'] !== 'processing'): ?>
-                            <form method="post" class="d-inline" onsubmit="return confirm('Retry job #<?php echo (int) $job['id']; ?> now? It will run on the next worker tick with a fresh attempt count.');">
+                            <form method="post" class="d-inline" data-confirm="It runs on the next worker tick with a fresh attempt count." data-confirm-title="Retry job #<?php echo (int) $job['id']; ?>?" data-confirm-label="Retry job" data-confirm-tone="neutral">
                                 <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                                 <input type="hidden" name="action" value="retry">
                                 <input type="hidden" name="job_id" value="<?php echo (int) $job['id']; ?>">

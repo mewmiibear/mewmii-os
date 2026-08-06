@@ -287,7 +287,7 @@ require_once __DIR__ . '/../../includes/header.php';
         <div class="card p-4 mb-4">
             <h5 class="mb-3">Option A: Reserve Automatically (FIFO)</h5>
             <p class="text-muted small mb-3">Fills the oldest outstanding paid orders first from the available stock on hand. Stops once either the orders or the stock runs out - never reserves more than what's actually available.</p>
-            <form method="post" onsubmit="return confirm('Automatically reserve available stock for the oldest outstanding orders first?');">
+            <form method="post" data-confirm="Available stock is reserved against the oldest outstanding paid orders first, and stops when either the stock or the demand runs out." data-confirm-title="Auto-reserve available stock?" data-confirm-label="Reserve" data-confirm-tone="neutral">
                 <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                 <input type="hidden" name="action" value="reserve_fifo">
                 <button class="btn btn-primary" type="submit">Reserve Automatically (FIFO)</button>

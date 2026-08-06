@@ -150,7 +150,7 @@ require_once __DIR__ . '/../../includes/header.php';
                                     <td><?php echo (int) $unit['remaining']; ?></td>
                                     <td class="text-end">
                                         <?php if ($canManage): ?>
-                                            <form method="post" class="d-inline" onsubmit="return confirm('Automatically allocate arrived stock to the oldest outstanding orders first?');">
+                                            <form method="post" class="d-inline" data-confirm="Arrived stock is matched to the oldest outstanding orders first, and stops when either the stock or the demand runs out." data-confirm-title="Auto-allocate arrived stock?" data-confirm-label="Allocate" data-confirm-tone="neutral">
                                                 <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                                                 <input type="hidden" name="action" value="allocate_fifo">
                                                 <input type="hidden" name="product_id" value="<?php echo (int) $product['product_id']; ?>">
@@ -175,7 +175,7 @@ require_once __DIR__ . '/../../includes/header.php';
                                 <td><?php echo (int) $unit['remaining']; ?></td>
                                 <td class="text-end">
                                     <?php if ($canManage): ?>
-                                        <form method="post" class="d-inline" onsubmit="return confirm('Automatically allocate arrived stock to the oldest outstanding orders first?');">
+                                        <form method="post" class="d-inline" data-confirm="Arrived stock is matched to the oldest outstanding orders first, and stops when either the stock or the demand runs out." data-confirm-title="Auto-allocate arrived stock?" data-confirm-label="Allocate" data-confirm-tone="neutral">
                                             <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                                             <input type="hidden" name="action" value="allocate_fifo">
                                             <input type="hidden" name="product_id" value="<?php echo (int) $product['product_id']; ?>">

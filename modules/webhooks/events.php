@@ -235,7 +235,7 @@ require_once __DIR__ . '/../../includes/header.php';
                         </td>
                         <td data-label="" class="text-end">
                             <?php if ($event['status'] !== 'completed'): ?>
-                                <form method="post" class="d-inline" onsubmit="return confirm('Retry this webhook event now?');">
+                                <form method="post" class="d-inline" data-confirm="It is queued to run again now." data-confirm-title="Retry this webhook event?" data-confirm-label="Retry" data-confirm-tone="neutral">
                                     <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                                     <input type="hidden" name="action" value="retry">
                                     <input type="hidden" name="event_id" value="<?php echo (int) $event['id']; ?>">

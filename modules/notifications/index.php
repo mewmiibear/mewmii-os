@@ -202,7 +202,7 @@ require_once __DIR__ . '/../../includes/header.php';
                             </form>
                         <?php endif; ?>
                         <?php if ($lifecycleStatus !== 'resolved'): ?>
-                            <form method="post" class="d-inline" onsubmit="return confirm('Mark this notification as resolved? It will stay on file but stop counting as open.');">
+                            <form method="post" class="d-inline" data-confirm="It stays on file but stops counting as open." data-confirm-title="Mark notification resolved?" data-confirm-label="Mark resolved" data-confirm-tone="neutral">
                                 <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                                 <input type="hidden" name="action" value="mark_resolved">
                                 <input type="hidden" name="notification_id" value="<?php echo (int) $notification['id']; ?>">

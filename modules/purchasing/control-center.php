@@ -177,7 +177,7 @@ require_once __DIR__ . '/../../includes/header.php';
                                     <?php if ($row['supplier_id'] !== null): ?>
                                         <a class="btn btn-sm btn-outline-secondary" href="/modules/reports/supplier_detail.php?id=<?php echo (int) $row['supplier_id']; ?>">Open Supplier</a>
                                         <?php if ($canManageSupplierOrders): ?>
-                                            <form method="post" action="/modules/purchasing/create_order.php" class="d-inline" onsubmit="return confirm('Create a draft supplier order for <?php echo app_escape(addslashes($row['supplier_name'] ?? '')); ?>? You can review and edit it before sending.');">
+                                            <form method="post" action="/modules/purchasing/create_order.php" class="d-inline" data-confirm="It is created as a draft - you can review and edit it before sending." data-confirm-title="Create draft order for <?php echo app_escape($row['supplier_name'] ?? ''); ?>?" data-confirm-label="Create draft" data-confirm-tone="neutral">
                                                 <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                                                 <input type="hidden" name="supplier_id" value="<?php echo (int) $row['supplier_id']; ?>">
                                                 <button type="submit" class="btn btn-sm btn-primary">Create Supplier Order</button>
@@ -274,7 +274,7 @@ require_once __DIR__ . '/../../includes/header.php';
                                 <div class="d-flex gap-1 justify-content-end flex-wrap">
                                     <a class="btn btn-sm btn-outline-secondary" href="/modules/reports/supplier_detail.php?id=<?php echo (int) $risk['id']; ?>">Open Supplier</a>
                                     <?php if ($canManageSupplierOrders): ?>
-                                        <form method="post" action="/modules/purchasing/create_order.php" class="d-inline" onsubmit="return confirm('Create a draft supplier order for <?php echo app_escape(addslashes($risk['name'])); ?>? You can review and edit it before sending.');">
+                                        <form method="post" action="/modules/purchasing/create_order.php" class="d-inline" data-confirm="It is created as a draft - you can review and edit it before sending." data-confirm-title="Create draft order for <?php echo app_escape($risk['name']); ?>?" data-confirm-label="Create draft" data-confirm-tone="neutral">
                                             <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                                             <input type="hidden" name="supplier_id" value="<?php echo (int) $risk['id']; ?>">
                                             <button type="submit" class="btn btn-sm btn-primary">Create Supplier Order</button>

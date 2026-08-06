@@ -753,7 +753,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 <h5 class="mb-1">Receipt Verification</h5>
                 <p class="text-muted small mb-3">Confirms whether the uploaded bank transfer / QR receipt is genuine. Independent of the manual payment review below.</p>
                 <div class="d-flex gap-2">
-                    <form method="post" onsubmit="return confirm('Approve this receipt? The customer will be notified.');">
+                    <form method="post" data-confirm="The customer is notified." data-confirm-title="Approve this receipt?" data-confirm-label="Approve receipt" data-confirm-tone="neutral">
                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                         <input type="hidden" name="approve_receipt" value="1">
                         <button type="submit" class="btn btn-success btn-sm">Approve Receipt</button>
@@ -781,7 +781,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 <h5 class="mb-1">Manual Payment Status</h5>
                 <p class="text-muted small mb-3">Directly sets this order's payment status. Not tied to the WooCommerce receipt above.</p>
                 <div class="d-flex gap-2">
-                    <form method="post" onsubmit="return confirm('Approve this payment? Ready-stock items will be reserved where possible and the order status will update automatically.');">
+                    <form method="post" data-confirm="Ready-stock items are reserved where possible and the order status updates automatically." data-confirm-title="Approve this payment?" data-confirm-label="Approve payment" data-confirm-tone="neutral">
                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                         <input type="hidden" name="approve_payment" value="1">
                         <button type="submit" class="btn btn-success btn-sm">Approve Payment</button>
@@ -1017,7 +1017,7 @@ require_once __DIR__ . '/../../includes/header.php';
                             </div>
                             <?php if ($canManage && $ritem['latest_receipt']['status'] === 'pending'): ?>
                                 <div class="d-flex gap-2 mt-2">
-                                    <form method="post" onsubmit="return confirm('Approve this payment?');">
+                                    <form method="post" data-confirm="The payment is recorded against this order." data-confirm-title="Approve this payment?" data-confirm-label="Approve payment" data-confirm-tone="neutral">
                                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                                         <input type="hidden" name="approve_payment_receipt" value="1">
                                         <input type="hidden" name="receipt_id" value="<?php echo (int) $ritem['latest_receipt']['id']; ?>">

@@ -515,7 +515,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 <div class="d-flex align-items-center gap-2">
                     <span class="badge bg-info text-dark">Est. RM <?php echo app_escape(number_format($group['total_cost'], 2)); ?></span>
                     <?php if ($group['supplier_id'] !== null && $canManageSupplierOrders): ?>
-                        <form method="post" action="/modules/purchasing/create_order.php" class="d-inline" onclick="event.stopPropagation();" onsubmit="return confirm('Create a draft supplier order for <?php echo app_escape(addslashes($group['supplier_name'])); ?> with <?php echo count($group['lines']); ?> product(s)? You can review and edit it before sending.');">
+                        <form method="post" action="/modules/purchasing/create_order.php" class="d-inline" onclick="event.stopPropagation();" data-confirm="<?php echo count($group['lines']); ?> product line(s). It is created as a draft - you can review and edit it before sending." data-confirm-title="Create draft order for <?php echo app_escape($group['supplier_name']); ?>?" data-confirm-label="Create draft" data-confirm-tone="neutral">
                             <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                             <input type="hidden" name="supplier_id" value="<?php echo (int) $group['supplier_id']; ?>">
                             <button type="submit" class="btn btn-sm btn-primary">Create Supplier Order</button>

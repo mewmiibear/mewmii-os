@@ -265,7 +265,7 @@ foreach ($orders as $order) {
         <?php if ($canManage && $bulkEligibleCount > 0): ?>
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <div class="small text-muted"><span id="orders-bulk-count">0</span> selected</div>
-                <button type="submit" class="btn btn-sm btn-primary" id="orders-bulk-submit" disabled onclick="return confirm('Approve payment for the selected order(s)? Ready-stock items will be reserved where possible.');">Approve Selected Payments</button>
+                <button type="submit" class="btn btn-sm btn-primary" id="orders-bulk-submit" disabled data-confirm="Ready-stock items are reserved where possible for each order." data-confirm-title="Approve payment for the selected orders?" data-confirm-label="Approve payments" data-confirm-tone="neutral">Approve Selected Payments</button>
             </div>
         <?php endif; ?>
         <div class="table-responsive">

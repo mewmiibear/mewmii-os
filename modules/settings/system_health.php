@@ -250,7 +250,7 @@ require_once __DIR__ . '/../../includes/header.php';
             <form method="post" class="mt-2">
                 <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                 <input type="hidden" name="action" value="create_uploads_symlink">
-                <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Create a symlink at ' + <?php echo json_encode($uploadsDualLocation['root_uploads_dir']); ?> + ' pointing to ' + <?php echo json_encode($uploadsDualLocation['admin_uploads_dir']); ?> + '? This does not move or copy any files.');">Create Symlink (safest fix)</button>
+                <button type="submit" class="btn btn-sm btn-outline-danger" data-confirm="No file is moved or copied. The two upload locations are linked so they stay in sync." data-confirm-title="Create the uploads symlink?" data-confirm-label="Create symlink" data-confirm-tone="neutral">Create Symlink (safest fix)</button>
             </form>
         </div>
     <?php endif; ?>

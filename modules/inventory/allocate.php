@@ -354,7 +354,7 @@ require_once __DIR__ . '/../../includes/header.php';
         <div class="card p-4 mb-4">
             <h5 class="mb-3">Option A: Allocate Automatically (FIFO)</h5>
             <p class="text-muted small mb-3">Fills the oldest outstanding orders first from the arrived stock on hand. Stops once either the orders or the stock runs out - never allocates more than what's actually arrived.</p>
-            <form method="post" onsubmit="return confirm('Automatically allocate arrived stock to the oldest outstanding orders first?');">
+            <form method="post" data-confirm="Arrived stock is matched to the oldest outstanding orders first, and stops when either the stock or the demand runs out." data-confirm-title="Auto-allocate arrived stock?" data-confirm-label="Allocate" data-confirm-tone="neutral">
                 <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                 <input type="hidden" name="action" value="allocate_fifo">
                 <button class="btn btn-primary" type="submit">Allocate Automatically (FIFO)</button>
