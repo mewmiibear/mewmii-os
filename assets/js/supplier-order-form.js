@@ -46,9 +46,12 @@
     orderForm = orderForm ? orderForm.closest('form') : null;
     if (orderForm) {
         orderForm.addEventListener('submit', function () {
-            orderForm.querySelectorAll('button[type="submit"]').forEach(function (button) {
-                button.disabled = true;
-            });
+            // V3 Phase 3.5: was a bare `button.disabled = true`, which prevents the
+            // double-submit but gives no sign anything is happening, and lets the button
+            // keep its full width while looking inert. LoadingUI.formPending() applies the
+            // same spinner drawer.js already uses and pins the width first, so the toolbar
+            // does not reflow. Identical guarantee against double submission.
+            window.LoadingUI.formPending(orderForm, true);
         });
     }
 

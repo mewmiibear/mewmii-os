@@ -1364,7 +1364,7 @@
     function loadVariationGalleryImages() {
         var container = document.getElementById('variation-gallery-modal-images');
         if (container) {
-            container.innerHTML = '<p class="text-muted small mb-0">Loading&hellip;</p>';
+            window.LoadingUI.placeholder(container);
         }
         fetch(config.urls.getVariationImages + '?variation_id=' + galleryModalState.variationId, { credentials: 'same-origin' })
             .then(function (response) { return response.json(); })

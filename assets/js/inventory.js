@@ -51,7 +51,7 @@
 
         var body = document.getElementById('history-body');
         var pageInfo = document.getElementById('history-page-info');
-        body.innerHTML = '<p class="text-muted">Loading&hellip;</p>';
+        window.LoadingUI.placeholder(body);
 
         var params = new URLSearchParams({
             product_id: historyState.productId,

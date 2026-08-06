@@ -56,6 +56,12 @@ $appTitle = 'Mewmii OS';
         <script src="/assets/js/global_search.js"></script>
         <script src="/assets/js/sidebar.js"></script>
         <script src="/assets/js/drawer.js?v=<?php echo filemtime(__DIR__ . '/../assets/js/drawer.js'); ?>"></script>
+        <?php /* V3 Phase 3.5 - shared loading/pending helpers. Loaded here, alongside the other
+                 app scripts and before any page-specific JS, so window.LoadingUI already exists
+                 when inventory.js / product-form.js / supplier-order-form.js are parsed. It has
+                 no Bootstrap dependency of its own (the spinner is CSS), so it does not need to
+                 wait for the bundle in footer.php. */ ?>
+        <script src="/assets/js/loading.js?v=<?php echo filemtime(__DIR__ . '/../assets/js/loading.js'); ?>"></script>
         <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
         <!-- Mewmii OS v2 Phase 2 - the one shared Drawer container every module's Quick View
              loads into (docs/PHASE2_IMPLEMENTATION.md). A real bootstrap.Offcanvas instance -
