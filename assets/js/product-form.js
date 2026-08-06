@@ -871,14 +871,25 @@
                 // archived depending on whether real history exists (see
                 // variation_delete_or_archive()) - this is no longer a "might get blocked"
                 // action, so the confirm just describes both possible outcomes upfront.
-                if (!window.confirm('Delete this variation? If it has no order/inventory/supplier history it will be removed completely; if it does, it will be archived (deactivated) instead so historical records are preserved.')) {
-                    return;
-                }
+                // Programmatic path: this posts JSON rather than submitting a form, so there is
+                // no submit event for the declarative path to intercept. Danger tone because the
+                // outcome may be a permanent delete - the body states both possible outcomes,
+                // since the server decides which one applies.
                 var row = button.closest('.variation-row');
-                postJson(config.urls.deleteVariation, { variation_id: row.dataset.variationId }).then(function () {
-                    window.location.reload();
-                }).catch(function (error) {
-                    showError(error.message);
+                window.ConfirmUI.confirm({
+                    title: 'Delete this variation?',
+                    body: 'With no order, inventory or supplier history it is removed permanently. If it has history it is archived instead, so those records are preserved.',
+                    label: 'Delete variation',
+                    tone: 'danger'
+                }).then(function (ok) {
+                    if (!ok) {
+                        return;
+                    }
+                    return postJson(config.urls.deleteVariation, { variation_id: row.dataset.variationId }).then(function () {
+                        window.location.reload();
+                    }).catch(function (error) {
+                        showError(error.message);
+                    });
                 });
             });
         });

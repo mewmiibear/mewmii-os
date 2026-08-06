@@ -930,7 +930,13 @@ require_once __DIR__ . '/../../includes/header.php';
                 </div>
 
                 <?php if ($canManage): ?>
-                    <form method="post" id="shipping-allocation-form">
+                    <?php /* V3 Phase 3.2f - "do not silently overwrite existing allocations". Every
+                             method (including switching between manual and automatic) replaces every
+                             line's shipping_allocated, so the guard fires whenever an allocation
+                             already exists, regardless of which method is selected. The condition is
+                             PHP-derived, so this uses the declarative path rather than a JS confirm -
+                             which also means it inherits the framework's re-entry protection. */ ?>
+                    <form method="post" id="shipping-allocation-form"<?php if ($anyShippingAllocated): ?> data-confirm="Every line's allocated shipping cost is replaced, including any manual amounts entered previously." data-confirm-title="Overwrite the existing shipping allocation?" data-confirm-label="Overwrite" data-confirm-tone="warning"<?php endif; ?>>
                         <input type="hidden" name="csrf_token" value="<?php echo app_escape(app_csrf_token()); ?>">
                         <input type="hidden" name="action" value="allocate_shipping">
                         <div class="row g-2 align-items-end mb-3">
@@ -1195,7 +1201,6 @@ require_once __DIR__ . '/../../includes/header.php';
             var manualInputs = document.querySelectorAll('.manual-alloc-input');
             var runningTotalWrap = document.getElementById('manual-running-total');
             var runningTotalValue = document.getElementById('manual-running-total-value');
-            var hasExistingAllocation = <?php echo $anyShippingAllocated ? 'true' : 'false'; ?>;
 
             function applyMethod() {
                 var isManual = methodSelect.value === 'manual';
@@ -1230,18 +1235,11 @@ require_once __DIR__ . '/../../includes/header.php';
                 input.addEventListener('input', updateRunningTotal);
             });
 
-            var form = document.getElementById('shipping-allocation-form');
-            if (form) {
-                form.addEventListener('submit', function(event) {
-                    // "Do not silently overwrite existing allocations" - every method (including
-                    // switching from a prior manual allocation to an automatic one, or vice versa)
-                    // replaces every line's shipping_allocated, so this fires regardless of which
-                    // method is selected whenever an allocation already exists.
-                    if (hasExistingAllocation && !confirm('This order already has a shipping allocation. Continue and overwrite it?')) {
-                        event.preventDefault();
-                    }
-                });
-            }
+            // The overwrite guard that lived here is now declarative on the form itself (see the
+            // data-confirm attributes on #shipping-allocation-form above), because its condition
+            // is PHP-derived. Removing the listener rather than porting it also removes the need
+            // to reimplement re-entry protection here: re-submitting a form from inside its own
+            // submit handler re-fires that handler, and the framework already solves that once.
 
             // Phase 7F (Additional Costs Framework) - same toggle-by-classList shape as the Cost
             // Currency "Other" field on modules/products/_form.php, self-contained here.

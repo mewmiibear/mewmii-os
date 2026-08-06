@@ -956,13 +956,28 @@ $entryFormJsVersion = is_file($entryFormJsPath) ? filemtime($entryFormJsPath) : 
         var simpleRadio = document.getElementById('pf-catalog-type-simple');
         if (simpleRadio && simpleRadio.dataset.wasVariable === '1') {
             simpleRadio.addEventListener('change', function() {
-                if (simpleRadio.checked && !confirm('Switch to Simple Product? All existing variations will be archived (not deleted) - their weight, Supplier SKU, pricing, and order/history data are kept.')) {
+                if (!simpleRadio.checked) {
+                    return;
+                }
+                // Programmatic path: the guard applies only when this radio is being turned ON
+                // and the product was previously variable - a condition no static attribute can
+                // express. Declining reverts the selection rather than preventing anything,
+                // because a change event has already happened by the time we can ask.
+                window.ConfirmUI.confirm({
+                    title: 'Switch to a simple product?',
+                    body: 'All existing variations are archived, not deleted. Their weight, supplier SKU, pricing and order history are kept.',
+                    label: 'Switch to simple',
+                    tone: 'warning'
+                }).then(function(ok) {
+                    if (ok) {
+                        return;
+                    }
                     simpleRadio.checked = false;
                     var variableRadio = document.querySelector('input[name="catalog_type"][value="variable"]');
                     if (variableRadio) {
                         variableRadio.checked = true;
                     }
-                }
+                });
             });
         }
 

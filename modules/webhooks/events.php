@@ -355,13 +355,24 @@ require_once __DIR__ . '/../../includes/header.php';
                 if (isRunning) {
                     return;
                 }
-                if (!confirm('Retry all pending webhooks?')) {
-                    return;
-                }
-                isRunning = true;
-                retryBtn.disabled = true;
-                setStatus('Starting retry of pending webhooks...', 'info');
-                processBatch(0, 0, 0);
+                // Programmatic path: this button drives a batched AJAX loop rather than
+                // submitting a form, so there is no submit event for the declarative path to
+                // intercept. The isRunning guard above still runs first, so the dialog cannot
+                // be opened while a retry is already in flight.
+                window.ConfirmUI.confirm({
+                    title: 'Retry all pending webhooks?',
+                    body: 'Every pending event is queued to run again. Completed and failed events are not affected.',
+                    label: 'Retry all',
+                    tone: 'neutral'
+                }).then(function(ok) {
+                    if (!ok) {
+                        return;
+                    }
+                    isRunning = true;
+                    retryBtn.disabled = true;
+                    setStatus('Starting retry of pending webhooks...', 'info');
+                    processBatch(0, 0, 0);
+                });
             });
         }
     })();
