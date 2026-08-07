@@ -100,6 +100,7 @@ permission or workflow change in any phase.
 | **3.6b — filter chips** | Not Started | **Display-only** (Option A approved). No URL generation, no filter removal, no behaviour change; the existing Clear button is untouched. Removable chips (Option B) deserve their own proposal after Phase 3 |
 | 3.7 — Widest tables | Not Started | `reports/sales.php` (26 cols), `customers/view.php` (24), `suppliers/view.php` (22), `purchasing/control-center.php` (21), `purchasing/index.php` (20) |
 | 3.8 — Empty states, item-picker merge, 99 inline `style=` | Not Started | Long tail |
+| **Product form speed improvements — Tasks 1-4** | **Complete — browser + smoke verified** | Split across two commits: `6d3db9b` already existed on `origin/main` before the verification pass and carries the implementation across `create.php`, `_form.php` and `product-form.css`; `85aa81f` is a `create.php`-only follow-up hardening the shipping-origin lookup. Combined scope is Tasks 1-4 — Essentials/More details collapse, Save & add another, remembered defaults, SKU suggestion. Task 5 (tags) deliberately unchanged. **No schema change, no migration.** Edit page untouched — everything gated on the existing `!$isEdit` |
 
 ### Verification tooling (permanent)
 

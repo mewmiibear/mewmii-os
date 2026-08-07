@@ -4,6 +4,91 @@ All notable changes to Mewmii OS are recorded here, newest first.
 
 ## Unreleased
 
+### Product form speed improvements — Tasks 1-4 (`6d3db9b` + `85aa81f`)
+
+**Objective.** Make adding a product fast. The create form presented all 71 fields at once, so
+entering a straightforward item meant scrolling past pricing, stock, preorder and shipping blocks
+that a normal add never touches; and each new product restarted from a blank form even when a run
+of products shared the same supplier, brand and origin. This pass makes a fast add
+name → supplier → type → SKU → cost → price → image → status and nothing else, and makes the
+*next* product cheaper still. Workflow and presentation only.
+
+**Commit split.** `6d3db9b` ("update") already existed on `origin/main` before this verification
+pass — it carries the Tasks 1-4 implementation across all three files. `85aa81f` is a follow-up
+touching `modules/products/create.php` only, hardening the shipping-origin lookup. The two
+together are the complete scope of Tasks 1-4; neither is complete alone.
+
+**Files changed** (three, across both commits):
+
+| File | Why |
+| --- | --- |
+| `modules/products/create.php` | Remembered defaults, shipping-origin resolution, SKU suggestion, `after_save` redirect |
+| `modules/products/_form.php` | Collapse markers, the More details toggle, the new submit button |
+| `assets/css/product-form.css` | One ancestor-state collapse rule |
+
+**User-facing improvements.**
+
+- **Essentials + More details.** The create form opens showing only the fields a normal add needs;
+  everything else sits behind one *More details* toggle. Nothing is removed — every field is still
+  in the DOM and still posts, open or closed.
+- **Save & add another.** Saves the product and returns to a blank create form instead of the new
+  product's edit page.
+- **Last-used values are remembered.** Supplier, brand, category and shipping origin carry into the
+  next blank form for the rest of the session.
+- **Suggested SKU.** The next number in whichever prefix sequence was last used, pre-filled as an
+  ordinary editable value.
+
+**Technical notes.**
+
+- *Why `_form.php` had to change.* `create.php` is a controller; it `require`s `_form.php`, which
+  `edit.php` shares. No form markup lives in `create.php` at all. Everything is gated on the
+  existing `!$isEdit` flag, so **edit renders exactly as before**.
+- *Why the collapse is an ancestor-state rule, not `.d-none` per field.* Several advanced wrappers
+  are already toggled by existing JS through `classList.toggle('d-none', ...)` —
+  `.js-sale-fields`, `.js-stock-ready`, `.js-simple-section`. Writing `.d-none` from a second place
+  would have let the two mechanisms undo each other: enabling a sale would pop open fields meant to
+  stay collapsed. `.pf-more-collapsed .pf-more-item` hides from an ancestor instead, so the two
+  nest — specificity (0,2,0) beats Bootstrap's `.col-*` (0,1,0) with no `!important`.
+- *Why not one `<details>` wrapper.* The advanced fields are interleaved with the essentials inside
+  the same grid rows. One element cannot wrap non-contiguous siblings without physically reordering
+  markup that `edit.php` also renders.
+- *No required field can be collapsed.* All five (`name`, `product_type`, `sku`, `product_cost`,
+  `selling_price`) are essentials. Confirmed against the live DOM, not the markup — a static grep
+  for `required` undercounted.
+- *POST contract untouched.* Field names diffed before/after: identical, none added, removed or
+  renamed. `after_save` is a `<button>` name, not a field; only the clicked submit posts, so
+  `save_action` is simply absent and status comes from the dropdown.
+- *Shipping origin (`85aa81f`).* `shipping_rate_countries` has no country-code column —
+  `country_name` (UNIQUE, `utf8mb4_general_ci`) is the only identifying field — and no migration or
+  seed ever writes to it: every row is typed by an operator in `settings/shipping_rates.php`. A
+  name match is therefore the only lookup the schema allows. `settings.default_shipping_origin_country_id`
+  is consulted first as a rename-proof escape hatch (nothing writes it; a key pointing at a deleted
+  row is validated and ignored), and the name match is `TRIM`'d and accepts `'JP'`. A miss leaves
+  the field empty — the state it had before the default existed — so it can never preselect the
+  wrong country.
+- *SKU suggestion is read-only.* Nothing is reserved, so the existing unique-SKU validation still
+  decides. Prefix sequences stay separate by design.
+
+**Database impact: none.** No schema change, no migration, no new table or column. `settings` is a
+pre-existing key/value table read through the same pattern as `wc_client.php`; its key is optional
+and absent by default.
+
+**Verification.** Smoke 0 breaking / 0 warnings / 0 informational; browser QA 67 passed, 0 failed.
+Create-form behaviour 23/23, round trip and prefix separation 13/13 — including the stated
+requirement that `JP0384` → `JP0385`, `HK0384` → `HK0385`, and `JP0385` → `JP0386` ignoring HK's
+numbers. Shipping-origin resolution exercised across all eight paths against the real table
+(exact/lowercase/padded/`JP` resolve; renamed, deleted-target key, and empty table all yield
+empty; renamed-plus-settings-key resolves). Create/edit separation re-checked in the browser after
+the final change: create renders 20 collapse markers, the toggle and Save & add another; edit
+renders none of them.
+
+One smoke baseline in this pass was contaminated — `6d3db9b` having already committed two of the
+three files meant `git stash` had nothing to stash, so the capture included them and returned a
+false 0-warning PASS. Caught because the result changed from 1 warning to 0 with no matching code
+change. The recorded figures are from a re-run whose baseline was confirmed clean before capture.
+Same lesson as the two earlier contaminated baselines: a smoke result that *moves* without a code
+change is not a pass.
+
 ### V3 Phase 3.6a-2 — the two remaining headers
 
 Closes the `.page-header` rollout. In-scope adoption is now **67/67**; the nine pages without the
