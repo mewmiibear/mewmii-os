@@ -35,14 +35,19 @@ together are the complete scope of Tasks 1-4; neither is complete alone.
   product's edit page.
 - **Last-used values are remembered.** Supplier, brand, category and shipping origin carry into the
   next blank form for the rest of the session.
-- **Suggested SKU.** The next number in whichever prefix sequence was last used, pre-filled as an
-  ordinary editable value.
+- **Suggested SKU.** Automatically suggests the next available number within the detected SKU
+  prefix sequence (e.g. `JP0384` → `JP0385`, `HK0384` → `HK0385`). The value remains fully editable
+  and the existing unique-SKU validation remains authoritative.
 
-**Technical notes.**
+**Implementation notes.** *Design decisions and why they were made.*
 
+- **No save logic changed.** Product creation, validation and persistence remain unchanged. This
+  phase only optimizes form presentation, remembered defaults, SKU suggestion and post-save
+  workflow. The one touch near the save path is the choice of redirect destination, taken *after*
+  the insert, images and WooCommerce enqueue have all already run identically.
 - *Why `_form.php` had to change.* `create.php` is a controller; it `require`s `_form.php`, which
   `edit.php` shares. No form markup lives in `create.php` at all. Everything is gated on the
-  existing `!$isEdit` flag, so **edit renders exactly as before**.
+  existing `!$isEdit` flag, so edit renders exactly as before.
 - *Why the collapse is an ancestor-state rule, not `.d-none` per field.* Several advanced wrappers
   are already toggled by existing JS through `classList.toggle('d-none', ...)` —
   `.js-sale-fields`, `.js-stock-ready`, `.js-simple-section`. Writing `.d-none` from a second place
@@ -52,42 +57,61 @@ together are the complete scope of Tasks 1-4; neither is complete alone.
 - *Why not one `<details>` wrapper.* The advanced fields are interleaved with the essentials inside
   the same grid rows. One element cannot wrap non-contiguous siblings without physically reordering
   markup that `edit.php` also renders.
-- *No required field can be collapsed.* All five (`name`, `product_type`, `sku`, `product_cost`,
-  `selling_price`) are essentials. Confirmed against the live DOM, not the markup — a static grep
-  for `required` undercounted.
-- *POST contract untouched.* Field names diffed before/after: identical, none added, removed or
-  renamed. `after_save` is a `<button>` name, not a field; only the clicked submit posts, so
-  `save_action` is simply absent and status comes from the dropdown.
-- *Shipping origin (`85aa81f`).* `shipping_rate_countries` has no country-code column —
-  `country_name` (UNIQUE, `utf8mb4_general_ci`) is the only identifying field — and no migration or
-  seed ever writes to it: every row is typed by an operator in `settings/shipping_rates.php`. A
-  name match is therefore the only lookup the schema allows. `settings.default_shipping_origin_country_id`
-  is consulted first as a rename-proof escape hatch (nothing writes it; a key pointing at a deleted
-  row is validated and ignored), and the name match is `TRIM`'d and accepts `'JP'`. A miss leaves
-  the field empty — the state it had before the default existed — so it can never preselect the
-  wrong country.
-- *SKU suggestion is read-only.* Nothing is reserved, so the existing unique-SKU validation still
-  decides. Prefix sequences stay separate by design.
+- *Why `after_save` is a second submit button.* It reuses the existing `save_action=draft`
+  convention already in this form. Only the clicked submit posts its name, so `save_action` is
+  simply absent and status comes from the dropdown — no new validation or insert path.
+- *Why the SKU suggestion reserves nothing.* It is a read-only lookup written into an ordinary
+  editable input. Because nothing is reserved, two people creating at once could be offered the
+  same number; the existing unique-SKU validation stays the authority, unchanged.
+- *Why shipping origin resolves by name (`85aa81f`).* `shipping_rate_countries` has no
+  country-code column — `country_name` (UNIQUE, `utf8mb4_general_ci`) is the only identifying
+  field — and no migration or seed ever writes to it: every row is typed by an operator in
+  `settings/shipping_rates.php`. A name match is therefore the only lookup the schema allows.
+  `settings.default_shipping_origin_country_id` is consulted first as a rename-proof escape hatch
+  (nothing writes it; a key pointing at a deleted row is validated and ignored), and the name match
+  is `TRIM`'d and accepts `'JP'`. A miss leaves the field empty — the state it had before the
+  default existed — so it can never preselect the wrong country.
 
 **Database impact: none.** No schema change, no migration, no new table or column. `settings` is a
 pre-existing key/value table read through the same pattern as `wc_client.php`; its key is optional
 and absent by default.
 
-**Verification.** Smoke 0 breaking / 0 warnings / 0 informational; browser QA 67 passed, 0 failed.
-Create-form behaviour 23/23, round trip and prefix separation 13/13 — including the stated
-requirement that `JP0384` → `JP0385`, `HK0384` → `HK0385`, and `JP0385` → `JP0386` ignoring HK's
-numbers. Shipping-origin resolution exercised across all eight paths against the real table
-(exact/lowercase/padded/`JP` resolve; renamed, deleted-target key, and empty table all yield
-empty; renamed-plus-settings-key resolves). Create/edit separation re-checked in the browser after
-the final change: create renders 20 collapse markers, the toggle and Save & add another; edit
-renders none of them.
+**Verification notes.** *Confirmed behaviour and audit findings.*
 
-One smoke baseline in this pass was contaminated — `6d3db9b` having already committed two of the
-three files meant `git stash` had nothing to stash, so the capture included them and returned a
-false 0-warning PASS. Caught because the result changed from 1 warning to 0 with no matching code
-change. The recorded figures are from a re-run whose baseline was confirmed clean before capture.
-Same lesson as the two earlier contaminated baselines: a smoke result that *moves* without a code
-change is not a pass.
+| Check | Result |
+| --- | --- |
+| Smoke | 0 breaking / 0 warnings / 0 informational |
+| Browser QA | 67 passed, 0 failed |
+| Create-form behaviour | 23/23 |
+| Round trip + prefix separation | 13/13 |
+| Shipping-origin resolution | all 8 paths |
+
+- *Prefix sequences stay separate.* `JP0384` → `JP0385`, `HK0384` → `HK0385`, and `JP0385` →
+  `JP0386` ignoring HK's numbers — the stated requirement, tested directly.
+- *Shipping-origin paths.* Exact `Japan`, lowercase, whitespace-padded and `JP` all resolve;
+  a renamed country, a settings key pointing at a deleted row, and an empty table all yield empty;
+  renamed-plus-settings-key resolves.
+- *Create/edit separation.* Re-checked in the browser after the final change: create renders 20
+  collapse markers, the toggle and Save & add another; edit renders none of them.
+- *POST contract untouched.* Field names diffed before/after: identical, none added, removed or
+  renamed. `after_save` is a `<button>` name, not a field.
+- *No required field can be collapsed.* All five (`name`, `product_type`, `sku`, `product_cost`,
+  `selling_price`) are essentials. **Audit finding:** confirmed against the live DOM rather than
+  the markup, because a static grep for `required` undercounted — it found only `product_type`,
+  while the rendered form reports five. Static attribute scans of this template are not reliable.
+- *Audit finding — one contaminated smoke baseline.* `6d3db9b` having already committed two of the
+  three files meant `git stash` had nothing to stash, so the capture included them and returned a
+  false 0-warning PASS. Caught because the result moved from 1 warning to 0 with no matching code
+  change. The figures above come from a re-run whose baseline was confirmed clean before capture.
+  Same lesson as the two earlier contaminated baselines: a smoke result that *moves* without a code
+  change is not a pass.
+
+**Deferred.**
+
+- **Task 5 — searchable tag picker.** Intentionally deferred; **no work performed**. `tag_ids[]`
+  remains exactly as it was, in markup and behaviour. It was scoped as "only if it can be done
+  without risk", and that judgement was not reached in this phase.
+- **Next planned phase: 3.6b** — display-only filter chips (Option A). Not started.
 
 ### V3 Phase 3.6a-2 — the two remaining headers
 
