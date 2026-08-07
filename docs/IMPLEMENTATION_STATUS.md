@@ -100,7 +100,25 @@ permission or workflow change in any phase.
 | **3.6b — filter chips** | Not Started | **Display-only** (Option A approved). No URL generation, no filter removal, no behaviour change; the existing Clear button is untouched. Removable chips (Option B) deserve their own proposal after Phase 3 |
 | 3.7 — Widest tables | Not Started | `reports/sales.php` (26 cols), `customers/view.php` (24), `suppliers/view.php` (22), `purchasing/control-center.php` (21), `purchasing/index.php` (20) |
 | 3.8 — Empty states, item-picker merge, 99 inline `style=` | Not Started | Long tail |
+| **Product create form — workflow layout** | **Complete — browser + smoke verified** | `bec5dcc`. Create page only. Original Price, Market Price and Weight & Shipping unhidden (they are part of the normal pricing chain, not advanced fields); Brand/Category/Collection/Tags moved into a new Classification card in the right rail, placed after Publish so the sticky rail keeps Publish at the top. Classification markup is captured once with `ob_start()` and echoed in whichever place applies, so `edit.php` — which shares this file — renders structurally identical output. Tag list capped at 12rem with the filter pinned. No backend, POST, validation or save-flow change. **Closes the Product Create page UX work** |
 | **Product form speed improvements — Tasks 1-4** | **Complete — browser + smoke verified** | Split across two commits: `6d3db9b` already existed on `origin/main` before the verification pass and carries the implementation across `create.php`, `_form.php` and `product-form.css`; `85aa81f` is a `create.php`-only follow-up hardening the shipping-origin lookup. Combined scope is Tasks 1-4 — Essentials/More details collapse, Save & add another, remembered defaults, SKU suggestion. Task 5 (tags) deliberately unchanged. **No schema change, no migration.** Edit page untouched — everything gated on the existing `!$isEdit` |
+
+### Post-deployment validation
+
+Items that could not be validated during development and must be checked against the live system.
+Not blockers.
+
+| Item | Raised | What to check |
+|---|---|---|
+| **Production catalogue density** | `bec5dcc` | Classification card/tag density was validated using the QA fixture database with 46 seeded tags. Production catalogue density has not yet been validated because production data was unavailable during development. Validate after deployment. Specifically: the 12rem tag-list cap, that the pinned filter still reads well, and that the right rail stays balanced at the real tag count |
+| **Shipping-origin fallback** | `85aa81f` | `shipping_rate_countries` is operator-populated and never seeded. Confirm a row trims to `Japan` or `JP`; if not, set `settings.default_shipping_origin_country_id` to the correct id. A miss is safe — the field stays empty — but the default silently does nothing |
+
+### Deferred cleanup
+
+| Task | Status | Notes |
+|---|---|---|
+| **Gallery CSS cleanup** | Not Started — needs its own commit | Remove the redundant inline sizing from the `.pf-gallery-grid` rendering path (`_form.php` gallery item + img `style=` attributes), then remove the related `!important` declarations **only after confirming all gallery paths are covered**. Five `!important`s in `product-form.css` exist solely to outrank those inline styles, which no selector can beat. Evidence the grid CSS suffices alone: the pending-thumbnail path in `product-form.js` creates images with no inline style and renders correctly. **Catch:** `#variation-gallery-modal-images` is `d-flex flex-wrap`, not `.pf-gallery-grid`, so its thumbnails are sized *only* by inline styles — keep variation-gallery-modal behaviour unchanged unless intentionally redesigned. Requires its own visual regression check |
+| **Task 5 — searchable tag picker** | Intentionally deferred, no work performed | `tag_ids[]` unchanged in markup and behaviour. Note the list already gets a type-to-filter box from `product-form.js` at ≥8 tags, so this is less absent than it first appeared |
 
 ### Verification tooling (permanent)
 
