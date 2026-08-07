@@ -479,7 +479,7 @@ require_once __DIR__ . '/../../includes/header.php';
 
         <div class="col-auto">
             <button type="submit" class="btn btn-sm btn-primary">Filter</button>
-            <a href="/modules/products/index.php" class="btn btn-sm btn-outline-secondary">Clear filters</a>
+            <a href="/modules/products/index.php" class="btn btn-sm btn-outline-secondary">Clear</a>
         </div>
     </form>
 </div>
