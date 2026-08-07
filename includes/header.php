@@ -62,6 +62,11 @@ $appTitle = 'Mewmii OS';
                  no Bootstrap dependency of its own (the spinner is CSS), so it does not need to
                  wait for the bundle in footer.php. */ ?>
         <script src="/assets/js/loading.js?v=<?php echo filemtime(__DIR__ . '/../assets/js/loading.js'); ?>"></script>
+        <?php /* Phase 3.6b - active filter chips. Self-contained and opt-in: it only acts on
+                 .filter-card[data-filter-chips="1"], so loading it app-wide is inert on every page
+                 that has not opted in. No Bootstrap dependency, so like loading.js it does not
+                 need to wait for footer.php's bundle. */ ?>
+        <script src="/assets/js/filter-chips.js?v=<?php echo filemtime(__DIR__ . '/../assets/js/filter-chips.js'); ?>"></script>
         <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
         <!-- Mewmii OS v2 Phase 2 - the one shared Drawer container every module's Quick View
              loads into (docs/PHASE2_IMPLEMENTATION.md). A real bootstrap.Offcanvas instance -

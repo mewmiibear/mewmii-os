@@ -66,7 +66,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <div class="alert alert-success">Supplier created.</div>
 <?php endif; ?>
 
-<div class="card filter-card p-3 mb-4">
+<div class="card filter-card p-3 mb-4" data-filter-chips="1">
     <form method="get" class="row g-2 align-items-end">
         <div class="col-md-4">
             <label class="form-label small mb-1">Search</label>
