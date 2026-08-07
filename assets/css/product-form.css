@@ -360,3 +360,35 @@
 .pf-more-collapsed .pf-more-item {
     display: none;
 }
+
+/* --- Create-page Classification card ------------------------------------------------
+   Only rendered on create (see _form.php), so every rule here is create-only by scope -
+   the edit form has no .pf-classification and is untouched.
+
+   The tag list is uncapped by default, which is fine across a wide left column but would make
+   this narrow rail card arbitrarily tall. Capping it keeps the card bounded. Behaviour is
+   untouched: the checkboxes and product-form.js filter box both work exactly as before, the
+   list simply scrolls past the cap.
+
+   12rem was measured, not guessed. At 46 tags the rows are 21px and flow inline (they wrap,
+   several per line), so 12rem shows ~19 tags before scrolling and holds the whole card near
+   520px - close enough to the Images card that the rail still reads balanced rather than
+   tag-dominated. 15rem was tried first and gave 23 tags for 48px more height; the sticky filter
+   above makes a deeper list cheap to search, so the shorter card won.
+
+   Note the cap is NOT what keeps the rail inside its sticky slot - it cannot. Three selects
+   alone make this card ~330px, so the rail exceeds the slot at every cap including none at all.
+   That is fine and was verified directly: the rail starts below the sticky threshold and
+   scrolls fully into view before it pins, so nothing becomes unreachable. */
+.pf-classification #tags-checkbox-list {
+    max-height: 12rem;
+    overflow-y: auto;
+}
+
+/* product-form.js inserts its filter input as the list.s first child, so without this it
+   would scroll away with the tags it filters. */
+.pf-classification #tags-checkbox-list input[type="text"] {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}

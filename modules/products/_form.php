@@ -54,6 +54,22 @@ $productFormCssVersion = is_file($productFormCssPath) ? filemtime($productFormCs
 $pfCollapseMore = !$isEdit;
 $pfMore = $pfCollapseMore ? ' pf-more-item' : '';
 $pfFormStateClass = ($pfCollapseMore && $error === '') ? ' pf-more-collapsed' : '';
+
+// Workflow layout pass (CREATE ONLY). The create page answers three questions in order - what is
+// this product / what does it cost / how is it classified - so classification (Brand, Category,
+// Collection, Tags) moves out of the left column into its own card in the right rail, leaving the
+// left column as an uninterrupted pricing chain.
+//
+// The classification markup is captured ONCE below and echoed in whichever place applies, rather
+// than duplicated: edit.php renders this same file, and two copies of these four fields would be
+// free to drift apart. Buffering keeps one source of truth.
+//
+// CSS `order` cannot do this - .pf-col-main and .pf-col-side are different parent containers, and
+// order only reshuffles siblings within one.
+//
+// Only the column width differs between the two placements: full width inside the narrow right
+// rail, one-third inside the wide left grid row it currently shares.
+$pfClassCol = $isEdit ? 'col-md-4' : 'col-12';
 ?>
 <link rel="stylesheet" href="/assets/css/product-form.css?v=<?php echo (int) $productFormCssVersion; ?>">
 
@@ -249,12 +265,11 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                 <div class="card pf-card">
                     <div class="pf-card-title"><span class="pf-card-step">1</span> Basic Information</div>
                     <div class="row g-3">
-                        <div class="col-md-8">
-                            <label class="form-label">Product Name <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" name="name" value="<?php echo app_escape($form['name']); ?>" maxlength="255" placeholder="e.g. Hello Kitty Plush 25cm" required>
-                            <div class="invalid-feedback">Product name is required.</div>
-                        </div>
-                        <div class="col-md-4<?php echo $pfMore; ?>">
+                        <?php
+                        // Brand is captured here rather than emitted, so it can be placed either
+                        // in this row (edit) or in the right-rail Classification card (create).
+                        ob_start(); ?>
+                        <div class="<?php echo $pfClassCol; ?>">
                             <div class="d-flex justify-content-between align-items-center">
                                 <label class="form-label mb-1">Brand</label>
                                 <a class="small" href="/modules/catalog/index.php?tab=brands" target="_blank" rel="noopener">Manage &#8599;</a>
@@ -266,6 +281,14 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                                 <?php endforeach; ?>
                             </select>
                         </div>
+                        <?php $pfClassificationBrand = ob_get_clean(); ?>
+
+                        <div class="<?php echo $isEdit ? 'col-md-8' : 'col-12'; ?>">
+                            <label class="form-label">Product Name <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" name="name" value="<?php echo app_escape($form['name']); ?>" maxlength="255" placeholder="e.g. Hello Kitty Plush 25cm" required>
+                            <div class="invalid-feedback">Product name is required.</div>
+                        </div>
+                        <?php if ($isEdit) { echo $pfClassificationBrand; } ?>
 
                         <div class="col-12<?php echo $pfMore; ?>">
                             <label class="form-label">Short Description</label>
@@ -277,11 +300,16 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                             <textarea class="form-control" name="description" rows="3" placeholder="Describe this product..."><?php echo app_escape($form['description']); ?></textarea>
                         </div>
 
-                        <div class="col-12<?php echo $pfMore; ?>">
-                            <hr class="my-1">
-                        </div>
+                        <?php if ($isEdit): ?>
+                            <div class="col-12">
+                                <hr class="my-1">
+                            </div>
+                        <?php endif; ?>
 
-                        <div class="col-md-4<?php echo $pfMore; ?>">
+                        <?php
+                        // Captured, not emitted - see $pfClassificationBrand above.
+                        ob_start(); ?>
+                        <div class="<?php echo $pfClassCol; ?>">
                             <div class="d-flex justify-content-between align-items-center">
                                 <label class="form-label mb-1">Category</label>
                                 <a class="small" href="/modules/catalog/index.php?tab=categories" target="_blank" rel="noopener">Manage &#8599;</a>
@@ -295,7 +323,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                        <div class="col-md-4<?php echo $pfMore; ?>">
+                        <div class="<?php echo $pfClassCol; ?>">
                             <div class="d-flex justify-content-between align-items-center">
                                 <label class="form-label mb-1">Collection</label>
                                 <a class="small" href="/modules/catalog/index.php?tab=collections" target="_blank" rel="noopener">Manage &#8599;</a>
@@ -307,7 +335,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                                 <?php endforeach; ?>
                             </select>
                         </div>
-                        <div class="col-md-4<?php echo $pfMore; ?>">
+                        <div class="<?php echo $pfClassCol; ?>">
                             <div class="d-flex justify-content-between align-items-center">
                                 <label class="form-label mb-1">Tags</label>
                                 <a class="small" href="/modules/catalog/index.php?tab=tags" target="_blank" rel="noopener">Manage &#8599;</a>
@@ -324,6 +352,14 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                                 <?php endif; ?>
                             </div>
                         </div>
+                        <?php
+                        $pfClassificationRest = ob_get_clean();
+                        // On edit these stay exactly where they have always been. On create they
+                        // are emitted later, inside the right-rail Classification card.
+                        if ($isEdit) {
+                            echo $pfClassificationRest;
+                        }
+                        ?>
 
                         <div class="col-12<?php echo $pfMore; ?>">
                             <hr class="my-1">
@@ -423,7 +459,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                         </div>
                     </div>
 
-                    <div class="pf-group<?php echo $pfMore; ?>">
+                    <div class="pf-group">
                         <div class="pf-group-label">Original Price <span class="text-muted fw-normal text-lowercase">(brand/official retail reference)</span></div>
                         <div class="row g-3">
                             <div class="col-md-4">
@@ -448,7 +484,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                         </div>
                     </div>
 
-                    <div class="pf-group<?php echo $pfMore; ?>">
+                    <div class="pf-group">
                         <div class="pf-group-label">Market Price <span class="text-muted fw-normal text-lowercase">(calculated from Original Price)</span></div>
                         <div class="row g-3">
                             <div class="col-md-4">
@@ -470,7 +506,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                         </div>
                     </div>
 
-                    <div class="pf-group<?php echo $pfMore; ?>">
+                    <div class="pf-group">
                         <div class="pf-group-label">Weight &amp; Shipping</div>
                         <div class="row g-3">
                             <div class="col-md-4">
@@ -826,6 +862,22 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                         <div class="form-text mt-2">Change anytime - e.g. set to Draft/Hidden to temporarily pull a product without deleting it.</div>
                     <?php endif; ?>
                 </div>
+
+                <?php if (!$isEdit): ?>
+                    <!-- Classification: the create page's third question, after "what is this
+                         product" and "what does it cost". Placed LAST in the rail on purpose -
+                         .pf-col-side is position:sticky, so whatever sits at the top stays
+                         reachable while scrolling; Publish and its status control keep that spot. -->
+                    <div class="card pf-card pf-classification">
+                        <div class="pf-card-title">Classification</div>
+                        <div class="row g-3">
+                            <?php
+                            echo $pfClassificationBrand;
+                            echo $pfClassificationRest;
+                            ?>
+                        </div>
+                    </div>
+                <?php endif; ?>
 
             </div><!-- /.pf-col-side -->
         </div><!-- /.pf-layout -->
