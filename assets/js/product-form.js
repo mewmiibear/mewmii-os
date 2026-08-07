@@ -204,7 +204,19 @@
         wrapper.appendChild(list);
 
         function optionLabel(option) {
-            return option.textContent || '';
+            // Trimmed because this label is written into input.value, and an <input> preserves
+            // whitespace verbatim where a native <select> trims it for display. The Category
+            // options are the only ones authored across multiple lines - _form.php formats them
+            // that way for the str_repeat('&mdash; ') depth prefix - so their textContent carries
+            // ~41 characters of leading indentation. Untrimmed, that pushed the selected category
+            // far to the right in the field and read as centred, while Brand and Collection
+            // (single-line options, zero leading whitespace) looked correct.
+            //
+            // Trimming here rather than reflowing the markup keeps the widget's behaviour
+            // equivalent to a native <select> for ANY option, and is a no-op for options that
+            // were already clean. Every consumer - currentLabel(), the filter comparison, the
+            // list item text and input.value - goes through this one function.
+            return (option.textContent || '').trim();
         }
 
         function currentLabel() {
