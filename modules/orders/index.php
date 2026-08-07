@@ -211,7 +211,7 @@ $viewLabels = ['active' => 'Active', 'completed' => 'Completed', 'cancelled' => 
 
 <?php render_saved_views_widget($pdo, 'orders'); ?>
 
-<div class="card filter-card p-3 mb-4">
+<div class="card filter-card p-3 mb-4" data-filter-chips="1">
     <form method="get" class="row g-2 align-items-end">
         <?php if ($filterProductId !== null): ?>
             <input type="hidden" name="product_id" value="<?php echo (int) $filterProductId; ?>">

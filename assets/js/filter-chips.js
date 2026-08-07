@@ -100,24 +100,83 @@
      * The preset row is a separate, older component: links that APPLY a filter, marked .is-active
      * when their filter is the one in effect. It is deliberately left alone. But an active preset
      * and the form control behind it describe the same state, so chipping both would say the same
-     * thing twice - on Inventory, directly under the preset that already says it. Those parameter
-     * names are read off the active presets' own hrefs and skipped.
+     * thing twice - on Inventory, directly under the preset that already says it.
+     *
+     * A preset's href is NOT just its own filter. Most are built as
+     * http_build_query(array_merge($_GET, ['view' => ...])) - the whole current query string with
+     * one parameter overridden - so the href also carries every other filter currently applied,
+     * purely so that clicking the preset preserves them. Treating every parameter in the href as
+     * "shown by the preset" therefore suppressed unrelated chips: on Demand Forecast the active
+     * period preset carries supplier_id, which silently swallowed the Supplier chip.
+     *
+     * The parameter a preset actually controls is the one that VARIES across its own row. Params
+     * identical across every preset in the row are preserved context, not the preset's subject.
+     * That distinction is what this computes, per row.
      */
     function parametersShownByActivePresets() {
         var covered = [];
-        document.querySelectorAll('.btn-filter.is-active[href]').forEach(function (preset) {
-            var query;
-            try {
-                query = new URL(preset.href, window.location.origin).searchParams;
-            } catch (error) {
+        var rows = [];
+
+        document.querySelectorAll('.btn-filter[href]').forEach(function (preset) {
+            var row = preset.parentElement;
+            if (row && rows.indexOf(row) === -1) {
+                rows.push(row);
+            }
+        });
+
+        rows.forEach(function (row) {
+            var presets = Array.prototype.slice.call(row.querySelectorAll('.btn-filter[href]'));
+            if (presets.length === 0) {
                 return;
             }
-            query.forEach(function (_value, key) {
-                if (covered.indexOf(key) === -1) {
-                    covered.push(key);
+
+            // param name -> list of values seen across this row (missing counts as a distinct
+            // state, so a param only some presets carry is treated as varying).
+            var seen = {};
+            var parsed = presets.map(function (preset) {
+                var map = {};
+                try {
+                    new URL(preset.href, window.location.origin).searchParams.forEach(function (value, key) {
+                        map[key] = value;
+                    });
+                } catch (error) { /* unparseable href contributes nothing */ }
+                return map;
+            });
+
+            parsed.forEach(function (map) {
+                Object.keys(map).forEach(function (key) {
+                    seen[key] = seen[key] || [];
+                    if (seen[key].indexOf(map[key]) === -1) {
+                        seen[key].push(map[key]);
+                    }
+                });
+            });
+
+            // A preset communicates the parameter whose value is UNIQUE to it within the row.
+            // Its siblings all carry the preserved copy of every other filter, so a preserved
+            // param's value is shared - that is exactly what distinguishes context from subject.
+            //
+            // Orders is the case that forces this precision: its row mixes four view tabs
+            // (view=active/completed/cancelled/all) with a "ready to ship" preset that overrides
+            // status. `status` therefore varies across the row, but the ACTIVE view tab's status
+            // is the preserved current one, shared with three siblings - so the active preset
+            // says nothing about status, and the Status chip must still be shown.
+            presets.forEach(function (preset, index) {
+                if (!preset.classList.contains('is-active')) {
+                    return;
                 }
+                var mine = parsed[index];
+                Object.keys(mine).forEach(function (key) {
+                    var sharers = parsed.filter(function (other) {
+                        return other[key] === mine[key];
+                    }).length;
+                    if (sharers === 1 && covered.indexOf(key) === -1) {
+                        covered.push(key);
+                    }
+                });
             });
         });
+
         return covered;
     }
 

@@ -358,7 +358,7 @@ function catalog_tab_attributes_render_list(array $ctx): void
         </div>
     <?php endif; ?>
 
-    <div class="card p-4 mb-4 filter-card">
+    <div class="card p-4 mb-4 filter-card" data-filter-chips="1">
         <form method="get" class="row g-2 align-items-end" action="/modules/catalog/index.php">
             <input type="hidden" name="tab" value="attributes">
             <div class="col-md-6">

@@ -62,7 +62,7 @@ require_once __DIR__ . '/../../includes/header.php';
     <?php endforeach; ?>
 </div>
 
-<div class="card filter-card p-3 mb-4">
+<div class="card filter-card p-3 mb-4" data-filter-chips="1">
     <form method="get" class="row g-2 align-items-end">
         <input type="hidden" name="period" value="<?php echo app_escape($period); ?>">
         <div class="col-md-3">
