@@ -1,0 +1,27 @@
+# Denies web access to this whole directory.
+#
+# Every database/migrate_*.php file ends with
+#
+#     if (!defined('MIGRATE_RUNNER_ACTIVE')) { migrate_<name>(app_db()); }
+#
+# so requesting one directly over HTTP EXECUTES it. All 28 are additive and idempotent, so this
+# was never a data-destruction risk, but they were 28 unauthenticated endpoints that run DDL and
+# disclose schema detail through their own output. docs/MIGRATION_SYSTEM_AUDIT.md section 5
+# recorded exactly this ("reachable via unauthenticated direct URL") and database/migrate.php's
+# docblock notes it deliberately fixed only itself, leaving the rest for a separate change.
+#
+# This is that change, done at the directory level rather than by editing 28 files: one rule,
+# no PHP touched, and any migration added later is covered the moment it lands. schema.sql is
+# covered too, so the full table layout is no longer downloadable.
+#
+# CLI is unaffected - .htaccess governs the web server only. `php database/migrate.php --run`
+# and `php database/migrate_<name>.php` both continue to work exactly as before, which is how
+# migrations are meant to be run.
+
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>

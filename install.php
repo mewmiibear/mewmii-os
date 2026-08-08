@@ -1,7 +1,56 @@
 <?php
+
+/**
+ * Installer and idempotent deploy-time sync.
+ *
+ * This script is NOT single-use. It is the only place permissions are seeded
+ * (docs/FUTURE_BACKLOG.md: "Permission seeding -> install.php lines 49-69, and nowhere else"),
+ * so it must be re-run after any deploy that adds one - skipping that step is what made the
+ * entire Finance menu disappear once (docs/CHANGELOG.md). Everything below is additive and
+ * idempotent: schema.sql is 77/77 CREATE TABLE IF NOT EXISTS with no DROP, the permission,
+ * role-link and expense-category syncs only ever insert rows that are missing, and the
+ * first-admin block is gated on there being no users at all.
+ *
+ * ACCESS CONTROL. Being re-runnable is exactly why it cannot stay open: before this guard any
+ * anonymous visitor could execute the schema, rewrite the permission table, and - on a database
+ * with no users yet - create the first Owner account AND be shown its password. Three ways in,
+ * in decreasing order of privilege:
+ *
+ *   1. CLI. Always allowed. This is the normal deploy path and matches database/migrate.php,
+ *      which is CLI-only for the same reason.
+ *   2. HTTP on a not-yet-installed database. Allowed, because there is no account to
+ *      authenticate as yet - this is the genuine first-run bootstrap, and blocking it would
+ *      make a browser-only environment uninstallable. The window closes automatically the
+ *      moment the first user exists.
+ *   3. HTTP on an installed database. Requires a signed-in user holding settings.manage - the
+ *      permission that already gates every other administrative page.
+ *
+ * "Installed" is decided by a real query (does a users row exist), not by a marker file that
+ * could be deleted to reopen the bootstrap path.
+ */
+
 require_once __DIR__ . '/includes/bootstrap.php';
 
 $pdo = app_db();
+
+$installerIsCli = PHP_SAPI === 'cli';
+
+if (!$installerIsCli) {
+    // A missing users table means schema.sql has never run here - unambiguously first-run.
+    try {
+        $installerUserCount = (int) $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
+    } catch (Throwable $installerProbeFailure) {
+        $installerUserCount = 0;
+    }
+
+    if ($installerUserCount > 0) {
+        // Already installed: fall back to the same guard the rest of the admin area uses.
+        // app_require_permission() redirects an anonymous visitor to the login page and refuses
+        // a signed-in user who lacks the permission.
+        app_require_permission('settings.manage');
+    }
+}
+
 $pdo->exec(file_get_contents(__DIR__ . '/database/schema.sql'));
 
 // Canonical permission list. Kept here (not just inside the fresh-install branch)
