@@ -504,6 +504,153 @@
     // Variation combination signature - must match includes/product_variations.php's
     // own signature format exactly (sorted "attributeId:valueId" pairs joined by "|").
     // ---------------------------------------------------------------------------------
+    // ---------------------------------------------------------------------------------
+    // Unsaved variation-row edits (EDIT mode).
+    //
+    // A variation row's inputs carry no name attribute - fieldName() only emits one when
+    // namePrefix is set, which is the CREATE preview path. So these fields are not part of the
+    // product form and the page's own "Save Changes" cannot and does not submit them; each row
+    // persists only through its own Save button, which posts to save_variation.php.
+    //
+    // Nothing was ever silently discarded by the server, but nothing told the operator either:
+    // typing a new SKU and pressing the page's Save looked like a save and wasn't. This marks the
+    // row instead, so the state is visible rather than assumed. The architecture is unchanged -
+    // the row's Save button remains the only thing that persists a row.
+    // ---------------------------------------------------------------------------------
+    // Set immediately before a save-triggered reload so the unload guard does not challenge our
+    // own navigation - the edits are being persisted, not abandoned.
+    //
+    // Dirtiness itself is deliberately NOT mirrored in a counter: the row's own .is-dirty class is
+    // the single source of truth, so a re-render or a deleted row cannot leave a tally out of step
+    // with what is actually on screen.
+    var suppressUnloadGuard = false;
+
+    function markVariationRowDirty(row) {
+        if (!row || row.classList.contains('is-dirty')) {
+            return;
+        }
+        row.classList.add('is-dirty');
+
+        var actions = row.lastElementChild;
+        if (actions && !actions.querySelector('.variation-dirty-flag')) {
+            var flag = document.createElement('span');
+            flag.className = 'variation-dirty-flag badge bg-warning-subtle text-warning-emphasis border border-warning-subtle me-1';
+            flag.textContent = 'Unsaved';
+            flag.title = 'This row has unsaved changes. Use its Save button.';
+            actions.insertBefore(flag, actions.firstChild);
+        }
+    }
+
+    function clearVariationRowDirty(row) {
+        if (!row || !row.classList.contains('is-dirty')) {
+            return;
+        }
+        row.classList.remove('is-dirty');
+        var flag = row.querySelector('.variation-dirty-flag');
+        if (flag) {
+            flag.remove();
+        }
+    }
+
+    function hasDirtyVariationRows() {
+        return document.querySelectorAll('.variation-row.is-dirty').length > 0;
+    }
+
+    /**
+     * Delegated so it survives the table being re-rendered, and bound once. Only edit-mode rows
+     * qualify: a create-mode preview row has no variationId and its inputs DO submit with the
+     * form, so it is not "unsaved" in this sense.
+     */
+    function initVariationRowDirtyTracking() {
+        if (!config.isEdit) {
+            return;
+        }
+        var table = document.getElementById('variation-table');
+        if (!table) {
+            return;
+        }
+        var onEdit = function (event) {
+            var row = event.target.closest('.variation-row');
+            if (!row || !row.dataset.variationId) {
+                return;
+            }
+            // The row's own action buttons are not edits.
+            if (event.target.closest('button')) {
+                return;
+            }
+            markVariationRowDirty(row);
+        };
+        table.addEventListener('input', onEdit);
+        table.addEventListener('change', onEdit);
+
+        // Leaving the page with unsaved row edits.
+        window.addEventListener('beforeunload', function (event) {
+            if (suppressUnloadGuard || !hasDirtyVariationRows()) {
+                return;
+            }
+            event.preventDefault();
+            // Browsers show their own wording; returnValue is still required by some.
+            event.returnValue = '';
+        });
+    }
+
+    /**
+     * The page's Save Changes must not read as though it saved the rows too.
+     *
+     * It never did save them, and it still doesn't - this only makes that explicit at the moment
+     * it matters, because submitting reloads the page and would discard the typed values. The
+     * product's own fields save exactly as before if the operator continues.
+     */
+    function initVariationDirtySubmitGuard() {
+        if (!config.isEdit) {
+            return;
+        }
+        var form = document.getElementById('product-form');
+        if (!form) {
+            return;
+        }
+        var RESUBMIT = 'variationDirtyAcknowledged';
+
+        form.addEventListener('submit', function (event) {
+            if (form.dataset[RESUBMIT] === '1' || !hasDirtyVariationRows()) {
+                return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+
+            var count = document.querySelectorAll('.variation-row.is-dirty').length;
+            var message = count === 1
+                ? 'One variation row has unsaved changes. Saving the product will not save that row - use the row\'s own Save button first.'
+                : count + ' variation rows have unsaved changes. Saving the product will not save them - use each row\'s own Save button first.';
+
+            // Option names match confirm-dialog.js's contract exactly: body (not message) and
+            // label (not confirmLabel). It renders bodyEl.hidden = !options.body, so a wrong key
+            // yields a dialog with no explanation at all.
+            var ask = (window.ConfirmUI && window.ConfirmUI.confirm)
+                ? window.ConfirmUI.confirm({
+                    title: 'Unsaved variation changes',
+                    body: message,
+                    label: 'Save product anyway',
+                    cancelLabel: 'Go back',
+                    tone: 'warning'
+                })
+                : Promise.resolve(window.confirm(message));
+
+            ask.then(function (proceed) {
+                if (!proceed) {
+                    return;
+                }
+                form.dataset[RESUBMIT] = '1';
+                suppressUnloadGuard = true;
+                if (typeof form.requestSubmit === 'function') {
+                    form.requestSubmit();
+                } else {
+                    form.submit();
+                }
+            });
+        });
+    }
+
     // Combinations the operator removed from the CREATE preview table, by signature.
     //
     // Kept as module state rather than read back off the DOM because the preview table is
@@ -961,8 +1108,13 @@
                 }
 
                 postFormData(config.urls.saveVariation, formData).then(function () {
+                    // Persisted, so no longer dirty. Cleared before the reload so the unload
+                    // guard does not challenge our own navigation.
+                    clearVariationRowDirty(row);
+                    suppressUnloadGuard = true;
                     window.location.reload();
                 }).catch(function (error) {
+                    // Deliberately left dirty - the edit never reached the server.
                     showError(error.message);
                 });
             });
@@ -1762,6 +1914,8 @@
         initGenerateVariations();
         initFormSubmitSync();
         initPreviewCombinationRemoval();
+        initVariationRowDirtyTracking();
+        initVariationDirtySubmitGuard();
         initBulkActions();
         initGallery();
         initDropzoneHighlight();

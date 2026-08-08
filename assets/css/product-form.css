@@ -392,3 +392,20 @@
     top: 0;
     z-index: 1;
 }
+
+/* --- Unsaved variation row (edit page) ----------------------------------------------
+   A variation row saves through its OWN Save button, never through the page Save - its
+   inputs carry no name attribute and are not part of the product form. This marks a row
+   the operator has typed into so that distinction is visible rather than assumed.
+
+   Left border rather than a background tint: the table already uses --bs-table-bg-state
+   for hover and for checkbox selection, and a third background would fight both. */
+.variation-row.is-dirty > td:first-child {
+    box-shadow: inset 3px 0 0 0 var(--warning);
+}
+
+.variation-row.is-dirty .variation-dirty-flag {
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
+    vertical-align: middle;
+}
