@@ -129,8 +129,28 @@ function variation_unique_sku(PDO $pdo, string $baseSku): string
  * never duplicates or touches existing variations. Each new variation gets an
  * auto-generated SKU, an empty (zeroed) inventory row, and price_mode 'inherit'.
  */
-function variation_generate_combinations(PDO $pdo, int $productId): array
+/**
+ * $excludedSignatures (optional): combination signatures the caller does not want created, in
+ * this function's own "attributeId:valueId" sorted, pipe-joined format. Added for the Add
+ * Product preview table, where the operator can remove an unwanted combination before saving:
+ * the server regenerates the full cartesian product from the saved attribute selections, so a
+ * removal that lived only in the browser would silently come back on save.
+ *
+ * It reuses the existing "already exists, skip it" branch rather than adding a second path, and
+ * defaults to [] so both other callers (modules/products/ajax/generate_variations.php and the
+ * WooCommerce importer) are completely unaffected. Excluded combinations are never inserted, so
+ * no SKU is burned and no inventory row is created and destroyed.
+ */
+function variation_generate_combinations(PDO $pdo, int $productId, array $excludedSignatures = []): array
 {
+    $excludedLookup = [];
+    foreach ($excludedSignatures as $excludedSignature) {
+        $excludedSignature = trim((string) $excludedSignature);
+        if ($excludedSignature !== '') {
+            $excludedLookup[$excludedSignature] = true;
+        }
+    }
+
     $productStmt = $pdo->prepare('SELECT id, sku, catalog_type FROM products WHERE id = ?');
     $productStmt->execute([$productId]);
     $product = $productStmt->fetch(PDO::FETCH_ASSOC);
@@ -242,7 +262,7 @@ function variation_generate_combinations(PDO $pdo, int $productId): array
         sort($parts);
         $signature = implode('|', $parts);
 
-        if (isset($existingSignatures[$signature])) {
+        if (isset($existingSignatures[$signature]) || isset($excludedLookup[$signature])) {
             $skipped++;
             continue;
         }

@@ -257,6 +257,11 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
              products only) - see initFormSubmitSync(). Edit mode persists attribute
              selections immediately via AJAX instead and never reads this field. -->
             <input type="hidden" name="attribute_selections" id="attribute-selections-field" value="">
+            <!-- Signatures of preview combinations the operator removed before saving. The server
+             regenerates the full cartesian product from the selections above, so a removal that
+             lived only in the browser would come back on save. See create.php's
+             $excludedCombinationSignatures. -->
+            <input type="hidden" name="excluded_combinations" id="excluded-combinations-field" value="">
         <?php endif; ?>
 
         <div class="pf-layout">
@@ -771,7 +776,7 @@ computed stage: <?php echo var_export($debugFormStage, true); ?>
                                     <th>Main Image</th>
                                     <th>Stock Status</th>
                                     <th>Status</th>
-                                    <?php if ($isEdit): ?><th></th><?php endif; ?>
+                                    <th></th><?php // row actions: delete/archive on edit, remove-from-preview on create ?>
                                 </tr>
                             </thead>
                             <tbody></tbody>

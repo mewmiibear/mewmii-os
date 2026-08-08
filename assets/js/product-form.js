@@ -504,6 +504,28 @@
     // Variation combination signature - must match includes/product_variations.php's
     // own signature format exactly (sorted "attributeId:valueId" pairs joined by "|").
     // ---------------------------------------------------------------------------------
+    // Combinations the operator removed from the CREATE preview table, by signature.
+    //
+    // Kept as module state rather than read back off the DOM because the preview table is
+    // re-rendered from scratch every time the attribute selection changes - reading the DOM would
+    // lose every removal on the next render, which is exactly the "it came back" bug this is
+    // meant to prevent. Signatures survive re-renders; rows do not.
+    //
+    // Create mode only. Edit mode never populates this and never sends the field.
+    var removedPreviewSignatures = {};
+
+    function isPreviewCombinationRemoved(signature) {
+        return removedPreviewSignatures[signature] === true;
+    }
+
+    function syncExcludedCombinationsField() {
+        var field = document.getElementById('excluded-combinations-field');
+        if (!field) {
+            return;
+        }
+        field.value = JSON.stringify(Object.keys(removedPreviewSignatures).filter(isPreviewCombinationRemoved));
+    }
+
     function comboSignature(comboParts) {
         var parts = comboParts.map(function (part) {
             return part.attributeId + ':' + part.valueId;
@@ -627,7 +649,16 @@
             }).join('') +
             '</select>' +
             '</td>' +
-            (options.canManage && options.showRowActions ? '<td class="text-end">' + (options.archived ? '<span class="badge bg-secondary">Archived</span>' : '<button type="button" class="btn btn-sm btn-outline-primary save-variation-row me-1">Save</button><button type="button" class="btn btn-sm btn-outline-secondary edit-variation-attributes-btn me-1" data-variation-id="' + options.variationId + '">Edit Attrs</button><button type="button" class="btn btn-sm btn-outline-danger delete-variation-row">Delete</button>') + '</td>' : '');
+            // Row actions differ by mode because the rows are different things. On EDIT these are
+            // persisted variations, so the actions hit the server (save / edit attrs / delete or
+            // archive). On CREATE they are unsaved preview combinations with no variation_id, so
+            // the only action is to drop the combination before it is ever generated - handled
+            // entirely in the browser plus one hidden field. See removePreviewCombination().
+            (options.canManage && options.showRowActions
+                ? '<td class="text-end">' + (options.archived ? '<span class="badge bg-secondary">Archived</span>' : '<button type="button" class="btn btn-sm btn-outline-primary save-variation-row me-1">Save</button><button type="button" class="btn btn-sm btn-outline-secondary edit-variation-attributes-btn me-1" data-variation-id="' + options.variationId + '">Edit Attrs</button><button type="button" class="btn btn-sm btn-outline-danger delete-variation-row">Delete</button>') + '</td>'
+                : (options.canManage && options.showPreviewRemove
+                    ? '<td class="text-end"><button type="button" class="btn btn-sm btn-outline-danger remove-preview-combination" title="Remove this combination" aria-label="Remove this combination">Remove</button></td>'
+                    : '<td></td>'));
     }
 
     function priceModeChangeHandler(row) {
@@ -737,12 +768,21 @@
         tbody.innerHTML = '';
         combos.forEach(function (combo) {
             var signature = comboSignature(combo.map(function (p) { return { attributeId: p.attributeId, valueId: p.valueId }; }));
+
+            // A removed combination stays removed across re-renders. Skipping it here (rather
+            // than deleting the row afterwards) is what makes the removal survive the operator
+            // touching the attribute selection again.
+            if (isPreviewCombinationRemoved(signature)) {
+                return;
+            }
+
             var row = document.createElement('tr');
             row.className = 'variation-row';
             row.dataset.signature = signature;
             row.innerHTML = variationRowHtml({
                 canManage: true,
                 showRowActions: false,
+                showPreviewRemove: true,
                 namePrefix: signature,
                 label: comboLabel(combo),
                 sku: overrideFor('variation_sku', signature) || buildPreviewSku(combo),
@@ -770,11 +810,66 @@
             tbody.appendChild(row);
         });
 
+        // How many of the CURRENT selection's combinations are being withheld. Counted against
+        // combos rather than the whole removed set, because a signature for a value the operator
+        // has since deselected is not relevant to what is on screen now.
+        var hiddenNow = combos.filter(function (combo) {
+            return isPreviewCombinationRemoved(comboSignature(combo.map(function (p) {
+                return { attributeId: p.attributeId, valueId: p.valueId };
+            })));
+        }).length;
+
+        renderRemovedCombinationsNote(hiddenNow);
+        syncExcludedCombinationsField();
+
         var variationTableWrapper = document.getElementById('variation-table-wrapper');
         if (variationTableWrapper) {
             variationTableWrapper.classList.remove('d-none');
         }
         initAvailabilityToggle();
+    }
+
+    /**
+     * Footer note under the preview table saying how many combinations are being withheld, with a
+     * way to put them back.
+     *
+     * Without this, removing a row by mistake is unrecoverable short of reloading the page and
+     * losing every other preview edit - the removal deliberately survives re-renders, so nothing
+     * else would bring it back.
+     */
+    function renderRemovedCombinationsNote(hiddenCount) {
+        var wrapper = document.getElementById('variation-table-wrapper');
+        if (!wrapper) {
+            return;
+        }
+        var note = document.getElementById('removed-combinations-note');
+
+        if (hiddenCount === 0) {
+            if (note) {
+                note.remove();
+            }
+            return;
+        }
+
+        if (!note) {
+            note = document.createElement('div');
+            note.id = 'removed-combinations-note';
+            note.className = 'form-text mt-2';
+            wrapper.appendChild(note);
+        }
+        note.textContent = hiddenCount + (hiddenCount === 1 ? ' combination is' : ' combinations are')
+            + ' removed and will not be created. ';
+
+        var restore = document.createElement('button');
+        restore.type = 'button';
+        restore.className = 'btn btn-link btn-sm p-0 align-baseline';
+        restore.id = 'restore-removed-combinations';
+        restore.textContent = 'Restore all';
+        restore.addEventListener('click', function () {
+            removedPreviewSignatures = {};
+            renderPreviewTable({ restoreOnly: true });
+        });
+        note.appendChild(restore);
     }
 
     // --- Edit mode: ask the server to generate, then re-render the real table ----------
@@ -980,6 +1075,38 @@
      * Edit mode persists attribute selections immediately via the saveAttributes AJAX call
      * in initGenerateVariations() instead, and never reads this field.
      */
+    /**
+     * Removing a preview combination on the CREATE page.
+     *
+     * Delegated from the table because the preview tbody is rebuilt on every attribute change -
+     * per-row listeners would be discarded with the rows they were bound to. Purely local: no
+     * request is made, delete_variation.php is never called, and there is no variation_id to send
+     * because nothing has been persisted yet.
+     */
+    function initPreviewCombinationRemoval() {
+        if (config.isEdit) {
+            return;
+        }
+        var table = document.getElementById('variation-table');
+        if (!table) {
+            return;
+        }
+        table.addEventListener('click', function (event) {
+            var button = event.target.closest('.remove-preview-combination');
+            if (!button) {
+                return;
+            }
+            var row = button.closest('.variation-row');
+            if (!row || !row.dataset.signature) {
+                return;
+            }
+            removedPreviewSignatures[row.dataset.signature] = true;
+            // Re-render rather than just dropping the node, so the withheld-count note and the
+            // hidden field are both recalculated from the same single source of truth.
+            renderPreviewTable({ restoreOnly: true });
+        });
+    }
+
     function initFormSubmitSync() {
         if (config.isEdit) {
             return;
@@ -1000,6 +1127,11 @@
             field.value = JSON.stringify(selections.map(function (s) {
                 return { attribute_id: s.attributeId, is_variation_attribute: s.isVariation, value_ids: s.valueIds };
             }));
+
+            // Sent alongside the selections so the server generates every combination EXCEPT
+            // these. Written here as well as on render because the form can be submitted without
+            // a re-render happening in between.
+            syncExcludedCombinationsField();
         });
     }
 
@@ -1429,16 +1561,46 @@
     // value per variation-defining attribute, or "— None —" to leave that attribute unset),
     // so it's built once here and reused by both modals rather than duplicated.
     // ---------------------------------------------------------------------------------
-    function variationDefiningAttributes() {
-        var variationAttributeIds = {};
+    /**
+     * Attributes the Edit Attributes modal should offer for a variation.
+     *
+     * The product's assigned variation attributes, PLUS any attribute the variation itself
+     * actually carries. The union matters: a variation's attribute values live in
+     * product_variation_attribute_values and are independent of the product's current
+     * assignments, so the two can legitimately diverge - e.g. an attribute was un-marked as
+     * "defines variations" after variations already existed.
+     *
+     * Before the union, such an attribute still appeared in the row's label (built by
+     * variation_build_label() straight from the variation's own rows) but had no select in the
+     * modal - visible, uneditable, and silently preserved on every save. Including it is what
+     * makes it manageable, and setting it to "None" is what removes it.
+     *
+     * currentValues is optional; without it this returns the product-assigned set exactly as
+     * before, which is what the "Add Variation Manually" modal wants - a brand-new variation has
+     * no attributes of its own to union in.
+     */
+    function variationDefiningAttributes(currentValues) {
+        var wantedIds = {};
         (config.existingAssignments || []).forEach(function (assignment) {
             if (assignment.isVariation) {
-                variationAttributeIds[assignment.attributeId] = true;
+                wantedIds[assignment.attributeId] = true;
             }
         });
-        return (config.attributes || []).filter(function (attr) {
-            return !!variationAttributeIds[attr.id];
+
+        var assignedIds = Object.assign({}, wantedIds);
+        Object.keys(currentValues || {}).forEach(function (attributeId) {
+            wantedIds[attributeId] = true;
         });
+
+        return (config.attributes || [])
+            .filter(function (attr) {
+                return !!wantedIds[attr.id];
+            })
+            .map(function (attr) {
+                // Flagged so the modal can say why an attribute is offered even though the
+                // product no longer treats it as variation-defining.
+                return Object.assign({}, attr, { isUnassigned: !assignedIds[attr.id] });
+            });
     }
 
     function buildAttributeValueSelects(container, currentValues) {
@@ -1446,7 +1608,7 @@
             return;
         }
         container.innerHTML = '';
-        var attrs = variationDefiningAttributes();
+        var attrs = variationDefiningAttributes(currentValues);
         if (attrs.length === 0) {
             container.innerHTML = '<p class="text-muted small mb-0">Add at least one attribute (marked "Defines variations") above first.</p>';
             return;
@@ -1457,6 +1619,12 @@
             var label = document.createElement('label');
             label.className = 'form-label small mb-1';
             label.textContent = attr.name;
+            if (attr.isUnassigned) {
+                var hint = document.createElement('span');
+                hint.className = 'text-muted fw-normal';
+                hint.textContent = ' - no longer a variation attribute on this product';
+                label.appendChild(hint);
+            }
             var select = document.createElement('select');
             select.className = 'form-select form-select-sm manual-variation-attribute-select';
             select.dataset.attributeId = attr.id;
@@ -1593,6 +1761,7 @@
         initAttributeBuilder();
         initGenerateVariations();
         initFormSubmitSync();
+        initPreviewCombinationRemoval();
         initBulkActions();
         initGallery();
         initDropzoneHighlight();

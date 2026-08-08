@@ -413,6 +413,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    // Combinations the operator removed from the Add Product preview table before saving. The
+    // preview is built in the browser, but the server rebuilds the full cartesian product from
+    // the attribute selections above - so without this, removed rows would silently reappear on
+    // save. Signatures use variation_generate_combinations()'s own "attributeId:valueId" sorted,
+    // pipe-joined format, produced by comboSignature() in assets/js/product-form.js.
+    //
+    // This can only ever narrow what gets created - it never creates or alters a variation, and
+    // an unrecognised signature simply matches nothing.
+    $excludedCombinationSignatures = [];
+    if ($form['catalog_type'] === 'variable') {
+        $rawExclusions = json_decode((string) ($_POST['excluded_combinations'] ?? '[]'), true);
+        if (is_array($rawExclusions)) {
+            foreach ($rawExclusions as $rawExclusion) {
+                if (is_string($rawExclusion) && trim($rawExclusion) !== '') {
+                    $excludedCombinationSignatures[] = trim($rawExclusion);
+                }
+            }
+            $excludedCombinationSignatures = array_values(array_unique($excludedCombinationSignatures));
+        }
+    }
+
     if ($error === '') {
         $pdo->beginTransaction();
 
@@ -549,7 +570,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($form['catalog_type'] === 'variable') {
                 catalog_set_product_attributes($pdo, $productId, $attributeSelections);
                 $__mark('attribute_save'); // TEMPORARY TIMING INSTRUMENTATION
-                $generated = variation_generate_combinations($pdo, $productId);
+                $generated = variation_generate_combinations($pdo, $productId, $excludedCombinationSignatures);
                 variation_apply_preview_edits($pdo, $productId, $generated['variations']);
                 $__mark('variation_generation'); // TEMPORARY TIMING INSTRUMENTATION
             }
